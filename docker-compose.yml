@@ -1,0 +1,11 @@
+services:
+  spartarr:
+    build: .
+    container_name: spartarr
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./config:/config
+      - /mnt/media:/data:ro

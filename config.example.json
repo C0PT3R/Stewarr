@@ -1,0 +1,60 @@
+{
+  "server": {
+    "listen": ":8088",
+    "refresh_interval": "30m"
+  },
+  "radarr": {
+    "url": "http://radarr:7878",
+    "api_key": ""
+  },
+  "sonarr": {
+    "url": "http://sonarr:8989",
+    "api_key": ""
+  },
+  "jellyfin": {
+    "url": "http://jellyfin:8096",
+    "api_key": ""
+  },
+  "seerr": {
+    "url": "http://seerr:5055",
+    "api_key": ""
+  },
+  "storage": {
+    "path": "/data",
+    "target_usage_percent": 90,
+    "critical_usage_percent": 95
+  },
+  "protection": {
+    "favorite": true,
+    "seerr_request_grace": "8760h",
+    "keep_tags": [
+      "keep",
+      "spartarr_keep"
+    ]
+  },
+  "scoring": {
+    "weights": {
+      "rating": 40,
+      "never_watched": 25,
+      "last_watched_age": 15,
+      "library_age": 10,
+      "low_popularity": 10,
+      "old_request": 12,
+      "torrent_activity": 10
+    },
+    "request_strength_bonus": 100,
+    "favorite_strength_bonus": 1000,
+    "keep_tag_strength_bonus": 10000
+  },
+  "safety": {
+    "allow_delete": false,
+    "auto_cleanup": false
+  },
+  "qbittorrent": {
+    "name": "qBittorrent",
+    "url": "http://qbittorrent:8080",
+    "username": "admin",
+    "password": "",
+    "api_key": ""
+  }
+}
