@@ -1,343 +1,240 @@
-# Spartarr / future Togetharr — Architecture and Product Model
+# Togetharr — Architecture and Product Model
 
-This document is the durable source of truth for architectural direction discovered while building the project. The README describes what the current release does; this file records the model we intend to preserve as the application grows.
+## Product identity
 
-## Product thesis
+Togetharr is the coordination layer between specialized media applications. It should not duplicate Radarr, Sonarr, Jellyfin, qBittorrent, Seerr, Bazarr, Lidarr, Readarr or storage systems.
 
-The product is not fundamentally a cleanup application. It is a coordination and interpretation layer for a fragmented media stack.
+Core principle:
 
-Radarr, Sonarr, Lidarr, Readarr, Seerr, Jellyfin/Plex, download clients, subtitle tools and filesystems each expose useful facts, but each understands only its own domain. The application combines those facts into relationships, context, decisions and eventually safe actions.
+> **Integrations provide facts. Togetharr provides context.**
 
-**The integrations provide facts. The application provides context.**
+The unified model is the product. Cleanup is one application of that model.
 
-Cleanup is one application of that unified knowledge, not the entire product.
+## Core facts and interpretations
 
-The working name in the codebase remains **Spartarr**. Names discussed for the broader product include **Whatevarr**, **Connectarr**, and **Togetharr**. Do not rename code merely because a candidate name appears here; naming remains deliberately unsettled.
+Raw integration data should remain attributable facts: an *arr import event, a qBittorrent hash, Jellyfin playback state, a Seerr request, a filesystem inode/link count, a storage usage reading.
 
-## Core architectural rule: facts vs interpretations
+Togetharr then derives interpretations from combinations of facts: Associated, Superseded, Orphaned, Value, reclaimable bytes, storage pressure, safe actions, inconsistencies and health conditions.
 
-Adapters should ingest raw, attributable facts without prematurely converting them into policy.
+Do not blur those layers. A future change in interpretation should not require rebuilding the integration that supplied the facts.
 
-Examples of facts:
+## Main domain concepts
 
-- Radarr reports a MovieFileDeleted event.
-- Sonarr imported a release with a given downloadId.
-- qBittorrent reports ratio 1.00, 15 seeds, 0 leechers and a content path.
-- Jellyfin reports playback history.
-- Seerr reports a request.
-- stat reports device, inode, link count and size.
-- a storage pool reports capacity and free space.
+### Media
+A logical Library item managed today by Radarr or Sonarr. Future adapters may add albums, books and other content types.
 
-Examples of derived interpretations:
+### Media Value
+A Library-media retention value. Higher means a stronger claim to remain. Value is not storage size and should not be treated as a deletion eligibility flag.
 
-- this torrent is associated with current library media;
-- this torrent was superseded by a later import;
-- this torrent is orphaned because its former library representation was deleted;
-- removing this storage claim would reclaim approximately 2.75 GiB;
-- a media item has a particular Strength;
-- a torrent has a particular retention value;
-- a proposed set of actions is the least-destructive way to restore a storage target.
+### Torrent
+A download/share representation managed by a torrent client. Torrent retention value is conceptually separate from Library Value.
 
-Keep evidence/provenance so interpretations can evolve without re-fetching or losing the underlying facts.
+### Torrent Value
+An independent, explainable retention value derived from current swarm facts. It is not inherited from Media Value and does not include storage cost.
 
-## Unified model
+### Provenance
+Historical relationships between downloads/torrents and managed media. Preserve history even after a release is replaced; old associations enable safe classification of superseded/orphaned data.
 
-The long-term model should distinguish logical content, representations, relationships and storage claims.
+### Storage claim
+A representation occupies bytes on a storage pool. Library and torrent representations can be independent copies, hardlinks to one inode, reflinks/shared extents, remote data or unknown relationships.
 
-Conceptually:
+### Storage pool
+Target/pressure ultimately belongs to a storage device/pool, not globally to the application. Multiple configured paths may map to the same underlying pool and should eventually be detected as such.
 
-    Logical content
-    ├── library representation(s)
-    ├── torrent/download representation(s)
-    ├── playback/request/metadata facts
-    └── storage claims
-        ├── storage pool A
-        └── storage pool B
+## Reclaimability
 
-A library representation and a torrent representation are not the same object even when their files are hardlinked. Removing one may or may not reclaim bytes depending on storage topology.
+Two questions must remain separate:
 
-A storage claim should eventually be able to express at least:
+1. **May this representation be removed?** — provenance, policy, requests, retention value, tracker constraints, user protection.
+2. **What happens if it is removed?** — filesystem/storage analysis and actual reclaimable bytes.
 
-- pool/device identity;
-- paths/files involved;
-- logical byte size;
-- shared vs unique data when detectable;
-- reclaimable bytes for a proposed action;
-- dependencies/relationships;
-- retention/value information;
-- confidence/evidence behind the claim.
+For ordinary local hardlinks, device+inode identify the same file. Link count is important but not sufficient by itself: when evaluating a deletion set, all paths to an inode must be considered together.
 
-## Storage pools and targets
+Future storage inspectors may add filesystem-specific capabilities for reflinks/shared extents, ZFS behavior, Windows file IDs and network filesystems. Unsupported cases should return Unknown rather than pretend exactness.
 
-Storage policy should eventually be **per storage pool/device**, not globally assumed to be one disk.
+## Torrent provenance states
 
-Example:
+- **Associated** — authoritative current relationship to Library media.
+- **Superseded** — historical import replaced by a newer import for the same media/episode.
+- **Orphaned** — authoritative historical relationship exists, but current Library media no longer claims the import.
+- **Unassociated** — no authoritative relationship established.
 
-    Library pool   target 90%
-    Downloads pool target 85%
+Unassociated must never be treated as synonymous with orphaned.
 
-Configured paths that resolve to the same underlying storage should be recognized as the same pool when runtime capabilities allow it.
+## Unclaimed download data
 
-This matters because optimal actions depend on which pool is pressured. With separate download and library disks, deleting a stale torrent can reclaim download capacity while retaining media; deleting library media can reclaim library capacity while retaining the torrent. With hardlinks on one filesystem, either deletion alone may reclaim zero bytes.
+A separate storage class: files in download roots that no configured torrent client claims.
 
-### Target semantics
+Detection must fail closed. Ownership absence is valid only from a complete client file inventory. Scan results are slower/deeper maintenance data and should not live on the normal refresh critical path.
 
-The desired model uses a single operational **Target** per pool:
+## Task model
 
-- usage <= Target: no reclamation required;
-- usage > Target: reclaim only enough to return to <= Target.
+Background work should be represented as tasks. Scheduled and manual **Run now** executions must use the same implementation.
 
-The project does **not** require hysteresis merely because other cleanup tools use high/low watermarks. Refreshes can occur hourly or every few hours; scanning is expected to be cheap enough that continuous threshold flapping is not a concern.
+Current tasks:
 
-A future **Critical** threshold may exist, but only as an urgency/alert/emergency-policy concept. Critical should not normally decide when routine cleanup begins.
+- Inventory refresh — incremental/cheap, frequent.
+- File reconciliation — integration/file-identity reconciliation, sparse (currently 12h).
+- Unclaimed download scan — filesystem-heavy, sparse (currently 12h).
 
-Current code may still implement Critical as a cleanup trigger. Treat that as legacy behavior to simplify, not the intended final model.
+Future tasks may include full reconciliation, storage capability scans, statistics maintenance and integration-specific reconciliation. Schedules should eventually be configurable through the GUI.
 
-## Reclamation philosophy
+## State and persistence
 
-When a new item arrives and causes a pool to exceed Target, the application should choose the least-destructive set of actions needed to restore Target — no more and no less.
+SQLite is durable state at:
 
-The planner should prefer reclaiming storage without sacrificing valued content when possible, but states such as `orphaned` and `superseded` are context, not automatic death sentences.
+```text
+/config/state/togetharr.db
+```
 
-Possible claims/actions include:
+The path is deliberately not configurable. Togetharr migrates the legacy Spartarr database filename when appropriate.
 
-- redundant/duplicate storage;
+SQLite stores cached media/torrent/unclaimed state, import provenance, synchronization cursors, cleanup history/statistics and future integration/task state.
+
+## Refresh architecture
+
+Preferred long-term pattern:
+
+```text
+push events where reliable
++ incremental synchronization
++ periodic reconciliation
+        ↓
+normalized durable facts
+        ↓
+derived context / selective recomputation
+```
+
+Do not build an elaborate event bus before needed. Persistent state plus incremental polling already solves most current performance problems.
+
+## Storage target semantics
+
+The agreed target model is:
+
+```text
+usage <= target  → no reclamation required
+usage > target   → reclaim only enough to return <= target
+```
+
+Critical is not needed for normal hysteresis. If retained later, it should represent urgency/alerting or emergency policy behavior, not the ordinary cleanup trigger.
+
+Targets should eventually be per storage pool.
+
+## Planner direction
+
+The planner should minimize lost value while satisfying storage constraints. It must reason about representations independently.
+
+Possible reclamation sources include:
+
+- unclaimed download data;
+- redundant/duplicated storage;
 - superseded torrent data;
 - orphaned torrent data;
-- stale/low-value torrent data;
-- library representations;
-- eventually other safely understood storage claims.
+- low-retention torrents;
+- lower-cost media representations/quality changes (future);
+- low-Value Library media.
 
-A superseded torrent can still be valuable if it is actively serving a swarm. An orphan can still be worth keeping when capacity is plentiful. Conversely, on a separate downloads disk, a stale torrent may be the cheapest thing to remove while retaining its library media.
+These are not necessarily a rigid priority list. A valuable active superseded torrent may be worth retaining when capacity permits.
 
-The long-term goal is therefore closer to:
+The long-term optimization question is:
 
-> Maintain the highest-value media/storage ecosystem that fits within the capacity the user has assigned.
-
-## Value models
-
-### Media Strength
-
-**Strength** is the retention value of a media item. It answers: "How strongly should this media remain in the library?"
-
-Strength should not be confused with reclaimable bytes. A 5 GiB movie and 500 GiB series can have equal Strength while having very different utility in a reclamation plan.
-
-Series-level signals must be normalized so episode count does not automatically inflate value. One viewing of a 100-episode series should not count like 100 movie views.
-
-External review ratings should eventually account for media-type distribution. Series ratings tend to be inflated relative to movie ratings, so a numeric 8.0 should not necessarily contribute identical Strength for movies and series. Separate curves are a practical first step; percentile/source normalization is a possible later model.
-
-### Torrent retention value
-
-Torrents should eventually have their own retention model rather than inheriting media Strength. Candidate signals include:
-
-- current upload activity;
-- leechers/demand;
-- seeds/availability/rarity when reliable;
-- ratio;
-- seeding time;
-- last activity;
-- age;
-- tracker/category/tags;
-- size/reclaimability;
-- explicit protection or user policy;
-- provenance state (associated/superseded/orphaned/unassociated) as context.
-
-Torrent value and media Strength can remain domain-specific while the planner compares the cost/value of available actions.
-
-## Torrent provenance
-
-Current provenance vocabulary is intentional and should remain ordinary rather than themed:
-
-- **Associated** — backs current library media/current import.
-- **Superseded** — previously backed media but a later release/import replaced it.
-- **Orphaned** — a known former relationship exists, but the corresponding current library representation no longer exists.
-- **Unassociated** — the application cannot prove a relationship.
-
-**Unassociated must never be treated as synonymous with orphaned.** Matching can fail; lack of evidence is not evidence that deletion is safe.
-
-Historical *arr associations are valuable provenance and must not be discarded when imports change. They allow the system to distinguish "I do not know what this is" from "I know exactly what this used to be."
-
-A concrete observed lifecycle:
-
-    qBittorrent download
-      -> Radarr import
-      -> library + torrent representations
-      -> library file deleted through Radarr/Maintainerr
-      -> torrent remains
-      -> torrent path has nlink=1
-      -> known orphan with uniquely reclaimable storage
-
-Another expected lifecycle:
-
-    torrent A imported
-      -> later torrent B imported as upgrade
-      -> A remains seeding
-      -> A is superseded, not merely orphaned
-
-## Storage accounting
-
-Never equate media size, torrent size or deleted-path size with bytes actually reclaimed.
-
-For ordinary hardlinks, use device+inode identity and account for all links in the proposed deletion set. `nlink > 1` alone is insufficient if every link to the inode is itself being removed.
-
-Keep these questions separate:
-
-- **May this be removed?** — provenance, relationships, policy and retention value.
-- **What happens if it is removed?** — filesystem/storage analysis and reclaimable bytes.
-
-Runtime capability detection should govern which claims the application can make. Important storage features include:
-
-- stable file identity;
-- hardlink support/detection;
-- filesystem/device identity;
-- reflink/shared-extent detection;
-- snapshots;
-- block-level deduplication;
-- remote/NFS path visibility and mappings;
-- exact vs estimated reclaimability.
-
-Unsupported capabilities should be reported as unavailable, not guessed.
+> **Given current storage pressure, what set of safe actions returns each pressured storage pool to target with the least loss of total value?**
 
 ## Integrations
 
-Current integrations are the first adapters, not privileged permanent architecture. Future support should include at least:
+Do not let core logic become hard-coded around Radarr/Sonarr/qBittorrent singleton assumptions.
 
-- Radarr;
-- Sonarr;
-- Lidarr;
-- Readarr (where applicable/maintained ecosystem equivalents);
-- Seerr;
-- Bazarr;
-- Jellyfin;
-- Plex;
-- qBittorrent;
-- Transmission;
-- Deluge;
-- other major download/torrent clients;
-- storage/filesystem providers/capabilities.
+Future integration entities should support:
 
-The core should avoid spreading `if radarr`, `if sonarr`, `if qbittorrent` logic throughout the application. Integrations should expose capabilities/facts through adapters.
+- multiple instances;
+- capability advertisement;
+- GUI creation/edit/test connection;
+- manager/history providers (Radarr, Sonarr, Lidarr, Readarr);
+- request providers (Seerr);
+- playback providers (Jellyfin, Plex);
+- torrent/download clients (qBittorrent, Transmission, Deluge, rTorrent, etc.);
+- auxiliary services (Bazarr);
+- storage/filesystem inspectors.
 
-Conceptual capabilities include:
+## Explainability
 
-- library/catalog;
-- import/history/provenance;
-- requests;
-- playback;
-- downloads/torrents;
-- subtitles/auxiliary metadata;
-- actions;
-- storage observations.
+Togetharr must explain decisions, not merely scores.
 
-Domain-specific models still matter: an album is not a movie and a subtitle is not a torrent. Capability interfaces should unify what is genuinely common without flattening useful semantics.
+A cleanup plan should answer:
 
-### Multiple instances
+- Why is action required now?
+- How many bytes must be reclaimed?
+- Which storage pool is pressured?
+- Which representations are proposed for removal/change?
+- Why are they the least valuable safe choices?
+- How many bytes are expected to be reclaimed?
+- What is the first surviving cutoff when ranking is relevant?
 
-Do not assume one instance per product. The eventual model should support configurations such as:
+## Statistics
 
-- Radarr — Movies;
-- Radarr — 4K Movies;
-- Sonarr — TV;
-- Sonarr — Anime;
-- qBittorrent — Public;
-- qBittorrent — Private.
+Every destructive cleanup execution should eventually persist a cleanup run and its actions. Record both apparent representation size and observed/estimated actual reclaimed bytes.
 
-Integrations should eventually become database-backed entities rather than fixed singleton configuration blocks.
+Historical data should be captured from the first destructive release even if the full statistics UI comes later.
 
-### Graphical integration management
+## Safety principles
 
-The intended normal UX is graphical:
+- Prefer authoritative identifiers over fuzzy matching.
+- Preserve Unknown when evidence is incomplete.
+- Fail closed for ownership/reclaimability decisions.
+- Keep deletion disabled until classification/reclaim calculations are trustworthy.
+- Never equate file/media size with reclaimed filesystem bytes without storage evidence.
+- Support capabilities conditionally rather than pretending every filesystem/topology behaves the same way.
 
-    Settings -> Integrations -> Add integration
+## Data economy and lazy loading
 
-Users choose an integration type, provide URL/credentials as needed, test the connection, save it, and the application discovers supported capabilities. Raw JSON/YAML should not be the primary long-term configuration experience.
+Togetharr is a cross-stack model, not a replica of every integrated application's database.
 
-## UI principles
+The default rule is: **cheap scans, a small durable model, and lazy details**.
 
-The application should explain decisions without making lists dense.
+Persist data when Togetharr needs it for stable identity, cross-application relationships, provenance/history, search/filter/sort, decisions, sync cursors, or expensive filesystem reconciliation. Derive interpretations from those facts when practical. Details that remain authoritative and cheap to retrieve from the owning application should be fetched on demand and normally not persisted.
 
-- Home is a system overview and health/pressure dashboard, not a duplicate of Library.
-- Library and Torrents are first-class surfaces.
-- Detail pages carry explanations/provenance; list pages remain scannable.
-- Dashboard counts should become links into corresponding filtered views.
-- Library and Torrents must use server-side search, filtering, sorting and pagination so tens of thousands of rows remain practical.
-- Query order is: **search/filter -> sort -> paginate**.
+List pages must be renderable from indexed state and must not cause one remote detail request per row. Detail pages may enrich one selected object from its owning application. Heavy filesystem or whole-client reconciliation belongs in an explicit sparse task rather than the routine inventory refresh.
 
-### Torrent filters/search
+Media, files, torrents, source ownership, and physical storage identity are distinct concepts. The filesystem establishes which Files exist and their physical identity; integrations declare claims on those existing Files; Togetharr reconciles the two. Existing Files with no claims are Unclaimed, while claims with no matching File are missing claims rather than phantom Files. A media entity remains valid with zero files. A File is deliberately content-agnostic so subtitles, text files, ebooks, or other regular files can participate without changing the core storage object.
 
-Initial useful torrent filters:
 
-- provenance state;
-- client/category;
-- reclaimability known/unknown/>0;
-- active/inactive;
-- tracker/tags later.
+## Media detail relationship presentation
+Media pages expose torrent provenance bidirectionally: current, superseded, and historical/orphaned torrent relationships are grouped rather than flattened. Torrent release names are the primary human identifier; relationship status is structural rather than repeated on every row.
 
-Torrent search should eventually match:
 
-- name;
-- hash;
-- tracker;
-- category;
-- tags;
-- associated media title.
+### First-class File model
 
-### Library filters/search
+The durable file inventory is filesystem-first. A successful reconciliation validates integrations, discovers their storage roots, scans those roots for regular files, records path/size/device/inode/link-count facts, then applies integration claims. Symlinks are not followed. A failed or partial generation is never published over the last authoritative one.
 
-Useful library filters/search include:
+Physical identity is authoritative for storage relationships: paths with the same device/inode are the same physical File. Ownership never overrides that fact, and physical identity never bypasses ownership authority. Owned paths are manipulated through their integration; Unclaimed paths may be unlinked directly by Togetharr after revalidation. Removal plans may traverse proven physical siblings, including between an owner-backed path and an Unclaimed hardlink, but filenames and historical Media associations never authorize destructive relationships.
 
-- title;
-- media type;
-- Strength range;
-- torrent/provenance state;
-- requested/not requested;
-- watched/unwatched;
-- additional domain-specific facts as integrations grow.
+Space consequences are calculated from the physical graph. A physical file is freed only when the selected actions remove every known filesystem link, and an incomplete hardlink set is surfaced as a warning rather than guessed away.
 
-## Refresh/event model
 
-Do not assume every upstream application is event-driven. Periodic reconciliation remains authoritative and robust. Incremental APIs/history cursors should be used where possible. Webhooks/events can later reduce latency, but event delivery should not become the only source of truth.
+## Relationship projection
 
-An hourly or few-hour refresh cadence is acceptable for routine storage maintenance; there is no requirement to poll every five minutes.
+Torrent/media provenance is bidirectional at the Togetharr model boundary. Current torrent `MediaItems` and historical `FormerMediaItems` are both projected onto the related Media for navigation and explanation. Historical torrent relationships do not by themselves contribute to current media Value.
 
-## Persistent state
 
-SQLite is required for durable correlation, history and statistics. The database path is intentionally not configurable:
+## Removal architecture
 
-    /config/state/spartarr.db
+All manual removal flows use a mandatory `RemovalPlan`: request -> targeted file re-stat -> topology-aware consequence calculation -> confirmation -> revalidation -> owner-driven execution -> History -> reconciliation. Managed data is never removed directly from the filesystem. Radarr/Sonarr own Media removal; qBittorrent owns Torrent removal and torrent data. Direct OS removal is reserved for explicitly selected Files that are still Unclaimed at revalidation.
 
-The repository/database should preserve enough provenance to reinterpret historical relationships as the model improves.
+`Unassociated` is a Torrent provenance state. `Unclaimed` is a File/storage state. The terms are intentionally not interchangeable.
 
-## Statistics and auditability
+`removal.dry_run` is the central execution gate and defaults to true. A dry run follows the same planning/revalidation path but skips irreversible calls and records a removal History event with status `dry_run`.
 
-The application should keep durable statistics such as:
 
-- bytes reclaimed;
-- library bytes removed;
-- torrent bytes removed;
-- media/torrents removed;
-- cleanup runs;
-- before/after pool usage;
-- reason and evidence for each action;
-- score/value at action time.
+## Shared UI shell
 
-Every destructive decision should eventually be explainable. The product should answer not merely "what was removed?" but "why was this the least-destructive choice given the state known at that time?"
+All primary pages use a single application chrome driven by `AppInfo` (`Name`, `Version`). Browser history is reserved for real page navigation. RemovalPlan is transient modal state: opening it, changing selections, cancelling it, and recalculating it do not create navigation entries.
 
-## Safety posture
+Removal planning remains a domain boundary. A Media can open a RemovalPlan whenever its removal graph contains at least one removable resource. The initiating object is only context: every eligible Media or Torrent action, including the initiator, is independently selectable. An empty selection is never executable. These rules are enforced below the UI so future API/CLI callers cannot bypass them.
 
-The application is currently non-destructive. When actions are introduced:
+## Removal action model
 
-- provenance confidence and storage effect remain separate;
-- unknown/unassociated objects are not assumed safe;
-- actions should be auditable;
-- dry-run/preview should remain available;
-- capability-dependent behavior must fail closed rather than guess;
-- users may configure policy, but defaults should not silently destroy data on uncertain evidence.
+Removal is built from concrete owner-backed resources. `Media` is logical context and a selection grouping; it is not deleted by Togetharr. Managed-file actions reference `MediaFileRef` records carrying the owning integration and owner file ID. Radarr actions delete MovieFiles; Sonarr actions delete EpisodeFiles. Torrent and Unclaimed File actions remain separate primitives.
 
-## Scope discipline
+A Media-originated plan may expose any subset of its managed files. Sonarr episode files are grouped by owner-derived season/episode metadata for presentation. A Torrent-originated plan may expose only managed files whose correspondence to a torrent file is proven from authoritative physical identity or future authoritative provenance. Filename/path similarity is never sufficient evidence for a destructive linked action.
 
-Ambition is allowed; simultaneous implementation of every implication is not required.
-
-When a future idea is valuable but premature, preserve the data foundation and architecture needed to support it rather than implementing a half-finished feature immediately.
-
-The repository — code, tests, schema and these documents — is the source of truth. Conversation is where ideas are explored. Decisions become authoritative when they are recorded here and/or embodied in tested code.
+Owner state changes are explicit options layered above managed-file removal. Manual plans leave monitoring unchanged by default and may request unmonitoring of affected Radarr movies or Sonarr episodes. Only successfully removed managed files contribute to those follow-up updates.

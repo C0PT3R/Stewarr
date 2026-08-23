@@ -3,7 +3,7 @@ package cleanup
 import "testing"
 
 func TestBuildUnavailableStorage(t *testing.T) {
-	p, err := Build("/definitely/not/a/spartarr/storage/path", 90, 95, nil)
+	p, err := Build("/definitely/not/a/togetharr/storage/path", 90, 95, nil)
 	if err == nil {
 		t.Fatal("expected storage probe error")
 	}

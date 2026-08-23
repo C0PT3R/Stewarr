@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"spartarr/internal/config"
-	"spartarr/internal/model"
 	"strings"
 	"time"
+	"togetharr/internal/config"
+	"togetharr/internal/model"
 )
 
 func days(t time.Time) float64 { return time.Since(t).Hours() / 24 }
@@ -82,8 +82,15 @@ func Apply(items []model.Media, c config.Config) {
 		}
 		if len(m.Torrents) > 0 && c.Scoring.Weights.TorrentActivity != 0 {
 			leechers := 0
+			current := 0
 			var up int64
 			for _, t := range m.Torrents {
+				// Historical/superseded torrents are useful context on the media page,
+				// but they must not inflate the current media Strength.
+				if !strings.EqualFold(t.AssociationStatus, "ASSOCIATED") {
+					continue
+				}
+				current++
 				if t.LeechersSwarm > 0 {
 					leechers += t.LeechersSwarm
 				}
@@ -91,12 +98,14 @@ func Apply(items []model.Media, c config.Config) {
 					up += t.UploadSpeed
 				}
 			}
-			// Swarm demand and live upload activity are intentionally logarithmic:
-			// popularity can keep adding Strength without one huge swarm dominating everything.
-			upMiB := float64(up) / (1024 * 1024)
-			p := c.Scoring.Weights.TorrentActivity * (math.Log2(1+float64(leechers)) + math.Log2(1+upMiB))
-			strength += p
-			m.Reasons = append(m.Reasons, model.Reason{Label: "Torrent activity", Value: fmt.Sprintf("%d torrents, %d swarm leechers, %.2f MiB/s up", len(m.Torrents), leechers, upMiB), Points: p})
+			if current > 0 {
+				// Swarm demand and live upload activity are intentionally logarithmic:
+				// popularity can keep adding Strength without one huge swarm dominating everything.
+				upMiB := float64(up) / (1024 * 1024)
+				p := c.Scoring.Weights.TorrentActivity * (math.Log2(1+float64(leechers)) + math.Log2(1+upMiB))
+				strength += p
+				m.Reasons = append(m.Reasons, model.Reason{Label: "Torrent activity", Value: fmt.Sprintf("%d torrents, %d swarm leechers, %.2f MiB/s up", current, leechers, upMiB), Points: p})
+			}
 		}
 		m.Strength = strength
 	}

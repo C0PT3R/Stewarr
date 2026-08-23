@@ -1,10 +1,10 @@
 package scoring
 
 import (
-	"spartarr/internal/config"
-	"spartarr/internal/model"
 	"testing"
 	"time"
+	"togetharr/internal/config"
+	"togetharr/internal/model"
 )
 
 func testConfig() config.Config {
@@ -44,5 +44,22 @@ func TestSizeBreaksEqualStrengthTie(t *testing.T) {
 	Apply(items, c)
 	if items[0].Title != "Large" {
 		t.Fatalf("larger equal-strength media should fall first: %#v", items)
+	}
+}
+
+func TestHistoricalTorrentsDoNotAddMediaStrength(t *testing.T) {
+	c := testConfig()
+	c.Scoring.Weights.TorrentActivity = 10
+	items := []model.Media{{
+		Title: "Test",
+		Torrents: []model.Torrent{
+			{Hash: "current", AssociationStatus: "ASSOCIATED", LeechersSwarm: 1},
+			{Hash: "old", AssociationStatus: "SUPERSEDED", LeechersSwarm: 1023, UploadSpeed: 1024 * 1024 * 1024},
+		},
+	}}
+	Apply(items, c)
+	// Only the single current leecher should count: 10 * log2(2) = 10.
+	if items[0].Strength != 10 {
+		t.Fatalf("historical torrent activity must not inflate media strength: got %.2f", items[0].Strength)
 	}
 }

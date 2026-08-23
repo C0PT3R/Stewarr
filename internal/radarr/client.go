@@ -1,13 +1,15 @@
 package radarr
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
-	"spartarr/internal/model"
+	"togetharr/internal/model"
 )
 
 type Client struct {
@@ -71,11 +73,6 @@ func (c *Client) Inventory() ([]model.Media, error) {
 	}
 	out := make([]model.Media, 0, len(ms))
 	for _, m := range ms {
-		// Spartarr manages storage, not missing-library metadata. Items that
-		// occupy no disk space are intentionally excluded from inventory.
-		if m.SizeOnDisk <= 0 {
-			continue
-		}
 		rating, votes := m.Ratings.TMDB.Value, m.Ratings.TMDB.Votes
 		if rating == 0 {
 			rating, votes = m.Ratings.IMDB.Value, m.Ratings.IMDB.Votes
@@ -90,8 +87,44 @@ func (c *Client) Inventory() ([]model.Media, error) {
 	}
 	return out, nil
 }
-func (c *Client) Delete(id int) error {
-	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v3/movie/%d?deleteFiles=true&addImportExclusion=false", c.base, id), nil)
+
+type FileRecord struct {
+	ID        int       `json:"id"`
+	MovieID   int       `json:"movieId"`
+	Relative  string    `json:"relativePath"`
+	Size      int64     `json:"size"`
+	DateAdded time.Time `json:"dateAdded"`
+}
+
+// Files returns authoritative current movie files in bounded bulk requests.
+// Radarr accepts repeated movieId query parameters, so this avoids one request
+// per movie while keeping URLs to a reasonable size.
+func (c *Client) Files(movieIDs []int) ([]FileRecord, error) {
+	if len(movieIDs) == 0 {
+		return nil, nil
+	}
+	const chunk = 100
+	out := make([]FileRecord, 0)
+	for start := 0; start < len(movieIDs); start += chunk {
+		end := start + chunk
+		if end > len(movieIDs) {
+			end = len(movieIDs)
+		}
+		q := url.Values{}
+		for _, id := range movieIDs[start:end] {
+			q.Add("movieId", fmt.Sprint(id))
+		}
+		var xs []FileRecord
+		if err := c.get("/api/v3/moviefile?"+q.Encode(), &xs); err != nil {
+			return nil, err
+		}
+		out = append(out, xs...)
+	}
+	return out, nil
+}
+
+func (c *Client) DeleteFile(id int) error {
+	req, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/api/v3/moviefile/%d", c.base, id), nil)
 	req.Header.Set("X-Api-Key", c.key)
 	r, err := c.hc.Do(req)
 	if err != nil {
@@ -99,7 +132,62 @@ func (c *Client) Delete(id int) error {
 	}
 	defer r.Body.Close()
 	if r.StatusCode/100 != 2 {
-		return fmt.Errorf("radarr delete: %s", r.Status)
+		return fmt.Errorf("radarr movie file delete: %s", r.Status)
 	}
 	return nil
+}
+
+func (c *Client) SetMonitored(id int, monitored bool) error {
+	var movie map[string]any
+	if err := c.get(fmt.Sprintf("/api/v3/movie/%d", id), &movie); err != nil {
+		return err
+	}
+	movie["monitored"] = monitored
+	b, err := json.Marshal(movie)
+	if err != nil {
+		return err
+	}
+	req, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/api/v3/movie/%d", c.base, id), bytes.NewReader(b))
+	req.Header.Set("X-Api-Key", c.key)
+	req.Header.Set("Content-Type", "application/json")
+	r, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		return fmt.Errorf("radarr movie update: %s", r.Status)
+	}
+	return nil
+}
+
+type RootFolder struct {
+	Path string `json:"path"`
+}
+
+// StorageRoots returns Radarr's authoritative configured root folders.
+func (c *Client) StorageRoots() ([]string, error) {
+	if c.base == "" {
+		return nil, nil
+	}
+	var xs []RootFolder
+	if err := c.get("/api/v3/rootfolder", &xs); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if strings.TrimSpace(x.Path) != "" {
+			out = append(out, x.Path)
+		}
+	}
+	return out, nil
+}
+
+// Validate verifies that the configured Radarr endpoint and credentials work.
+func (c *Client) Validate() error {
+	if c.base == "" {
+		return nil
+	}
+	var x map[string]any
+	return c.get("/api/v3/system/status", &x)
 }

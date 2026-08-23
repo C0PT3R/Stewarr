@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"spartarr/internal/model"
 	"strings"
 	"time"
+	"togetharr/internal/model"
 )
 
 type Client struct {
@@ -23,7 +23,8 @@ type user struct {
 	ID string `json:"Id"`
 }
 type page struct {
-	Items []item `json:"Items"`
+	Items            []item `json:"Items"`
+	TotalRecordCount int    `json:"TotalRecordCount"`
 }
 type item struct {
 	Type        string            `json:"Type"`
@@ -70,47 +71,63 @@ func (c *Client) Apply(ms []model.Media) error {
 			byIM[m.IMDBID] = append(byIM[m.IMDBID], i)
 		}
 	}
+	const pageSize = 200
 	for _, u := range us {
-		q := url.Values{}
-		q.Set("Recursive", "true")
-		q.Set("IncludeItemTypes", "Movie,Series")
-		q.Set("Fields", "ProviderIds")
-		q.Set("EnableUserData", "true")
-		var p page
-		if e := c.get("/Users/"+u.ID+"/Items?"+q.Encode(), &p); e != nil {
-			return e
-		}
 		seen := map[int]bool{}
-		for _, it := range p.Items {
-			var ids []int
-			if x := it.ProviderIDs["Tmdb"]; x != "" {
-				ids = byTM[x]
+		for start := 0; ; start += pageSize {
+			q := url.Values{}
+			q.Set("Recursive", "true")
+			q.Set("IncludeItemTypes", "Movie,Series")
+			q.Set("Fields", "ProviderIds")
+			q.Set("EnableUserData", "true")
+			q.Set("StartIndex", fmt.Sprint(start))
+			q.Set("Limit", fmt.Sprint(pageSize))
+			var p page
+			if e := c.get("/Users/"+u.ID+"/Items?"+q.Encode(), &p); e != nil {
+				return e
 			}
-			if len(ids) == 0 {
-				if x := it.ProviderIDs["Tvdb"]; x != "" {
-					ids = byTV[x]
+			for _, it := range p.Items {
+				var ids []int
+				if x := it.ProviderIDs["Tmdb"]; x != "" {
+					ids = byTM[x]
+				}
+				if len(ids) == 0 {
+					if x := it.ProviderIDs["Tvdb"]; x != "" {
+						ids = byTV[x]
+					}
+				}
+				if len(ids) == 0 {
+					if x := it.ProviderIDs["Imdb"]; x != "" {
+						ids = byIM[x]
+					}
+				}
+				for _, i := range ids {
+					ms[i].Views += it.UserData.PlayCount
+					if it.UserData.PlayCount > 0 && !seen[i] {
+						ms[i].UniqueViewers++
+						seen[i] = true
+					}
+					if it.UserData.IsFavorite {
+						ms[i].Favorite = true
+					}
+					if t := it.UserData.LastPlayedDate; t != nil && (ms[i].LastWatched == nil || t.After(*ms[i].LastWatched)) {
+						tt := *t
+						ms[i].LastWatched = &tt
+					}
 				}
 			}
-			if len(ids) == 0 {
-				if x := it.ProviderIDs["Imdb"]; x != "" {
-					ids = byIM[x]
-				}
-			}
-			for _, i := range ids {
-				ms[i].Views += it.UserData.PlayCount
-				if it.UserData.PlayCount > 0 && !seen[i] {
-					ms[i].UniqueViewers++
-					seen[i] = true
-				}
-				if it.UserData.IsFavorite {
-					ms[i].Favorite = true
-				}
-				if t := it.UserData.LastPlayedDate; t != nil && (ms[i].LastWatched == nil || t.After(*ms[i].LastWatched)) {
-					tt := *t
-					ms[i].LastWatched = &tt
-				}
+			if len(p.Items) < pageSize || (p.TotalRecordCount > 0 && start+len(p.Items) >= p.TotalRecordCount) {
+				break
 			}
 		}
 	}
 	return nil
+}
+
+func (c *Client) Validate() error {
+	if c.base == "" || c.key == "" {
+		return nil
+	}
+	var x map[string]any
+	return c.get("/System/Info", &x)
 }

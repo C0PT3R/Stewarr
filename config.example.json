@@ -3,22 +3,40 @@
     "listen": ":8088",
     "refresh_interval": "30m"
   },
-  "radarr": {
-    "url": "http://radarr:7878",
-    "api_key": ""
-  },
-  "sonarr": {
-    "url": "http://sonarr:8989",
-    "api_key": ""
-  },
-  "jellyfin": {
-    "url": "http://jellyfin:8096",
-    "api_key": ""
-  },
-  "seerr": {
-    "url": "http://seerr:5055",
-    "api_key": ""
-  },
+  "integrations": [
+    {
+      "type": "radarr",
+      "name": "Movies",
+      "url": "http://radarr:7878",
+      "api_key": ""
+    },
+    {
+      "type": "sonarr",
+      "name": "Series",
+      "url": "http://sonarr:8989",
+      "api_key": ""
+    },
+    {
+      "type": "jellyfin",
+      "name": "Jellyfin",
+      "url": "http://jellyfin:8096",
+      "api_key": ""
+    },
+    {
+      "type": "seerr",
+      "name": "Seerr",
+      "url": "http://seerr:5055",
+      "api_key": ""
+    },
+    {
+      "type": "qbittorrent",
+      "name": "qBittorrent",
+      "url": "http://qbittorrent:8080",
+      "username": "admin",
+      "password": "",
+      "api_key": ""
+    }
+  ],
   "storage": {
     "path": "/data",
     "target_usage_percent": 90,
@@ -29,10 +47,11 @@
     "seerr_request_grace": "8760h",
     "keep_tags": [
       "keep",
+      "togetharr_keep",
       "spartarr_keep"
     ]
   },
-  "scoring": {
+  "valuation": {
     "weights": {
       "rating": 40,
       "never_watched": 25,
@@ -42,19 +61,16 @@
       "old_request": 12,
       "torrent_activity": 10
     },
-    "request_strength_bonus": 100,
-    "favorite_strength_bonus": 1000,
-    "keep_tag_strength_bonus": 10000
+    "request_value_bonus": 100,
+    "favorite_value_bonus": 1000,
+    "keep_tag_value_bonus": 10000,
+    "torrent_weights": {
+      "seeds": 1,
+      "leechers": 5,
+      "upload_rate": 5
+    }
   },
-  "safety": {
-    "allow_delete": false,
-    "auto_cleanup": false
-  },
-  "qbittorrent": {
-    "name": "qBittorrent",
-    "url": "http://qbittorrent:8080",
-    "username": "admin",
-    "password": "",
-    "api_key": ""
+  "removal": {
+    "dry_run": true
   }
 }

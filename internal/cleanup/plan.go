@@ -2,8 +2,8 @@ package cleanup
 
 import (
 	"fmt"
-	"spartarr/internal/model"
 	"syscall"
+	"togetharr/internal/model"
 )
 
 type Plan struct {

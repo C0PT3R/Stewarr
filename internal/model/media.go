@@ -23,6 +23,8 @@ type MediaRef struct {
 }
 
 type Torrent struct {
+	Value             float64    `json:"value"`
+	ValueReasons      []Reason   `json:"valueReasons,omitempty"`
 	AssociationStatus string     `json:"torrentStatus,omitempty"`
 	AssociationReason string     `json:"associationReason,omitempty"`
 	MediaItems        []MediaRef `json:"media,omitempty"`
@@ -79,20 +81,84 @@ type Torrent struct {
 	Private           bool       `json:"private"`
 }
 
+// File is an existing filesystem path with physical identity facts. Ownership is
+// declared separately by integration references; paths sharing device/inode are
+// the same physical file and are grouped as such by topology/removal logic.
+type StorageContext struct {
+	IntegrationID   string `json:"integrationId,omitempty"`
+	IntegrationName string `json:"integrationName,omitempty"`
+	Root            string `json:"root,omitempty"`
+	RootLabel       string `json:"rootLabel,omitempty"`
+}
+
+type File struct {
+	Path            string           `json:"path"`
+	SizeBytes       int64            `json:"sizeBytes"`
+	Exists          bool             `json:"exists"`
+	IdentityKnown   bool             `json:"identityKnown"`
+	Device          uint64           `json:"device,omitempty"`
+	Inode           uint64           `json:"inode,omitempty"`
+	Links           uint64           `json:"links,omitempty"`
+	ModifiedAt      time.Time        `json:"modifiedAt,omitempty"`
+	StorageContexts []StorageContext `json:"storageContexts,omitempty"`
+}
+
+type MediaFilePart struct {
+	Group        string `json:"group,omitempty"`
+	Label        string `json:"label,omitempty"`
+	Order        int    `json:"order,omitempty"`
+	SourcePartID int    `json:"sourcePartId,omitempty"`
+}
+
+type MediaFileRef struct {
+	IntegrationID   string          `json:"integrationId,omitempty"`
+	IntegrationName string          `json:"integrationName,omitempty"`
+	MediaType       MediaType       `json:"mediaType"`
+	MediaID         int             `json:"mediaId"`
+	Source          string          `json:"source"`
+	SourceFileID    int             `json:"sourceFileId"`
+	Path            string          `json:"path"`
+	Parts           []MediaFilePart `json:"parts,omitempty"`
+}
+
+type TorrentFileRef struct {
+	IntegrationID   string `json:"integrationId,omitempty"`
+	IntegrationName string `json:"integrationName,omitempty"`
+	Client          string `json:"client"`
+	Hash            string `json:"hash"`
+	FileIndex       int    `json:"fileIndex"`
+	Path            string `json:"path"`
+}
+
+type UnclaimedFile struct {
+	Path             string           `json:"path"`
+	SizeBytes        int64            `json:"sizeBytes"`
+	ModifiedAt       time.Time        `json:"modifiedAt"`
+	Device           uint64           `json:"device"`
+	Inode            uint64           `json:"inode"`
+	Links            uint64           `json:"links"`
+	ReclaimableKnown bool             `json:"reclaimableKnown"`
+	ReclaimableBytes int64            `json:"reclaimableBytes"`
+	SharedBytes      int64            `json:"sharedBytes"`
+	StorageContexts  []StorageContext `json:"storageContexts,omitempty"`
+}
+
 type Media struct {
-	Type      MediaType `json:"type"`
-	SourceID  int       `json:"sourceId"`
-	Title     string    `json:"title"`
-	Year      int       `json:"year"`
-	Path      string    `json:"path"`
-	SizeBytes int64     `json:"sizeBytes"`
-	Rating    float64   `json:"rating"`
-	VoteCount int       `json:"voteCount"`
-	AddedAt   time.Time `json:"addedAt"`
-	Tags      []string  `json:"tags"`
-	TMDBID    int       `json:"tmdbId"`
-	TVDBID    int       `json:"tvdbId"`
-	IMDBID    string    `json:"imdbId"`
+	IntegrationID   string    `json:"integrationId,omitempty"`
+	IntegrationName string    `json:"integrationName,omitempty"`
+	Type            MediaType `json:"type"`
+	SourceID        int       `json:"sourceId"`
+	Title           string    `json:"title"`
+	Year            int       `json:"year"`
+	Path            string    `json:"path"`
+	SizeBytes       int64     `json:"sizeBytes"`
+	Rating          float64   `json:"rating"`
+	VoteCount       int       `json:"voteCount"`
+	AddedAt         time.Time `json:"addedAt"`
+	Tags            []string  `json:"tags"`
+	TMDBID          int       `json:"tmdbId"`
+	TVDBID          int       `json:"tvdbId"`
+	IMDBID          string    `json:"imdbId"`
 
 	Views         int        `json:"views"`
 	UniqueViewers int        `json:"uniqueViewers"`
@@ -107,6 +173,6 @@ type Media struct {
 
 	Protected        bool     `json:"protected"`
 	ProtectionReason string   `json:"protectionReason,omitempty"`
-	Strength         float64  `json:"strength"`
+	Value            float64  `json:"value"`
 	Reasons          []Reason `json:"reasons"`
 }

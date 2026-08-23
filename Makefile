@@ -1,15 +1,15 @@
 SHELL := /bin/sh
 
 REMOTE ?= user@your-server
-REMOTE_DIR ?= ./servarr/spartarr
+REMOTE_DIR ?= ./servarr/togetharr
 
 .PHONY: build run fmt test deploy logs
 
 build:
-	go build ./cmd/spartarr
+	go build ./cmd/togetharr
 
 run:
-	go run ./cmd/spartarr -config ./config.json
+	go run ./cmd/togetharr -config ./config.json
 
 fmt:
 	gofmt -w ./cmd ./internal
@@ -23,4 +23,4 @@ deploy:
 	ssh $(REMOTE) 'cd $(REMOTE_DIR) && PUID=$$(id -u) PGID=$$(id -g) docker compose up -d --build'
 
 logs:
-	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f spartarr'
+	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f togetharr'

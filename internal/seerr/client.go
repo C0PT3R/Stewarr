@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"spartarr/internal/model"
 	"strconv"
 	"strings"
 	"time"
+	"togetharr/internal/model"
 )
 
 type Client struct {
@@ -92,4 +92,21 @@ func (c *Client) Apply(items []model.Media) error {
 		}
 		_ = url.Values{}
 	}
+}
+
+func (c *Client) Validate() error {
+	if c.base == "" || c.key == "" {
+		return nil
+	}
+	req, _ := http.NewRequest(http.MethodGet, c.base+"/api/v1/status", nil)
+	req.Header.Set("X-Api-Key", c.key)
+	r, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		return fmt.Errorf("seerr status: %s", r.Status)
+	}
+	return nil
 }

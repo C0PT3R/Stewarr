@@ -8,10 +8,13 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
-	"spartarr/internal/model"
+	"togetharr/internal/model"
 )
 
 type Client struct {
@@ -45,6 +48,28 @@ func (c *Client) login() error {
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 1024))
 	if r.StatusCode/100 != 2 || strings.TrimSpace(string(b)) != "Ok." {
 		return fmt.Errorf("qbittorrent login: %s: %s", r.Status, strings.TrimSpace(string(b)))
+	}
+	return nil
+}
+
+func (c *Client) postForm(path string, form url.Values) error {
+	if err := c.login(); err != nil {
+		return err
+	}
+	req, _ := http.NewRequest(http.MethodPost, c.base+path, strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Referer", c.base)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	r, err := c.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(r.Body, 2048))
+		return fmt.Errorf("qbittorrent %s: %s: %s", path, r.Status, bytes.TrimSpace(b))
 	}
 	return nil
 }
@@ -335,5 +360,233 @@ func (c *Client) Inventory() (map[string]model.Torrent, error) {
 			AddedOn: x.AddedOn, CompletionOn: x.CompletionOn, LastActivity: x.LastActivity, SeenComplete: x.SeenComplete, TimeActive: x.TimeActive, SeedingTime: x.SeedingTime, ETA: x.ETA, Reannounce: x.Reannounce,
 			ForceStart: x.ForceStart, AutoTMM: x.AutoTMM, Sequential: x.Sequential, SuperSeeding: x.SuperSeeding, Private: x.Private}
 	}
+	return out, nil
+}
+
+// Detail fetches the current full qBittorrent record for one torrent. It is
+// intentionally lazy: list/refresh paths keep only the indexed fields needed
+// by Togetharr, while the detail page asks the owning application for details.
+func (c *Client) Detail(hash string) (model.Torrent, error) {
+	if !c.enabled() {
+		return model.Torrent{}, fmt.Errorf("qbittorrent is not configured")
+	}
+	if err := c.login(); err != nil {
+		return model.Torrent{}, err
+	}
+	var xs []torrentInfo
+	path := "/api/v2/torrents/info?hashes=" + url.QueryEscape(strings.TrimSpace(hash))
+	if err := c.get(path, &xs); err != nil {
+		return model.Torrent{}, err
+	}
+	if len(xs) == 0 {
+		return model.Torrent{}, fmt.Errorf("torrent not found")
+	}
+	x := xs[0]
+	return model.Torrent{Client: c.name, Hash: strings.ToLower(x.Hash), Name: x.Name, State: x.State, Category: x.Category, Tags: x.Tags, Tracker: x.Tracker, SavePath: x.SavePath, ContentPath: x.ContentPath, SizeBytes: x.Size, TotalSizeBytes: x.TotalSize, CompletedBytes: x.Completed, AmountLeftBytes: x.AmountLeft, DownloadedBytes: x.Downloaded, UploadedBytes: x.Uploaded, DownloadedSession: x.DownloadedSession, UploadedSession: x.UploadedSession, DownloadSpeed: x.DLSpeed, UploadSpeed: x.UPSpeed, DownloadLimit: x.DLLimit, UploadLimit: x.UPLimit, Ratio: x.Ratio, MaxRatio: x.MaxRatio, Progress: x.Progress, Availability: x.Availability, SeedsConnected: x.NumSeeds, LeechersConnected: x.NumLeechs, SeedsSwarm: x.NumComplete, LeechersSwarm: x.NumIncomplete, AddedOn: x.AddedOn, CompletionOn: x.CompletionOn, LastActivity: x.LastActivity, SeenComplete: x.SeenComplete, TimeActive: x.TimeActive, SeedingTime: x.SeedingTime, ETA: x.ETA, Reannounce: x.Reannounce, ForceStart: x.ForceStart, AutoTMM: x.AutoTMM, Sequential: x.Sequential, SuperSeeding: x.SuperSeeding, Private: x.Private}, nil
+}
+
+type File struct {
+	Index    int     `json:"index"`
+	Name     string  `json:"name"`
+	Size     int64   `json:"size"`
+	Progress float64 `json:"progress"`
+}
+
+// Files returns the files claimed by a torrent. Names are relative to the
+// torrent save path as exposed by qBittorrent.
+func (c *Client) Files(hash string) ([]File, error) {
+	if !c.enabled() {
+		return nil, fmt.Errorf("qbittorrent is not configured")
+	}
+	if err := c.login(); err != nil {
+		return nil, err
+	}
+	var out []File
+	path := "/api/v2/torrents/files?hash=" + url.QueryEscape(strings.TrimSpace(hash))
+	if err := c.get(path, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClaimedFiles returns the exact filesystem paths claimed by all current
+// torrents plus the distinct save roots that should be checked for leftovers.
+// It fails closed: if any torrent file list cannot be retrieved, no result is
+// returned so callers cannot misclassify owned data as unclaimed.
+func (c *Client) ClaimedFiles(torrents map[string]model.Torrent) (map[string]bool, []string, error) {
+	claimed := map[string]bool{}
+	rootsSet := map[string]bool{}
+	if !c.enabled() {
+		return claimed, nil, nil
+	}
+	if err := c.login(); err != nil {
+		return nil, nil, err
+	}
+	type job struct {
+		hash string
+		t    model.Torrent
+	}
+	jobs := make(chan job)
+	type result struct {
+		paths []string
+		root  string
+		err   error
+	}
+	results := make(chan result, len(torrents))
+	workers := 12
+	if len(torrents) < workers {
+		workers = len(torrents)
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				var fs []File
+				path := "/api/v2/torrents/files?hash=" + url.QueryEscape(strings.TrimSpace(j.hash))
+				if err := c.get(path, &fs); err != nil {
+					results <- result{err: fmt.Errorf("%s: %w", j.hash, err)}
+					continue
+				}
+				root := strings.TrimSpace(j.t.SavePath)
+				ps := make([]string, 0, len(fs))
+				for _, f := range fs {
+					if strings.TrimSpace(f.Name) != "" {
+						ps = append(ps, filepath.Clean(filepath.Join(root, filepath.FromSlash(f.Name))))
+					}
+				}
+				results <- result{paths: ps, root: filepath.Clean(root)}
+			}
+		}()
+	}
+	go func() {
+		for h, t := range torrents {
+			jobs <- job{h, t}
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+	for r := range results {
+		if r.err != nil {
+			return nil, nil, r.err
+		}
+		if r.root != "" && r.root != "." {
+			rootsSet[r.root] = true
+		}
+		for _, p := range r.paths {
+			claimed[p] = true
+		}
+	}
+	roots := make([]string, 0, len(rootsSet))
+	for r := range rootsSet {
+		roots = append(roots, r)
+	}
+	sort.Strings(roots)
+	return claimed, roots, nil
+}
+
+// AllFiles returns authoritative file lists for all supplied torrents. It is a
+// reconciliation operation, not a normal refresh primitive: qBittorrent does
+// not include file membership in its incremental main-data feed.
+func (c *Client) AllFiles(torrents map[string]model.Torrent) (map[string][]File, error) {
+	out := make(map[string][]File, len(torrents))
+	if !c.enabled() || len(torrents) == 0 {
+		return out, nil
+	}
+	if err := c.login(); err != nil {
+		return nil, err
+	}
+	type result struct {
+		hash  string
+		files []File
+		err   error
+	}
+	jobs := make(chan string)
+	results := make(chan result, len(torrents))
+	workers := 12
+	if len(torrents) < workers {
+		workers = len(torrents)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for hash := range jobs {
+				var fs []File
+				path := "/api/v2/torrents/files?hash=" + url.QueryEscape(strings.TrimSpace(hash))
+				err := c.get(path, &fs)
+				results <- result{hash: hash, files: fs, err: err}
+			}
+		}()
+	}
+	go func() {
+		for hash := range torrents {
+			jobs <- hash
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+	for r := range results {
+		if r.err != nil {
+			return nil, fmt.Errorf("%s: %w", r.hash, r.err)
+		}
+		out[strings.ToLower(r.hash)] = r.files
+	}
+	return out, nil
+}
+
+// Delete removes a torrent and asks qBittorrent, the owning application, to
+// remove its torrent-owned data. Hardlinked library paths remain intact.
+func (c *Client) Delete(hash string) error {
+	if !c.enabled() {
+		return fmt.Errorf("qbittorrent is not configured")
+	}
+	return c.postForm("/api/v2/torrents/delete", url.Values{"hashes": {strings.TrimSpace(hash)}, "deleteFiles": {"true"}})
+}
+
+// Validate verifies that the configured qBittorrent endpoint and credentials work.
+func (c *Client) Validate() error {
+	if !c.enabled() {
+		return nil
+	}
+	return c.login()
+}
+
+// StorageRoots returns save roots qBittorrent exposes. Current torrent save
+// paths are authoritative; the default save_path is included for empty/new clients.
+func (c *Client) StorageRoots(torrents map[string]model.Torrent) ([]string, error) {
+	if !c.enabled() {
+		return nil, nil
+	}
+	if err := c.login(); err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	var prefs struct {
+		SavePath string `json:"save_path"`
+	}
+	if err := c.get("/api/v2/app/preferences", &prefs); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(prefs.SavePath) != "" {
+		set[filepath.Clean(prefs.SavePath)] = true
+	}
+	for _, t := range torrents {
+		if strings.TrimSpace(t.SavePath) != "" {
+			set[filepath.Clean(t.SavePath)] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
 	return out, nil
 }
