@@ -26,7 +26,7 @@ const (
 	logDirectory               = "/config/log"
 	logRetentionDays           = 10
 	fileReconcileInterval      = 12 * time.Hour
-	jellyfinEnrichmentInterval = 12 * time.Hour
+	jellyfinEnrichmentInterval = time.Hour
 	seerrEnrichmentInterval    = time.Hour
 	enrichmentRemovalCooldown  = 30 * time.Minute
 )

@@ -351,7 +351,7 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, Payload: []byte(`{"x":1}`)})
+	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, MediaBytes: 5678, Payload: []byte(`{"x":1}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,15 +359,56 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(xs) != 1 || xs[0].RequestedKey != "movie:42" || !xs[0].DryRun || xs[0].ReclaimableBytes != 1234 {
+	if len(xs) != 1 || xs[0].RequestedKey != "movie:42" || !xs[0].DryRun || xs[0].ReclaimableBytes != 1234 || xs[0].MediaBytes != 5678 {
 		t.Fatalf("unexpected history: %#v", xs)
 	}
 	byID, err := db.HistoryEventByID(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if byID.ID != id || byID.RequestedKey != "movie:42" || string(byID.Payload) != `{"x":1}` {
+	if byID.ID != id || byID.RequestedKey != "movie:42" || string(byID.Payload) != `{"x":1}` || byID.MediaBytes != 5678 {
 		t.Fatalf("unexpected history lookup: %#v", byID)
+	}
+	if err := db.UpdateHistoryEvent(HistoryEvent{ID: id, EventType: "removal", Status: "success", RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1000, MediaBytes: 2000}); err != nil {
+		t.Fatal(err)
+	}
+	byID, err = db.HistoryEventByID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byID.MediaBytes != 2000 || byID.ReclaimableBytes != 1000 {
+		t.Fatalf("unexpected history after update: %#v", byID)
+	}
+}
+
+func TestCleanupStatisticsCountsSuccessfulRemovals(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "success", RequestedKind: "media", ReclaimableBytes: 100, MediaBytes: 150}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "success", RequestedKind: "torrent", ReclaimableBytes: 50, MediaBytes: 50}); err != nil {
+		t.Fatal(err)
+	}
+	// A dry run and a failed attempt must not be counted as real removals.
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", RequestedKind: "media", ReclaimableBytes: 999, MediaBytes: 999}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "failed", RequestedKind: "media", ReclaimableBytes: 999, MediaBytes: 999}); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := db.CleanupStatistics()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Runs != 2 || stats.MediaRemoved != 1 || stats.TorrentsRemoved != 1 || stats.MediaBytes != 200 || stats.ReclaimedBytes != 150 {
+		t.Fatalf("unexpected cleanup stats: %+v", stats)
+	}
+	if stats.Last30Runs != 2 || stats.Last30Media != 1 || stats.Last30Bytes != 150 {
+		t.Fatalf("unexpected last-30-day cleanup stats: %+v", stats)
 	}
 }
 

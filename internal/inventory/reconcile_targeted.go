@@ -230,6 +230,14 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	service.reliability.FileModel = "reliable"
 	service.fileGeneration = generation
 	service.torrents, service.items = tc, mc
+	// Keep the base-inventory fingerprint in sync with the state this targeted
+	// reconciliation just published. RefreshAfterMutation deliberately skips a
+	// full base refresh for a targeted scope, so without this the next
+	// periodic Refresh() would see this mutation as a surprise change against
+	// a stale fingerprint baseline and flip FileModel back to stale for a
+	// change that was already correctly reconciled here.
+	service.baseFingerprint = inventoryFingerprint(mc, tc)
+	service.hasBaseFingerprint = true
 	service.mu.Unlock()
 	tasks.AddMetric(ctx, "publish", time.Since(stageStarted).Round(time.Millisecond))
 	tasks.AddMetric(ctx, "total", time.Since(started).Round(time.Millisecond))

@@ -388,13 +388,48 @@ func TestTasksTemplateRenders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := tasksData{Tasks: []tasks.Status{{
+	data := tasksData{Groups: []taskGroup{{Name: "Library & Storage", Tasks: []tasks.Status{{
 		ID: "inventory", Name: "Inventory refresh", Description: "Refresh state",
 		Interval: time.Hour, LastDuration: 1500 * time.Millisecond, NextRun: time.Now().Add(time.Hour),
-	}}}
+	}}}}}
 	var b bytes.Buffer
 	if err := s.tasksTpl.Execute(&b, data); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTaskGroupsHidesUnconfiguredIntegrations(t *testing.T) {
+	all := []tasks.Status{
+		{ID: "inventory", Name: "Base inventory"},
+		{ID: "files", Name: "File reconciliation"},
+		{ID: removalTaskID, Name: "Removal operations"},
+		{ID: autoRemovalTaskID, Name: "Automatic removal"},
+		{ID: "jellyfin", Name: "Jellyfin enrichment"},
+		{ID: "seerr", Name: "Seerr enrichment"},
+	}
+
+	server := &Server{inv: inventory.New(config.Config{}, nil)}
+	groups := server.taskGroups(all)
+	if len(groups) != 1 || groups[0].Name != "Library & Storage" {
+		t.Fatalf("expected only the core group with neither integration configured, got %#v", groups)
+	}
+	if len(groups[0].Tasks) != 4 {
+		t.Fatalf("expected all four core tasks grouped together, got %#v", groups[0].Tasks)
+	}
+
+	cfg := config.Config{}
+	cfg.Jellyfin.URL = "http://jellyfin"
+	server = &Server{inv: inventory.New(cfg, nil)}
+	groups = server.taskGroups(all)
+	if len(groups) != 2 || groups[1].Name != "Jellyfin" || len(groups[1].Tasks) != 1 {
+		t.Fatalf("expected a Jellyfin group once configured, got %#v", groups)
+	}
+
+	cfg.Seerr.URL = "http://seerr"
+	server = &Server{inv: inventory.New(cfg, nil)}
+	groups = server.taskGroups(all)
+	if len(groups) != 3 || groups[1].Name != "Jellyfin" || groups[2].Name != "Seerr" {
+		t.Fatalf("expected both enrichment groups once both are configured, got %#v", groups)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +18,20 @@ import (
 
 	"connarr/internal/model"
 )
+
+// NotFoundError reports that qBittorrent authoritatively has no such object
+// (HTTP 404) — a definitive fact, not an ambiguous or transient failure. A
+// torrent removed directly in qBittorrent between Connarr's own sync and a
+// subsequent per-hash lookup is the common case: callers should treat that
+// object as having nothing to report rather than failing an entire batch.
+type NotFoundError struct {
+	Path string
+	Body string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("qbittorrent %s: not found: %s", e.Path, e.Body)
+}
 
 type Client struct {
 	name, base, username, password, apiKey string
@@ -101,6 +116,9 @@ func (client *Client) get(path string, out any) error {
 	defer r.Body.Close()
 	if r.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(io.LimitReader(r.Body, 2048))
+		if r.StatusCode == http.StatusNotFound {
+			return &NotFoundError{Path: path, Body: string(bytes.TrimSpace(b))}
+		}
 		return fmt.Errorf("qbittorrent %s: %s: %s", path, r.Status, bytes.TrimSpace(b))
 	}
 	return json.NewDecoder(r.Body).Decode(out)
@@ -576,6 +594,14 @@ func (client *Client) AllFiles(torrents map[string]model.Torrent) (map[string][]
 	}()
 	for r := range results {
 		if r.err != nil {
+			var notFound *NotFoundError
+			if errors.As(r.err, &notFound) {
+				// qBittorrent authoritatively has no such torrent anymore
+				// (e.g. removed directly, outside Connarr, between the last
+				// sync and this fetch). That torrent has zero known files;
+				// it must not fail every other torrent's file fetch too.
+				continue
+			}
 			return nil, fmt.Errorf("%s: %w", r.hash, r.err)
 		}
 		out[strings.ToLower(r.hash)] = r.files

@@ -955,7 +955,20 @@ func (manager *Manager) Snapshot() []Status {
 				case "failed":
 					status.State = "Failed"
 				case "degraded":
-					status.State = "Degraded"
+					// The advisory that caused this execution to finish
+					// degraded may have resolved since (e.g. Jellyfin/Seerr
+					// enrichment has since completed) — re-check live rather
+					// than showing a frozen warning from whenever this task
+					// last ran.
+					if definition.Advisory != nil {
+						if warning := definition.Advisory(); warning != "" {
+							status.State, status.LastWarning = "Degraded", warning
+						} else {
+							status.LastWarning = ""
+						}
+					} else {
+						status.State = "Degraded"
+					}
 				case "interrupted":
 					status.State = "Interrupted"
 				}

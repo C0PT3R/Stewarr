@@ -10,6 +10,8 @@
     {{chrome "tasks"}}
     <main id="tasks-content" data-reactive-fragment data-live-policy="immediate">
       <h1 class=page-title>Tasks</h1>
+      {{range .Groups}}
+      <h2>{{.Name}}</h2>
       <table>
         <thead>
           <tr>
@@ -44,6 +46,7 @@
           {{end}}
         </tbody>
       </table>
+      {{end}}
       {{if .Workflows}}
       <h2>Consistency workflows</h2>
       <table>

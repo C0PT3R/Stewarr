@@ -163,9 +163,46 @@ func (server *Server) Handler() http.Handler {
 	return sameOriginWrites(mux)
 }
 
+type taskGroup struct {
+	Name  string
+	Tasks []tasks.Status
+}
+
 type tasksData struct {
-	Tasks     []tasks.Status
+	Groups    []taskGroup
 	Workflows []tasks.WorkflowStatus
+}
+
+// taskGroups separates the flat task list into the "Library & Storage" core
+// tasks (always shown) and one group per enrichment integration, shown only
+// when that integration is actually configured.
+func (server *Server) taskGroups(all []tasks.Status) []taskGroup {
+	cfg := server.inv.Config()
+	byID := make(map[string]tasks.Status, len(all))
+	for _, status := range all {
+		byID[status.ID] = status
+	}
+	var groups []taskGroup
+	var core []tasks.Status
+	for _, id := range []string{"inventory", "files", removalTaskID, autoRemovalTaskID} {
+		if status, ok := byID[id]; ok {
+			core = append(core, status)
+		}
+	}
+	if len(core) > 0 {
+		groups = append(groups, taskGroup{Name: "Library & Storage", Tasks: core})
+	}
+	if cfg.Jellyfin.URL != "" {
+		if status, ok := byID["jellyfin"]; ok {
+			groups = append(groups, taskGroup{Name: "Jellyfin", Tasks: []tasks.Status{status}})
+		}
+	}
+	if cfg.Seerr.URL != "" {
+		if status, ok := byID["seerr"]; ok {
+			groups = append(groups, taskGroup{Name: "Seerr", Tasks: []tasks.Status{status}})
+		}
+	}
+	return groups
 }
 
 type operationPageData struct {
@@ -196,7 +233,8 @@ func (server *Server) tasksPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task manager unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if err := renderTemplate(w, server.tasksTpl, tasksData{Tasks: server.tasks.Snapshot(), Workflows: server.tasks.WorkflowStatuses()}); err != nil {
+	all := server.tasks.Snapshot()
+	if err := renderTemplate(w, server.tasksTpl, tasksData{Groups: server.taskGroups(all), Workflows: server.tasks.WorkflowStatuses()}); err != nil {
 		log.Printf("[http] render tasks: %v", err)
 	}
 }
@@ -3138,11 +3176,21 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Removal cannot start without durable operation history", http.StatusServiceUnavailable)
 		return
 	}
+	// mediaBytes is the raw sum of every selected file's own size, before
+	// hardlink deduplication ("Library bytes removed"). Unlike
+	// d.Plan.SelectedPathBytes/ReclaimableBytes, it counts a selected file
+	// even when another hardlink to the same data survives the removal.
+	var mediaBytes int64
+	for _, file := range d.Plan.Files {
+		if file.Selected {
+			mediaBytes += file.SizeBytes
+		}
+	}
 	var historyErr error
 	if historyID > 0 {
-		historyErr = db.UpdateHistoryEvent(store.HistoryEvent{ID: historyID, EventType: "removal", Status: "started", DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, Payload: startedPayload})
+		historyErr = db.UpdateHistoryEvent(store.HistoryEvent{ID: historyID, EventType: "removal", Status: "started", DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, MediaBytes: mediaBytes, Payload: startedPayload})
 	} else {
-		historyID, historyErr = db.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "started", DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, Payload: startedPayload})
+		historyID, historyErr = db.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "started", DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, MediaBytes: mediaBytes, Payload: startedPayload})
 	}
 	if historyErr != nil {
 		http.Error(w, "Removal could not be recorded before execution: "+historyErr.Error(), http.StatusServiceUnavailable)
@@ -3356,7 +3404,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		"excludeSeries":     r.FormValue("exclude_series") == "1",
 		"results":           results, "errors": errs,
 	})
-	if historyErr := db.UpdateHistoryEvent(store.HistoryEvent{ID: historyID, EventType: "removal", Status: status, DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, Payload: payload, Error: strings.Join(errs, "; ")}); historyErr != nil {
+	if historyErr := db.UpdateHistoryEvent(store.HistoryEvent{ID: historyID, EventType: "removal", Status: status, DryRun: dry, RequestedKind: string(d.Plan.Kind), RequestedKey: d.Plan.RequestedKey, RequestedLabel: d.Plan.RequestedLabel, ReclaimableBytes: d.Plan.ReclaimableBytes, MediaBytes: mediaBytes, Payload: payload, Error: strings.Join(errs, "; ")}); historyErr != nil {
 		log.Printf("[removal] [operation=%d] critical History finalization failure: %v", historyID, historyErr)
 		recordError(fmt.Sprintf("removal operation %d completed but its durable result could not be finalized: %v", historyID, historyErr))
 		if len(results) > 0 {

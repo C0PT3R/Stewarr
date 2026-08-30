@@ -43,6 +43,37 @@ func TestRunnerReceivesTriggerContextAndEmitsOneSummary(t *testing.T) {
 	}
 }
 
+func TestDegradedStatusReflectsCurrentAdvisoryNotAFrozenOne(t *testing.T) {
+	var warning atomic.Value
+	warning.Store("Jellyfin enrichment stale; Seerr enrichment stale")
+	manager := New(Definition{ID: "inventory", Name: "Base inventory", Runner: func(context.Context) error { return nil }, Advisory: func() string { return warning.Load().(string) }})
+	startManager(t, manager)
+	receipt, err := manager.Submit(Request{TaskID: "inventory", Kind: TriggerManual})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Await(context.Background(), receipt.TriggerID); err != nil {
+		t.Fatal(err)
+	}
+	status := manager.Snapshot()[0]
+	if status.State != "Degraded" || status.LastWarning != "Jellyfin enrichment stale; Seerr enrichment stale" {
+		t.Fatalf("expected degraded status right after the run, got %#v", status)
+	}
+	// The underlying condition resolves without the task running again.
+	warning.Store("")
+	status = manager.Snapshot()[0]
+	if status.State == "Degraded" || status.LastWarning != "" {
+		t.Fatalf("expected the display to reflect the now-resolved advisory instead of the frozen one, got %#v", status)
+	}
+	// And if it becomes degraded again for a different reason, the display
+	// must show the fresh text, not the original run's frozen warning.
+	warning.Store("Seerr enrichment stale")
+	status = manager.Snapshot()[0]
+	if status.State != "Degraded" || status.LastWarning != "Seerr enrichment stale" {
+		t.Fatalf("expected the fresh advisory text, got %#v", status)
+	}
+}
+
 func TestIncompatibleTriggerCreatesSuccessorInsteadOfJoining(t *testing.T) {
 	started := make(chan TriggerKind, 2)
 	release := make(chan struct{}, 2)
