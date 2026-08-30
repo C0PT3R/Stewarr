@@ -472,7 +472,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		if claimed[f.Path] {
 			continue
 		}
-		u := model.UnclaimedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.IdentityKnown}
+		u := model.UnclaimedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.IdentityKnown, StorageContexts: append([]model.StorageContext(nil), f.StorageContexts...)}
 		if f.IdentityKnown && f.Links <= 1 {
 			u.ReclaimableBytes = f.SizeBytes
 		} else if f.IdentityKnown {
@@ -493,12 +493,14 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	}
 	tc := append([]model.Torrent(nil), service.torrents...)
 	mc := cloneMedia(service.items)
+	relationshipsStarted := time.Now()
 	applyTorrentFileEstimates(tc, files, torrentRefs)
 	applyTorrentMediaHardlinks(tc, mc, files, mediaRefs, torrentRefs)
 	applyMediaFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
 	valuation.ApplyTorrents(tc, service.cfg)
 	valuation.ApplyMedia(mc, service.cfg)
+	metrics["relationships"] = time.Since(relationshipsStarted).Round(time.Millisecond)
 	stageStarted = time.Now()
 	if service.db != nil {
 		// Keep the generation check and its complete durable publication under the

@@ -910,7 +910,7 @@ func sortTorrents(items []model.Torrent, key, order string) {
 
 func normalizeTorrentStatusFilter(v string) string {
 	switch strings.ToUpper(strings.TrimSpace(v)) {
-	case "CURRENT", "ASSOCIATED":
+	case "CURRENT", "ASSOCIATED", "OPEN":
 		return model.TorrentCurrent
 	case "SUPERSEDED":
 		return model.TorrentSuperseded

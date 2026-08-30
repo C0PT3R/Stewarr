@@ -271,10 +271,17 @@ func Load(path string) (Config, error) {
 	if configuration.RequestGrace < 0 {
 		return configuration, fmt.Errorf("protection.seerr_request_grace must not be negative")
 	}
-	if present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights == nil {
+	switch {
+	case present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights == nil:
 		configuration.Valuation.TorrentWeights.Seeds = 1
 		configuration.Valuation.TorrentWeights.Leechers = 5
 		configuration.Valuation.TorrentWeights.UploadRate = 5
+	case present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights != nil:
+		// The wholesale Valuation = LegacyScoring migration above only fires when
+		// every Valuation field is unset; a config mixing a legacy scoring block
+		// with other new-style valuation fields still needs its torrent weights
+		// carried over individually.
+		configuration.Valuation.TorrentWeights = configuration.LegacyScoring.TorrentWeights
 	}
 	if configuration.Storage.Path == "" {
 		configuration.Storage.Path = "/data"

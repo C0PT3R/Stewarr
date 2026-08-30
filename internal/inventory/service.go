@@ -80,6 +80,7 @@ type Service struct {
 
 func New(configuration config.Config, database *store.Store) *Service {
 	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: radarr.New(configuration.Radarr.URL, configuration.Radarr.APIKey), son: sonarr.New(configuration.Sonarr.URL, configuration.Sonarr.APIKey), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), qb: qbittorrent.New(configuration.QBittorrent.Name, configuration.QBittorrent.URL, configuration.QBittorrent.Username, configuration.QBittorrent.Password, configuration.QBittorrent.APIKey)}
+	loadStarted := time.Now()
 	if database != nil {
 		if items, updated, err := database.LoadMedia(); err == nil {
 			service.items, service.updated = items, updated
@@ -145,6 +146,7 @@ func New(configuration config.Config, database *store.Store) *Service {
 		} else {
 			log.Printf("[inventory] load cached File topology: %v", err)
 		}
+		log.Printf("[inventory] timing startup cache load and relationships=%s", time.Since(loadStarted).Round(time.Millisecond))
 	}
 	if service.reliability.Jellyfin == "" {
 		service.reliability.Jellyfin = enrichmentInitialState(configuration.Jellyfin.URL != "")
@@ -723,10 +725,12 @@ func (service *Service) Refresh(ctx context.Context) error {
 	// refreshes never walk torrent directories; they reuse the latest sparse file
 	// reconciliation snapshot and therefore stay cheap.
 	files, mediaFileRefs, torrentFileRefs, _, _ := service.FileSnapshot()
+	relationshipsStarted := time.Now()
 	applyTorrentFileEstimates(torrentList, files, torrentFileRefs)
 	applyTorrentMediaHardlinks(torrentList, all, files, mediaFileRefs, torrentFileRefs)
 	applyMediaFileEstimates(all, files, mediaFileRefs)
 	valuation.ApplyTorrents(torrentList, service.cfg)
+	service.setStageTiming("relationships", relationshipsStarted)
 
 	sort.SliceStable(torrentList, func(i, j int) bool {
 		if torrentList[i].AssociationStatus != torrentList[j].AssociationStatus {
@@ -740,12 +744,15 @@ func (service *Service) Refresh(ctx context.Context) error {
 	// Re-merge the newest topology while holding the generation lock. A file
 	// reconciliation may have completed after the earlier snapshot was read;
 	// publishing its stale projection here would otherwise undo that work.
+	relationshipsMergeStarted := time.Now()
 	applyTorrentFileEstimates(torrentList, service.files, service.torrentFileRefs)
 	applyTorrentMediaHardlinks(torrentList, all, service.files, service.mediaFileRefs, service.torrentFileRefs)
 	applyMediaFileEstimates(all, service.files, service.mediaFileRefs)
 	projectTorrentRelations(all, torrentList)
 	valuation.ApplyTorrents(torrentList, service.cfg)
 	valuation.ApplyMedia(all, service.cfg)
+	// setStageTiming locks service.mu itself, and it is already held here.
+	service.stageTimings["relationships merge"] = time.Since(relationshipsMergeStarted)
 	generation := service.generation
 	if service.db != nil {
 		if e := service.db.PublishInventory(generation, torrentRID, torrentList, all); e != nil {
@@ -1024,9 +1031,9 @@ func containsMediaRef(items []model.MediaRef, candidate model.MediaRef) bool {
 // specifically join that current torrent to that current media item.
 func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) {
 	index := filetopology.New(files, mediaRefs, torrentRefs)
-	currentMedia := make([]model.MediaRef, 0, len(media))
+	currentMediaByKey := make(map[string]model.MediaRef, len(media))
 	for _, item := range media {
-		currentMedia = append(currentMedia, model.MediaRef{Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year})
+		currentMediaByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = model.MediaRef{Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
 	}
 	for torrentIndex := range torrents {
 		torrent := &torrents[torrentIndex]
@@ -1035,7 +1042,11 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 		torrent.HardlinkedMediaItems = nil
 		torrent.MediaHardlinkKnown = false
 		torrent.MediaHardlinked = false
-		for _, mediaItem := range currentMedia {
+		// Only media that physically shares an inode with one of this torrent's
+		// paths can ever match; narrowing to that candidate set avoids scanning
+		// the entire library for every torrent (O(torrents) instead of
+		// O(torrents x media), which dominates refresh time on large libraries).
+		for _, mediaItem := range candidateMediaRefs(index, torrent.Hash, currentMediaByKey) {
 			matched, _ := index.TorrentMediaPhysicalMatch(torrent.Hash, mediaItem.Type, mediaItem.SourceID)
 			if !matched {
 				continue
@@ -1063,6 +1074,31 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 			}
 		}
 	}
+}
+
+// candidateMediaRefs returns the current media that physically share an inode
+// with at least one of the torrent's paths, using the same identity data
+// TorrentMediaPhysicalMatch itself relies on. Any media outside this set is
+// guaranteed to not match, so this only skips calls that would return false.
+func candidateMediaRefs(index *filetopology.Index, hash string, currentMediaByKey map[string]model.MediaRef) []model.MediaRef {
+	seen := map[string]bool{}
+	var candidates []model.MediaRef
+	for _, torrentPath := range index.TorrentPaths(hash) {
+		physicalPaths := append([]string{torrentPath}, index.SamePhysicalPaths(torrentPath)...)
+		for _, path := range physicalPaths {
+			for _, ref := range index.MediaOwners(path) {
+				key := fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				if mediaItem, ok := currentMediaByKey[key]; ok {
+					candidates = append(candidates, mediaItem)
+				}
+			}
+		}
+	}
+	return candidates
 }
 
 func applyMediaFileEstimates(items []model.Media, files []model.File, refs []model.MediaFileRef) {
@@ -1234,14 +1270,17 @@ func preserveSeerrFacts(dst, previous []model.Media) {
 }
 
 func mergeJellyfinFacts(dst, enriched []model.Media) {
+	byKey := make(map[string]model.Media, len(enriched))
+	for _, m := range enriched {
+		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+	}
 	for i := range dst {
-		if i >= len(enriched) {
-			break
+		if source, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+			dst[i].Views = source.Views
+			dst[i].UniqueViewers = source.UniqueViewers
+			dst[i].LastWatched = source.LastWatched
+			dst[i].Favorite = source.Favorite
 		}
-		dst[i].Views = enriched[i].Views
-		dst[i].UniqueViewers = enriched[i].UniqueViewers
-		dst[i].LastWatched = enriched[i].LastWatched
-		dst[i].Favorite = enriched[i].Favorite
 	}
 }
 
@@ -1255,12 +1294,15 @@ func clearJellyfinFacts(items []model.Media) {
 }
 
 func mergeSeerrFacts(dst, enriched []model.Media) {
+	byKey := make(map[string]model.Media, len(enriched))
+	for _, m := range enriched {
+		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+	}
 	for i := range dst {
-		if i >= len(enriched) {
-			break
+		if source, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+			dst[i].Requested = source.Requested
+			dst[i].RequestedAt = source.RequestedAt
 		}
-		dst[i].Requested = enriched[i].Requested
-		dst[i].RequestedAt = enriched[i].RequestedAt
 	}
 }
 

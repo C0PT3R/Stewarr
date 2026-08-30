@@ -228,17 +228,24 @@ func intentKey(taskID, key string) string {
 func (manager *Manager) Submit(request Request) (Receipt, error) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
-	previousState, previousSequence, err := manager.copyStateLocked()
-	if err != nil {
-		return Receipt{}, err
+	var previousState persistedState
+	var previousSequence uint64
+	if manager.store != nil {
+		var err error
+		previousState, previousSequence, err = manager.copyStateLocked()
+		if err != nil {
+			return Receipt{}, err
+		}
 	}
 	receipt, err := manager.submitLocked(request)
 	if err != nil {
 		return Receipt{}, err
 	}
 	if err := manager.persistLocked(); err != nil {
-		manager.state = previousState
-		manager.sequence.Store(previousSequence)
+		if manager.store != nil {
+			manager.state = previousState
+			manager.sequence.Store(previousSequence)
+		}
 		return Receipt{}, fmt.Errorf("persist accepted trigger: %w", err)
 	}
 	manager.signalLocked()
@@ -735,6 +742,8 @@ func (manager *Manager) requeueExecutionLocked(execution *Execution, delay time.
 			Attempt: execution.Attempt + 1,
 		}
 		manager.state.Pending[key] = intent
+	} else if execution.Attempt+1 > intent.Attempt {
+		intent.Attempt = execution.Attempt + 1
 	}
 	intent.TriggerIDs = appendUnique(intent.TriggerIDs, execution.TriggerIDs...)
 	if execution.Priority > intent.Priority {
@@ -749,6 +758,7 @@ func (manager *Manager) requeueExecutionLocked(execution *Execution, delay time.
 	for _, triggerID := range execution.TriggerIDs {
 		trigger := manager.state.Triggers[triggerID]
 		trigger.State, trigger.ExecutionID, trigger.Error = "pending", "", ""
+		trigger.TargetID = intent.ID
 		trigger.NotBefore = intent.NotBefore
 	}
 }
