@@ -37,7 +37,12 @@
               </ul>
               <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</div>
               {{if gt .Plan.NeedBytes 0}}
-                <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Selected}} media currently selected · {{humanU .Plan.SelectedBytes}} planned.</p>
+                <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
+                {{if .Plan.Actions}}
+                <ul class="cleanup-actions">
+                  {{range .Plan.Actions}}<li>{{if eq .Kind "bundle"}}{{.Media.Title}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "media"}}{{.Media.Title}}{{else}}{{(index .Torrents 0).Name}}{{end}} · {{human .ReclaimableBytes}}</li>{{end}}
+                </ul>
+                {{end}}
               {{else}}
                 <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
               {{end}}

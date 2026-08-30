@@ -32,6 +32,22 @@ func hasTag(tags, protectedTags []string) bool {
 	return false
 }
 
+// splitTags parses qBittorrent's comma-joined free-text Tags field into
+// individual, trimmed tag names.
+func splitTags(tags string) []string {
+	if strings.TrimSpace(tags) == "" {
+		return nil
+	}
+	parts := strings.Split(tags, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
 // Apply assigns Retention Value to every media. Higher Retention Value
 // survives longer; cleanup ordering is lowest-value first. Retention Value is
 // intentionally unbounded.
@@ -95,6 +111,13 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 			value += points
 			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Popularity", Value: fmt.Sprintf("%d votes", mediaItem.VoteCount), Points: points})
 		}
+		// Everything above this point (protection, rating, watch state,
+		// popularity) describes the whole series and applies identically to
+		// every season; LibraryAge and TorrentActivity below are whole-series
+		// scoped and are replaced, per season, by SeasonRecency and
+		// season-scoped torrent activity in applySeasonValues.
+		seriesWideValue := value
+		seriesWideReasons := append([]model.Reason(nil), mediaItem.RetentionValueReasons...)
 		if len(mediaItem.Torrents) > 0 && configuration.Valuation.Weights.TorrentActivity != 0 {
 			leechers := 0
 			contributingTorrentCount := 0
@@ -130,6 +153,9 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 			}
 		}
 		mediaItem.RetentionValue = value
+		if mediaItem.Type == model.Series && len(mediaItem.Seasons) > 0 {
+			applySeasonValues(mediaItem, seriesWideValue, seriesWideReasons, configuration, now)
+		}
 	}
 	sort.SliceStable(mediaItems, func(leftIndex, rightIndex int) bool {
 		leftMedia, rightMedia := mediaItems[leftIndex], mediaItems[rightIndex]
@@ -140,6 +166,67 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 	})
 }
 
+// applySeasonValues assigns each Series season its own Retention Value:
+// series-wide factors (protection, rating, watch state, popularity) apply
+// identically to every season via seriesWideValue/seriesWideReasons, plus
+// one season-specific factor (recency of that season's most recently added
+// episode) and torrent activity scoped to torrents proven hardlinked to that
+// specific season rather than the whole series.
+func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWideReasons []model.Reason, configuration config.Config, now time.Time) {
+	for seasonIndex := range mediaItem.Seasons {
+		season := &mediaItem.Seasons[seasonIndex]
+		season.Protected = mediaItem.Protected
+		season.ProtectionReason = mediaItem.ProtectionReason
+		value := seriesWideValue
+		reasons := append([]model.Reason(nil), seriesWideReasons...)
+		if !season.LastAddedAt.IsZero() {
+			points := (1 - clamp(daysSince(season.LastAddedAt)/1095, 0, 1)) * configuration.Valuation.Weights.SeasonRecency
+			value += points
+			reasons = append(reasons, model.Reason{Label: "Season recency", Value: fmt.Sprintf("%.0f days", daysSince(season.LastAddedAt)), Points: points})
+		}
+		if configuration.Valuation.Weights.TorrentActivity != 0 {
+			leechers := 0
+			contributingTorrentCount := 0
+			var uploadBytesPerSecond int64
+			for _, torrent := range mediaItem.Torrents {
+				if model.NormalizeTorrentStatus(torrent.AssociationStatus) != model.TorrentCurrent || !torrent.MediaHardlinked {
+					continue
+				}
+				inSeason := false
+				for _, s := range torrent.HardlinkedSeasons {
+					if s == season.Number {
+						inSeason = true
+						break
+					}
+				}
+				if !inSeason {
+					continue
+				}
+				contributingTorrentCount++
+				if torrent.LeechersSwarm > 0 {
+					leechers += torrent.LeechersSwarm
+				}
+				if torrent.UploadSpeed > 0 {
+					uploadBytesPerSecond += torrent.UploadSpeed
+				}
+			}
+			if contributingTorrentCount > 0 {
+				uploadMiBPerSecond := float64(uploadBytesPerSecond) / (1024 * 1024)
+				points := configuration.Valuation.Weights.TorrentActivity * (math.Log2(1+float64(leechers)) + math.Log2(1+uploadMiBPerSecond))
+				value += points
+				reasons = append(reasons, model.Reason{
+					Label:  "Associated torrent",
+					Value:  fmt.Sprintf("%d hardlinked torrent(s), %d swarm leechers, %.2f MiB/s up", contributingTorrentCount, leechers, uploadMiBPerSecond),
+					Points: points,
+					Note:   "The torrent health contributes to this season's Retention Value because their files are hardlinked to this season specifically.",
+				})
+			}
+		}
+		season.RetentionValue = value
+		season.RetentionValueReasons = reasons
+	}
+}
+
 // ApplyTorrents assigns an independent Swarm Value to torrents. It uses
 // current swarm facts only; media Retention Value and storage cost
 // deliberately do not leak into torrent Swarm Value.
@@ -148,6 +235,18 @@ func ApplyTorrents(torrents []model.Torrent, configuration config.Config) {
 		torrent := &torrents[torrentIndex]
 		torrent.SwarmValue = 0
 		torrent.SwarmValueReasons = nil
+		torrent.Protected = false
+		torrent.ProtectionReason = ""
+		if configuration.Protection.MinTorrentRatio > 0 && torrent.Ratio < configuration.Protection.MinTorrentRatio {
+			torrent.Protected = true
+			torrent.ProtectionReason = "Below minimum ratio"
+		}
+		if hasTag(splitTags(torrent.Tags), configuration.Protection.KeepTorrentTags) {
+			torrent.Protected = true
+			if torrent.ProtectionReason == "" {
+				torrent.ProtectionReason = "Keep tag"
+			}
+		}
 		if torrent.SeedsSwarm > 0 && configuration.Valuation.TorrentWeights.Seeds != 0 {
 			points := math.Log2(1+float64(torrent.SeedsSwarm)) * configuration.Valuation.TorrentWeights.Seeds
 			torrent.SwarmValue += points

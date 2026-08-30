@@ -49,8 +49,11 @@ type MediaRef struct {
 }
 
 type Torrent struct {
+	IntegrationID     string     `json:"integrationId,omitempty"`
 	SwarmValue        float64    `json:"swarmValue"`
 	SwarmValueReasons []Reason   `json:"swarmValueReasons,omitempty"`
+	Protected         bool       `json:"protected,omitempty"`
+	ProtectionReason  string     `json:"protectionReason,omitempty"`
 	AssociationStatus string     `json:"torrentStatus,omitempty"`
 	AssociationReason string     `json:"associationReason,omitempty"`
 	MediaItems        []MediaRef `json:"media,omitempty"`
@@ -62,56 +65,60 @@ type Torrent struct {
 	HardlinkedMediaItems    []MediaRef `json:"hardlinkedMedia,omitempty"`
 	MediaHardlinkKnown      bool       `json:"mediaHardlinkKnown,omitempty"`
 	MediaHardlinked         bool       `json:"mediaHardlinked,omitempty"`
-	SupersededByHash        string     `json:"supersededByHash,omitempty"`
-	ReclaimableKnown        bool       `json:"reclaimableKnown,omitempty"`
-	ReclaimableBytes        int64      `json:"reclaimableBytes,omitempty"`
-	SharedBytes             int64      `json:"sharedBytes,omitempty"`
-	InspectedBytes          int64      `json:"inspectedBytes,omitempty"`
-	InspectedFiles          int        `json:"inspectedFiles,omitempty"`
-	SharedFiles             int        `json:"sharedFiles,omitempty"`
-	StorageError            string     `json:"storageError,omitempty"`
-	Client                  string     `json:"client"`
-	Hash                    string     `json:"hash"`
-	Name                    string     `json:"name"`
-	State                   string     `json:"state"`
-	Category                string     `json:"category"`
-	Tags                    string     `json:"tags"`
-	Tracker                 string     `json:"tracker"`
-	SavePath                string     `json:"savePath"`
-	ContentPath             string     `json:"contentPath"`
-	SizeBytes               int64      `json:"sizeBytes"`
-	TotalSizeBytes          int64      `json:"totalSizeBytes"`
-	CompletedBytes          int64      `json:"completedBytes"`
-	AmountLeftBytes         int64      `json:"amountLeftBytes"`
-	DownloadedBytes         int64      `json:"downloadedBytes"`
-	UploadedBytes           int64      `json:"uploadedBytes"`
-	DownloadedSession       int64      `json:"downloadedSessionBytes"`
-	UploadedSession         int64      `json:"uploadedSessionBytes"`
-	DownloadSpeed           int64      `json:"downloadSpeed"`
-	UploadSpeed             int64      `json:"uploadSpeed"`
-	DownloadLimit           int64      `json:"downloadLimit"`
-	UploadLimit             int64      `json:"uploadLimit"`
-	Ratio                   float64    `json:"ratio"`
-	MaxRatio                float64    `json:"maxRatio"`
-	Progress                float64    `json:"progress"`
-	Availability            float64    `json:"availability"`
-	SeedsConnected          int        `json:"seedsConnected"`
-	LeechersConnected       int        `json:"leechersConnected"`
-	SeedsSwarm              int        `json:"seedsSwarm"`
-	LeechersSwarm           int        `json:"leechersSwarm"`
-	AddedOn                 int64      `json:"addedOn"`
-	CompletionOn            int64      `json:"completionOn"`
-	LastActivity            int64      `json:"lastActivity"`
-	SeenComplete            int64      `json:"seenComplete"`
-	TimeActive              int64      `json:"timeActive"`
-	SeedingTime             int64      `json:"seedingTime"`
-	ETA                     int64      `json:"eta"`
-	Reannounce              int64      `json:"reannounce"`
-	ForceStart              bool       `json:"forceStart"`
-	AutoTMM                 bool       `json:"autoTmm"`
-	Sequential              bool       `json:"sequential"`
-	SuperSeeding            bool       `json:"superSeeding"`
-	Private                 bool       `json:"private"`
+	// HardlinkedSeasons is the season number(s) of the media in
+	// HardlinkedMediaItems that this torrent's files are hardlinked to. Only
+	// meaningful when MediaHardlinked is true and the media is a Series.
+	HardlinkedSeasons []int   `json:"hardlinkedSeasons,omitempty"`
+	SupersededByHash  string  `json:"supersededByHash,omitempty"`
+	ReclaimableKnown  bool    `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes  int64   `json:"reclaimableBytes,omitempty"`
+	SharedBytes       int64   `json:"sharedBytes,omitempty"`
+	InspectedBytes    int64   `json:"inspectedBytes,omitempty"`
+	InspectedFiles    int     `json:"inspectedFiles,omitempty"`
+	SharedFiles       int     `json:"sharedFiles,omitempty"`
+	StorageError      string  `json:"storageError,omitempty"`
+	Client            string  `json:"client"`
+	Hash              string  `json:"hash"`
+	Name              string  `json:"name"`
+	State             string  `json:"state"`
+	Category          string  `json:"category"`
+	Tags              string  `json:"tags"`
+	Tracker           string  `json:"tracker"`
+	SavePath          string  `json:"savePath"`
+	ContentPath       string  `json:"contentPath"`
+	SizeBytes         int64   `json:"sizeBytes"`
+	TotalSizeBytes    int64   `json:"totalSizeBytes"`
+	CompletedBytes    int64   `json:"completedBytes"`
+	AmountLeftBytes   int64   `json:"amountLeftBytes"`
+	DownloadedBytes   int64   `json:"downloadedBytes"`
+	UploadedBytes     int64   `json:"uploadedBytes"`
+	DownloadedSession int64   `json:"downloadedSessionBytes"`
+	UploadedSession   int64   `json:"uploadedSessionBytes"`
+	DownloadSpeed     int64   `json:"downloadSpeed"`
+	UploadSpeed       int64   `json:"uploadSpeed"`
+	DownloadLimit     int64   `json:"downloadLimit"`
+	UploadLimit       int64   `json:"uploadLimit"`
+	Ratio             float64 `json:"ratio"`
+	MaxRatio          float64 `json:"maxRatio"`
+	Progress          float64 `json:"progress"`
+	Availability      float64 `json:"availability"`
+	SeedsConnected    int     `json:"seedsConnected"`
+	LeechersConnected int     `json:"leechersConnected"`
+	SeedsSwarm        int     `json:"seedsSwarm"`
+	LeechersSwarm     int     `json:"leechersSwarm"`
+	AddedOn           int64   `json:"addedOn"`
+	CompletionOn      int64   `json:"completionOn"`
+	LastActivity      int64   `json:"lastActivity"`
+	SeenComplete      int64   `json:"seenComplete"`
+	TimeActive        int64   `json:"timeActive"`
+	SeedingTime       int64   `json:"seedingTime"`
+	ETA               int64   `json:"eta"`
+	Reannounce        int64   `json:"reannounce"`
+	ForceStart        bool    `json:"forceStart"`
+	AutoTMM           bool    `json:"autoTmm"`
+	Sequential        bool    `json:"sequential"`
+	SuperSeeding      bool    `json:"superSeeding"`
+	Private           bool    `json:"private"`
 }
 
 // File is an existing filesystem path with physical identity facts. Ownership is
@@ -153,6 +160,11 @@ type MediaFileRef struct {
 	SourceFileID    int             `json:"sourceFileId"`
 	Path            string          `json:"path"`
 	Parts           []MediaFilePart `json:"parts,omitempty"`
+	// AddedAt is the owning integration's own "date added" fact for this
+	// specific file, when it exposes one (Sonarr episode files do). It
+	// persists across refresh cycles so season-level recency scoring does
+	// not depend on a fresh integration fetch being in flight.
+	AddedAt time.Time `json:"addedAt,omitempty"`
 }
 
 type TorrentFileRef struct {
@@ -205,10 +217,72 @@ type Media struct {
 	DownloadIDs []string  `json:"downloadIds,omitempty"`
 	Torrents    []Torrent `json:"torrents,omitempty"`
 
-	Protected             bool     `json:"protected"`
-	ProtectionReason      string   `json:"protectionReason,omitempty"`
-	ReclaimableKnown      bool     `json:"reclaimableKnown,omitempty"`
-	ReclaimableBytes      int64    `json:"reclaimableBytes,omitempty"`
-	RetentionValue        float64  `json:"retentionValue"`
-	RetentionValueReasons []Reason `json:"retentionValueReasons"`
+	Protected              bool     `json:"protected"`
+	ProtectionReason       string   `json:"protectionReason,omitempty"`
+	ReclaimableKnown       bool     `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes       int64    `json:"reclaimableBytes,omitempty"`
+	BundleReclaimableKnown bool     `json:"bundleReclaimableKnown,omitempty"`
+	BundleReclaimableBytes int64    `json:"bundleReclaimableBytes,omitempty"`
+	RetentionValue         float64  `json:"retentionValue"`
+	RetentionValueReasons  []Reason `json:"retentionValueReasons"`
+
+	// Seasons is populated only for Type == Series, one entry per season with
+	// at least one known file. A Season carries its own Retention Value so
+	// the planner can propose removing old seasons of an otherwise-kept show
+	// instead of only ever reasoning about a whole series at once.
+	Seasons []Season `json:"seasons,omitempty"`
+}
+
+// Season is a per-season Retention Value slice of a Series Media item.
+type Season struct {
+	Number                 int       `json:"number"`
+	SizeBytes              int64     `json:"sizeBytes"`
+	LastAddedAt            time.Time `json:"lastAddedAt,omitempty"`
+	EpisodeFileCount       int       `json:"episodeFileCount"`
+	Protected              bool      `json:"protected,omitempty"`
+	ProtectionReason       string    `json:"protectionReason,omitempty"`
+	ReclaimableKnown       bool      `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes       int64     `json:"reclaimableBytes,omitempty"`
+	BundleReclaimableKnown bool      `json:"bundleReclaimableKnown,omitempty"`
+	BundleReclaimableBytes int64     `json:"bundleReclaimableBytes,omitempty"`
+	RetentionValue         float64   `json:"retentionValue"`
+	RetentionValueReasons  []Reason  `json:"retentionValueReasons,omitempty"`
+	// FileGroup is the exact "Season %d" label MediaFileRef.Parts already
+	// uses, so removal code can select this season's files without
+	// re-deriving the format.
+	FileGroup string `json:"fileGroup"`
+}
+
+// CurrentHardlinkedTorrentsForSeason returns the subset of m.Torrents proven
+// both Current and physically hardlinked to files belonging to the given
+// season number. These must always be removed together with that season,
+// never separately, for the same reason as CurrentHardlinkedTorrents.
+func (m Media) CurrentHardlinkedTorrentsForSeason(season int) []Torrent {
+	var out []Torrent
+	for _, t := range m.Torrents {
+		if NormalizeTorrentStatus(t.AssociationStatus) != TorrentCurrent || !t.MediaHardlinkKnown || !t.MediaHardlinked {
+			continue
+		}
+		for _, s := range t.HardlinkedSeasons {
+			if s == season {
+				out = append(out, t)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// CurrentHardlinkedTorrents returns the subset of m.Torrents proven both
+// Current and physically hardlinked to this media's files. These must always
+// be removed together with the media, never separately: unlinking only one
+// side frees none of the shared bytes while still destroying real value.
+func (m Media) CurrentHardlinkedTorrents() []Torrent {
+	var out []Torrent
+	for _, t := range m.Torrents {
+		if NormalizeTorrentStatus(t.AssociationStatus) == TorrentCurrent && t.MediaHardlinkKnown && t.MediaHardlinked {
+			out = append(out, t)
+		}
+	}
+	return out
 }

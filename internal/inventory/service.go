@@ -611,6 +611,8 @@ func (service *Service) Refresh(ctx context.Context) error {
 		service.setStatus(integrationName(service.cfg, "qbittorrent", "qBittorrent"), false, false, nil)
 		service.mu.Lock()
 		applyMediaFileEstimates(all, service.files, service.mediaFileRefs)
+		attachSeasons(all, service.mediaFileRefs, service.files)
+		applySeasonFileEstimates(all, service.files, service.mediaFileRefs)
 		valuation.ApplyMedia(all, service.cfg)
 		generation := service.generation
 		if service.db != nil {
@@ -663,6 +665,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 
 	torrentList := make([]model.Torrent, 0, len(torrentMap))
 	for h, t := range torrentMap {
+		t.IntegrationID = integrationID(service.cfg, "qbittorrent")
 		t.MediaItems = torrentMediaItems[h]
 		t.FormerMediaItems = nil
 		t.SupersededByHash = ""
@@ -729,6 +732,10 @@ func (service *Service) Refresh(ctx context.Context) error {
 	applyTorrentFileEstimates(torrentList, files, torrentFileRefs)
 	applyTorrentMediaHardlinks(torrentList, all, files, mediaFileRefs, torrentFileRefs)
 	applyMediaFileEstimates(all, files, mediaFileRefs)
+	applyMediaBundleEstimates(all, torrentList, files, mediaFileRefs, torrentFileRefs)
+	attachSeasons(all, mediaFileRefs, files)
+	applySeasonFileEstimates(all, files, mediaFileRefs)
+	applySeasonBundleEstimates(all, torrentList, files, mediaFileRefs, torrentFileRefs)
 	valuation.ApplyTorrents(torrentList, service.cfg)
 	service.setStageTiming("relationships", relationshipsStarted)
 
@@ -748,6 +755,10 @@ func (service *Service) Refresh(ctx context.Context) error {
 	applyTorrentFileEstimates(torrentList, service.files, service.torrentFileRefs)
 	applyTorrentMediaHardlinks(torrentList, all, service.files, service.mediaFileRefs, service.torrentFileRefs)
 	applyMediaFileEstimates(all, service.files, service.mediaFileRefs)
+	applyMediaBundleEstimates(all, torrentList, service.files, service.mediaFileRefs, service.torrentFileRefs)
+	attachSeasons(all, service.mediaFileRefs, service.files)
+	applySeasonFileEstimates(all, service.files, service.mediaFileRefs)
+	applySeasonBundleEstimates(all, torrentList, service.files, service.mediaFileRefs, service.torrentFileRefs)
 	projectTorrentRelations(all, torrentList)
 	valuation.ApplyTorrents(torrentList, service.cfg)
 	valuation.ApplyMedia(all, service.cfg)
@@ -1013,6 +1024,7 @@ func containsMediaRef(items []model.MediaRef, candidate model.MediaRef) bool {
 // specifically join that current torrent to that current media item.
 func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) {
 	index := filetopology.New(files, mediaRefs, torrentRefs)
+	seasonPaths := seasonPathsByKey(mediaRefs)
 	currentMediaByKey := make(map[string]model.MediaRef, len(media))
 	for _, item := range media {
 		currentMediaByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = model.MediaRef{Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
@@ -1022,6 +1034,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 		torrent.AssociationStatus = model.NormalizeTorrentStatus(torrent.AssociationStatus)
 		torrent.HardlinkKnownMediaItems = nil
 		torrent.HardlinkedMediaItems = nil
+		torrent.HardlinkedSeasons = nil
 		torrent.MediaHardlinkKnown = false
 		torrent.MediaHardlinked = false
 		// Only media that physically shares an inode with one of this torrent's
@@ -1051,9 +1064,23 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 			if known {
 				torrent.HardlinkKnownMediaItems = append(torrent.HardlinkKnownMediaItems, mediaItem)
 			}
-			if hardlinked {
-				torrent.HardlinkedMediaItems = append(torrent.HardlinkedMediaItems, mediaItem)
+			if !hardlinked {
+				continue
 			}
+			torrent.HardlinkedMediaItems = append(torrent.HardlinkedMediaItems, mediaItem)
+			if mediaItem.Type != model.Series {
+				continue
+			}
+			torrentPaths := index.TorrentPaths(torrent.Hash)
+			for key, paths := range seasonPaths {
+				if key.seriesID != mediaItem.SourceID {
+					continue
+				}
+				if hl, _ := index.PathsHardlinked(paths, torrentPaths); hl {
+					torrent.HardlinkedSeasons = append(torrent.HardlinkedSeasons, key.season)
+				}
+			}
+			sort.Ints(torrent.HardlinkedSeasons)
 		}
 	}
 }
@@ -1089,6 +1116,34 @@ func applyMediaFileEstimates(items []model.Media, files []model.File, refs []mod
 		e := x.Estimate(x.MediaPaths(items[i].Type, items[i].SourceID))
 		items[i].ReclaimableKnown = e.Known
 		items[i].ReclaimableBytes = e.ReclaimableBytes
+	}
+}
+
+// applyMediaBundleEstimates computes, for every media item, the bytes that
+// would become reclaimable if the media and every torrent physically
+// hardlinked to it (per HardlinkedMediaItems, already published by
+// applyTorrentMediaHardlinks) were unlinked together. This is deliberately
+// narrower than a "media plus every Current torrent" preview: a Current
+// torrent that is merely a separate copy must never be folded into this
+// figure, since removing it does not require also removing the media.
+func applyMediaBundleEstimates(items []model.Media, torrents []model.Torrent, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) {
+	x := filetopology.New(files, mediaRefs, torrentRefs)
+	hardlinkPathsByMediaKey := map[string][]string{}
+	for _, t := range torrents {
+		if model.NormalizeTorrentStatus(t.AssociationStatus) != model.TorrentCurrent {
+			continue
+		}
+		for _, ref := range t.HardlinkedMediaItems {
+			key := fmt.Sprintf("%s:%d", ref.Type, ref.SourceID)
+			hardlinkPathsByMediaKey[key] = append(hardlinkPathsByMediaKey[key], x.TorrentPaths(t.Hash)...)
+		}
+	}
+	for i := range items {
+		key := fmt.Sprintf("%s:%d", items[i].Type, items[i].SourceID)
+		mediaPaths := x.MediaPaths(items[i].Type, items[i].SourceID)
+		e := x.Estimate(filetopology.Union(mediaPaths, hardlinkPathsByMediaKey[key]))
+		items[i].BundleReclaimableKnown = e.Known
+		items[i].BundleReclaimableBytes = e.ReclaimableBytes
 	}
 }
 
@@ -1303,6 +1358,16 @@ func cloneMedia(in []model.Media) []model.Media {
 		out[i].DownloadIDs = append([]string(nil), in[i].DownloadIDs...)
 		out[i].Torrents = cloneTorrents(in[i].Torrents)
 		out[i].RetentionValueReasons = append([]model.Reason(nil), in[i].RetentionValueReasons...)
+		out[i].Seasons = cloneSeasons(in[i].Seasons)
+	}
+	return out
+}
+
+func cloneSeasons(in []model.Season) []model.Season {
+	out := make([]model.Season, len(in))
+	for i := range in {
+		out[i] = in[i]
+		out[i].RetentionValueReasons = append([]model.Reason(nil), in[i].RetentionValueReasons...)
 	}
 	return out
 }
@@ -1316,6 +1381,7 @@ func cloneTorrents(in []model.Torrent) []model.Torrent {
 		out[i].FormerMediaItems = append([]model.MediaRef(nil), in[i].FormerMediaItems...)
 		out[i].HardlinkKnownMediaItems = append([]model.MediaRef(nil), in[i].HardlinkKnownMediaItems...)
 		out[i].HardlinkedMediaItems = append([]model.MediaRef(nil), in[i].HardlinkedMediaItems...)
+		out[i].HardlinkedSeasons = append([]int(nil), in[i].HardlinkedSeasons...)
 	}
 	return out
 }
@@ -1365,6 +1431,7 @@ func (service *Service) TorrentDetail(hash string) (model.Torrent, error) {
 		return indexed, err
 	}
 	// Preserve Connarr-owned interpretations and expensive reconciliation facts.
+	live.IntegrationID = indexed.IntegrationID
 	live.SwarmValue = indexed.SwarmValue
 	live.SwarmValueReasons = indexed.SwarmValueReasons
 	live.AssociationStatus = indexed.AssociationStatus

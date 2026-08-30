@@ -18,6 +18,8 @@ internal/config/config.go
 internal/config/config_test.go
 internal/filetopology/topology.go
 internal/filetopology/topology_test.go
+internal/httpui/auto_removal.go
+internal/httpui/auto_removal_test.go
 internal/httpui/home_test.go
 internal/httpui/middleware.go
 internal/httpui/reactive.go
@@ -65,6 +67,8 @@ internal/inventory/reconcile_targeted.go
 internal/inventory/reconcile_targeted_test.go
 internal/inventory/reconciliation_scope.go
 internal/inventory/reconciliation_scope_test.go
+internal/inventory/seasons.go
+internal/inventory/seasons_test.go
 internal/inventory/service.go
 internal/inventory/service_test.go
 internal/inventory/storage_devices.go

@@ -186,11 +186,10 @@ Targets should eventually be per storage device.
 
 ## Planner direction
 
-The planner should minimize lost value while satisfying storage constraints. It must reason about representations independently.
+The planner should minimize lost value while satisfying storage constraints. It must reason about representations independently. Unmanaged files are never a reclamation source for the planner, under any circumstance: absence of a claim is not ownership, and the planner has no more authority over them than any other automatic mechanism.
 
 Possible reclamation sources include:
 
-- unmanaged download data;
 - redundant/duplicated storage;
 - superseded torrent data;
 - unassociated torrent data with former provenance;
@@ -198,7 +197,7 @@ Possible reclamation sources include:
 - lower-cost media representations/quality changes (future);
 - low-Retention-Value Library media.
 
-These are not necessarily a rigid priority list. A valuable active superseded torrent may be worth retaining when capacity permits.
+Every Torrent-domain source above is tried before any Library-media source on the same device: Retention Value and Swarm Value are deliberately unrelated scores and are never compared numerically, so domain order is a hard rule rather than something a formula decides. Within a domain, ranking by ascending Value is not necessarily a rigid priority list forever — a valuable active superseded torrent may be worth retaining when capacity permits — but which domain is tried first is fixed.
 
 The long-term optimization question is:
 

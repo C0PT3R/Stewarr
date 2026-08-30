@@ -190,6 +190,45 @@ func (index *Index) TorrentMediaPhysicalMatch(hash string, kind model.MediaType,
 	return false, complete
 }
 
+// PathsHardlinked reports whether at least one path in each set is a
+// distinct directory entry for the same physical inode, mirroring
+// TorrentMediaHardlink's semantics but for two arbitrary path sets rather
+// than a specific torrent/media pair — used to scope hardlink attribution to
+// a subset of a media's files, such as one season of a Series.
+func (index *Index) PathsHardlinked(pathsA, pathsB []string) (hardlinked, known bool) {
+	if len(pathsA) == 0 || len(pathsB) == 0 {
+		return false, false
+	}
+	identitiesA := map[identity]map[string]bool{}
+	complete := true
+	for _, path := range pathsA {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown || file.Links == 0 {
+			complete = false
+			continue
+		}
+		fileIdentity := identity{file.Device, file.Inode}
+		if identitiesA[fileIdentity] == nil {
+			identitiesA[fileIdentity] = map[string]bool{}
+		}
+		identitiesA[fileIdentity][filepath.Clean(path)] = true
+	}
+	for _, path := range pathsB {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown || file.Links == 0 {
+			complete = false
+			continue
+		}
+		owners := identitiesA[identity{file.Device, file.Inode}]
+		for ownerPath := range owners {
+			if ownerPath != filepath.Clean(path) && file.Links > 1 {
+				return true, true
+			}
+		}
+	}
+	return false, complete
+}
+
 // Estimate reports the unique bytes that would become unreferenced if all of
 // the supplied paths were unlinked. A physical inode is reclaimable only when
 // the deletion set contains every filesystem link to that inode. Unknown or

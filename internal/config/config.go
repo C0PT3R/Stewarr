@@ -18,6 +18,9 @@ type ValueWeights struct {
 	LowPopularity   float64 `json:"low_popularity"`
 	OldRequest      float64 `json:"old_request"`
 	TorrentActivity float64 `json:"torrent_activity"`
+	// SeasonRecency scores a Series season by how recently its episodes were
+	// added, independent of LibraryAge (which describes the whole series).
+	SeasonRecency float64 `json:"season_recency"`
 }
 
 type TorrentValueWeights struct {
@@ -35,18 +38,20 @@ type ValuationConfig struct {
 }
 
 type RemovalConfig struct {
-	DryRun bool `json:"dry_run"`
+	DryRun      bool `json:"dry_run"`
+	AutoEnabled bool `json:"auto_enabled"`
 }
 
 type Integration struct {
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	URL      string `json:"url"`
-	APIKey   string `json:"api_key,omitempty"`
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
-	RootPath string `json:"root_path,omitempty"`
-	ID       string `json:"-"`
+	Type                  string `json:"type"`
+	Name                  string `json:"name"`
+	URL                   string `json:"url"`
+	APIKey                string `json:"api_key,omitempty"`
+	Username              string `json:"username,omitempty"`
+	Password              string `json:"password,omitempty"`
+	RootPath              string `json:"root_path,omitempty"`
+	AllowAutomaticRemoval bool   `json:"allow_automatic_removal"`
+	ID                    string `json:"-"`
 }
 
 func integrationID(integrationType, endpoint string) string {
@@ -100,6 +105,8 @@ type Config struct {
 		Favorite          bool     `json:"favorite"`
 		SeerrRequestGrace string   `json:"seerr_request_grace"`
 		KeepTags          []string `json:"keep_tags"`
+		MinTorrentRatio   float64  `json:"min_torrent_ratio"`
+		KeepTorrentTags   []string `json:"keep_torrent_tags"`
 	} `json:"protection"`
 	Valuation       ValuationConfig `json:"valuation"`
 	Removal         RemovalConfig   `json:"removal"`

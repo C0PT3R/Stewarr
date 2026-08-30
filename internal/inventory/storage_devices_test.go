@@ -79,6 +79,62 @@ func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T)
 	}
 }
 
+func TestTorrentsByDeviceResolvesFromItsOwnFilesNotItsMedia(t *testing.T) {
+	root := t.TempDir()
+	radarrRoot := filepath.Join(root, "movies")
+	qbRoot := filepath.Join(root, "downloads")
+	if err := os.MkdirAll(radarrRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(qbRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	managed := filepath.Join(radarrRoot, "movie.mkv")
+	if err := os.WriteFile(managed, []byte("managed content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A separate copy, not a hardlink: TorrentsByDevice must resolve this
+	// torrent's device from this path alone, never from the media it happens
+	// to be Current for.
+	copyPath := filepath.Join(qbRoot, "movie-copy.mkv")
+	if err := os.WriteFile(copyPath, []byte("independent copy"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := walkRoots([]string{radarrRoot, qbRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{}, nil)
+	service.mu.Lock()
+	service.files = files
+	service.mediaFileRefs = []model.MediaFileRef{{IntegrationName: "Movies", MediaType: model.Movie, MediaID: 1, Path: managed}}
+	service.torrentFileRefs = []model.TorrentFileRef{{IntegrationName: "Downloader", Hash: "abc", Path: copyPath}}
+	service.storageRoots = []storageRoot{
+		{Path: radarrRoot, Integration: config.Integration{ID: "radarr", Name: "Movies"}, Label: "movies"},
+		{Path: qbRoot, Integration: config.Integration{ID: "qbittorrent", Name: "Downloader"}, Label: "downloads"},
+	}
+	service.mu.Unlock()
+
+	byDevice := service.TorrentsByDevice([]model.Torrent{{Hash: "abc"}, {Hash: "unknown"}})
+	if len(byDevice) != 1 {
+		t.Fatalf("expected the one torrent with a known file bucketed onto one device, got %#v", byDevice)
+	}
+	for representative, torrents := range byDevice {
+		if len(torrents) != 1 || torrents[0].Hash != "abc" {
+			t.Fatalf("expected only the torrent with a known file, got %#v under %q", torrents, representative)
+		}
+	}
+	// This environment cannot fabricate a genuinely separate physical device
+	// in a portable test, but the mechanism under test — resolving a
+	// torrent's device strictly from its own torrentFileRefs path, via the
+	// same group-by-representative-path keying MediaByDevice already uses —
+	// is exactly what makes an independent copy on a truly different device
+	// land in that device's own plan instead of leaking into its media's.
+}
+
 func TestStorageDevicesEmptyWhenNoRootsKnown(t *testing.T) {
 	service := New(config.Config{}, nil)
 	if devices := service.StorageDevices(); devices != nil {

@@ -125,12 +125,13 @@ func (client *Client) Inventory() ([]model.Media, error) {
 }
 
 type FileRecord struct {
-	ID        int                   `json:"id"`
-	SeriesID  int                   `json:"seriesId"`
-	Relative  string                `json:"relativePath"`
-	Size      int64                 `json:"size"`
-	DateAdded time.Time             `json:"dateAdded"`
-	Parts     []model.MediaFilePart `json:"-"`
+	ID           int                   `json:"id"`
+	SeriesID     int                   `json:"seriesId"`
+	SeasonNumber int                   `json:"-"`
+	Relative     string                `json:"relativePath"`
+	Size         int64                 `json:"size"`
+	DateAdded    time.Time             `json:"dateAdded"`
+	Parts        []model.MediaFilePart `json:"-"`
 }
 
 type episodeRecord struct {
@@ -187,6 +188,7 @@ func (client *Client) Files(seriesIDs []int) ([]FileRecord, error) {
 					continue
 				}
 				parts := map[int][]model.MediaFilePart{}
+				seasonByFileID := map[int]int{}
 				for _, e := range episodes {
 					if e.EpisodeFileID <= 0 {
 						continue
@@ -199,9 +201,11 @@ func (client *Client) Files(seriesIDs []int) ([]FileRecord, error) {
 						Group: fmt.Sprintf("Season %d", e.SeasonNumber), Label: label,
 						Order: e.SeasonNumber*100000 + e.EpisodeNumber, SourcePartID: e.ID,
 					})
+					seasonByFileID[e.EpisodeFileID] = e.SeasonNumber
 				}
 				for i := range xs {
 					xs[i].SeriesID = id
+					xs[i].SeasonNumber = seasonByFileID[xs[i].ID]
 					xs[i].Parts = append([]model.MediaFilePart(nil), parts[xs[i].ID]...)
 				}
 				results <- result{xs, nil}

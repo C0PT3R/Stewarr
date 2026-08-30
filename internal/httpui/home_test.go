@@ -7,6 +7,7 @@ import (
 
 	"connarr/internal/cleanup"
 	"connarr/internal/inventory"
+	"connarr/internal/model"
 )
 
 func TestHomeTemplateRendersStorageDevices(t *testing.T) {
@@ -36,6 +37,38 @@ func TestHomeTemplateRendersStorageDevices(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, want := range []string{"downloads, movies", "ext2/ext3/ext4", "Movies: 500.0 B", "No cleanup", "/data/broken", "permission denied", "storage-bar"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected home output to contain %q, got:\n%s", want, body)
+		}
+	}
+}
+
+func TestHomeTemplateRendersCleanupActions(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := homeData{
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Plan: cleanup.Plan{
+					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
+					Actions: []cleanup.Action{
+						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Old Release"}}, ReclaimableBytes: 10},
+						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
+						{Kind: cleanup.HardlinkedBundle, Media: model.Media{Title: "Bundled Movie"}, Torrents: []model.Torrent{{Name: "Bundled Release"}}, ReclaimableBytes: 10},
+					},
+				},
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.homeTpl, data); err != nil {
+		t.Fatalf("render home template: %v", err)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{"Old Release", "Lonely Movie", "Bundled Movie + 1 hardlinked torrent(s)", "3 action(s) selected"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected home output to contain %q, got:\n%s", want, body)
 		}

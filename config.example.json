@@ -8,13 +8,15 @@
       "type": "radarr",
       "name": "Movies",
       "url": "http://radarr:7878",
-      "api_key": ""
+      "api_key": "",
+      "allow_automatic_removal": false
     },
     {
       "type": "sonarr",
       "name": "Series",
       "url": "http://sonarr:8989",
-      "api_key": ""
+      "api_key": "",
+      "allow_automatic_removal": false
     },
     {
       "type": "jellyfin",
@@ -34,7 +36,8 @@
       "url": "http://qbittorrent:8080",
       "username": "admin",
       "password": "",
-      "api_key": ""
+      "api_key": "",
+      "allow_automatic_removal": false
     }
   ],
   "storage": {
@@ -49,7 +52,9 @@
       "connarr_keep",
       "togetharr_keep",
       "spartarr_keep"
-    ]
+    ],
+    "min_torrent_ratio": 0,
+    "keep_torrent_tags": []
   },
   "valuation": {
     "weights": {
@@ -59,7 +64,8 @@
       "library_age": 10,
       "low_popularity": 10,
       "old_request": 12,
-      "torrent_activity": 10
+      "torrent_activity": 10,
+      "season_recency": 8
     },
     "request_value_bonus": 100,
     "favorite_value_bonus": 1000,
@@ -71,6 +77,7 @@
     }
   },
   "removal": {
-    "dry_run": true
+    "dry_run": true,
+    "auto_enabled": false
   }
 }

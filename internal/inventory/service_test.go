@@ -69,6 +69,52 @@ func TestCurrentCopiedTorrentRemainsCurrentWithoutHardlink(t *testing.T) {
 	}
 }
 
+func TestApplyMediaBundleEstimatesCombinesHardlinkedTorrentBytes(t *testing.T) {
+	media := []model.Media{{Type: model.Movie, SourceID: 7, Title: "Example"}}
+	ref := model.MediaRef{Type: model.Movie, SourceID: 7, Title: "Example"}
+	torrents := []model.Torrent{{Hash: "linked", AssociationStatus: model.TorrentSuperseded, FormerMediaItems: []model.MediaRef{ref}}}
+	files := []model.File{
+		{Path: "/media/example.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 9, Links: 2, SizeBytes: 1000},
+		{Path: "/downloads/example.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 9, Links: 2, SizeBytes: 1000},
+	}
+	mediaRefs := []model.MediaFileRef{{MediaType: model.Movie, MediaID: 7, Path: "/media/example.mkv"}}
+	torrentRefs := []model.TorrentFileRef{{Hash: "linked", Path: "/downloads/example.mkv"}}
+
+	// applyTorrentMediaHardlinks promotes the torrent to Current and publishes
+	// HardlinkedMediaItems, exactly as the real reconciliation flow does
+	// before either estimate function runs.
+	applyTorrentMediaHardlinks(torrents, media, files, mediaRefs, torrentRefs)
+	applyMediaFileEstimates(media, files, mediaRefs)
+	applyMediaBundleEstimates(media, torrents, files, mediaRefs, torrentRefs)
+
+	if !media[0].ReclaimableKnown || media[0].ReclaimableBytes != 0 {
+		t.Fatalf("expected the media alone to report zero reclaimable bytes while the torrent still holds a hardlink: %#v", media[0])
+	}
+	if !media[0].BundleReclaimableKnown || media[0].BundleReclaimableBytes != 1000 {
+		t.Fatalf("expected the bundle estimate to report the full shared size once its hardlinked torrent is included: %#v", media[0])
+	}
+}
+
+func TestApplyMediaBundleEstimatesIgnoresNonHardlinkedCurrentTorrent(t *testing.T) {
+	media := []model.Media{{Type: model.Movie, SourceID: 7, Title: "Example"}}
+	ref := model.MediaRef{Type: model.Movie, SourceID: 7, Title: "Example"}
+	torrents := []model.Torrent{{Hash: "copied", AssociationStatus: model.TorrentCurrent, MediaItems: []model.MediaRef{ref}}}
+	files := []model.File{
+		{Path: "/media/example.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 9, Links: 1, SizeBytes: 1000},
+		{Path: "/downloads/example.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 10, Links: 1, SizeBytes: 1000},
+	}
+	mediaRefs := []model.MediaFileRef{{MediaType: model.Movie, MediaID: 7, Path: "/media/example.mkv"}}
+	torrentRefs := []model.TorrentFileRef{{Hash: "copied", Path: "/downloads/example.mkv"}}
+
+	applyTorrentMediaHardlinks(torrents, media, files, mediaRefs, torrentRefs)
+	applyMediaFileEstimates(media, files, mediaRefs)
+	applyMediaBundleEstimates(media, torrents, files, mediaRefs, torrentRefs)
+
+	if media[0].BundleReclaimableBytes != media[0].ReclaimableBytes {
+		t.Fatalf("a separate copy must never be folded into the bundle estimate: %#v", media[0])
+	}
+}
+
 func TestPreserveJellyfinFacts(t *testing.T) {
 	last := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	previous := []model.Media{{Type: model.Movie, SourceID: 7, Views: 4, UniqueViewers: 2, Favorite: true, LastWatched: &last}}

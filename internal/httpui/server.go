@@ -119,6 +119,9 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
 		}
+		if err := taskManager.Register(tasks.Definition{ID: autoRemovalTaskID, Name: "Automatic removal", Description: "Evaluate cross-domain cleanup plans and submit removals for opted-in integrations.", Interval: autoRemovalEvalInterval, Runner: server.runAutoRemovalEvaluation}); err != nil {
+			return nil, err
+		}
 		if inventoryService != nil {
 			if database := inventoryService.Store(); database != nil {
 				if err := server.recoverScheduledRemovals(database); err != nil {
@@ -237,16 +240,17 @@ func (server *Server) planningReliable(r inventory.Reliability) bool {
 
 // deviceViews builds one cleanup plan per known storage device, since there
 // is no longer a single global storage path to build one plan against.
-func (server *Server) deviceViews(items []model.Media, planningReliable bool) []deviceView {
+func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent, planningReliable bool) []deviceView {
 	devices := server.inv.StorageDevices()
 	if len(devices) == 0 {
 		return nil
 	}
 	mediaByDevice := server.inv.MediaByDevice(items)
+	torrentsByDevice := server.inv.TorrentsByDevice(torrents)
 	cfg := server.inv.Config()
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
-		p, planErr := cleanup.Build(device.RepresentativePath, cfg.Storage.TargetUsagePercent, cfg.Storage.CriticalUsagePercent, mediaByDevice[device.RepresentativePath], planningReliable)
+		p, planErr := cleanup.Build(device.RepresentativePath, cfg.Storage.TargetUsagePercent, cfg.Storage.CriticalUsagePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
 		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr})
 	}
 	return views
@@ -335,9 +339,10 @@ func (server *Server) dashboardSnapshot() homeData {
 	items, updated, last := server.inv.Snapshot()
 	projection := server.pendingProjection()
 	items = projection.filterMedia(items)
+	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
 	reliability := server.inv.ReliabilitySnapshot()
 	planningReliable := server.planningReliable(reliability)
-	d := homeData{Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, planningReliable)}
+	d := homeData{Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, ts, planningReliable)}
 	if !planningReliable && d.LastErr == nil {
 		if server.tasks != nil && server.tasks.ConsistencyPending() {
 			d.LastErr = fmt.Errorf("Automatic removal planning paused. Post-removal synchronization is pending")
@@ -358,7 +363,6 @@ func (server *Server) dashboardSnapshot() homeData {
 			d.Series++
 		}
 	}
-	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
 	d.TotalTorrents = len(ts)
 	for _, t := range ts {
 		switch normalizeTorrentStatus(t.AssociationStatus) {
@@ -1565,8 +1569,9 @@ func (server *Server) refresh(w http.ResponseWriter, r *http.Request) {
 }
 func (server *Server) plan(w http.ResponseWriter, r *http.Request) {
 	x, _, _ := server.inv.Snapshot()
+	t := server.inv.TorrentSnapshot()
 	reliability := server.inv.ReliabilitySnapshot()
-	views := server.deviceViews(x, server.planningReliable(reliability))
+	views := server.deviceViews(x, t, server.planningReliable(reliability))
 	plans := make([]cleanup.Plan, 0, len(views))
 	for _, view := range views {
 		plans = append(plans, view.Plan)

@@ -436,7 +436,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 			continue
 		}
 		p := filepath.Clean(filepath.Join(root, f.Relative))
-		mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...)})
+		mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...), AddedAt: f.DateAdded})
 		if byPath[p] {
 			claimed[p] = true
 		}
@@ -484,6 +484,8 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	applyTorrentFileEstimates(tc, files, torrentRefs)
 	applyTorrentMediaHardlinks(tc, mc, files, mediaRefs, torrentRefs)
 	applyMediaFileEstimates(mc, files, mediaRefs)
+	attachSeasons(mc, mediaRefs, files)
+	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
 	valuation.ApplyTorrents(tc, service.cfg)
 	valuation.ApplyMedia(mc, service.cfg)

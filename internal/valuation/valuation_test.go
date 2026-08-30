@@ -131,3 +131,113 @@ func TestTorrentValueIsIndependentFromMediaAndStorage(t *testing.T) {
 		t.Fatalf("expected explainable torrent value reasons: %#v", items[0].SwarmValueReasons)
 	}
 }
+
+func TestApplyMediaSeasonsInheritSeriesWideProtection(t *testing.T) {
+	c := testConfig()
+	items := []model.Media{{
+		Type: model.Series, Title: "Show", Tags: []string{"keep"},
+		Seasons: []model.Season{{Number: 1}, {Number: 2}},
+	}}
+	ApplyMedia(items, c)
+	if !items[0].Protected {
+		t.Fatalf("expected series to be protected via keep tag: %#v", items[0])
+	}
+	for _, season := range items[0].Seasons {
+		if !season.Protected || season.ProtectionReason != items[0].ProtectionReason {
+			t.Fatalf("expected every season to inherit series-wide protection: %#v", season)
+		}
+	}
+}
+
+func TestApplyMediaSeasonsDifferByRecency(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.SeasonRecency = 20
+	now := time.Now()
+	items := []model.Media{{
+		Type: model.Series, Title: "Show",
+		Seasons: []model.Season{
+			{Number: 1, LastAddedAt: now.AddDate(-3, 0, 0)},
+			{Number: 2, LastAddedAt: now},
+		},
+	}}
+	ApplyMedia(items, c)
+	old, recent := items[0].Seasons[0], items[0].Seasons[1]
+	if recent.RetentionValue <= old.RetentionValue {
+		t.Fatalf("expected the more recently added season to have higher Retention Value: old=%#v recent=%#v", old, recent)
+	}
+}
+
+func TestApplyMediaSeasonsScopeTorrentActivityToTheirOwnSeason(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.TorrentActivity = 10
+	items := []model.Media{{
+		Type: model.Series, Title: "Show",
+		Torrents: []model.Torrent{{Hash: "s1", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, HardlinkedSeasons: []int{1}, LeechersSwarm: 100}},
+		Seasons:  []model.Season{{Number: 1}, {Number: 2}},
+	}}
+	ApplyMedia(items, c)
+	season1, season2 := items[0].Seasons[0], items[0].Seasons[1]
+	if season1.RetentionValue <= season2.RetentionValue {
+		t.Fatalf("expected season 1 alone to receive the hardlinked torrent's activity contribution: season1=%#v season2=%#v", season1, season2)
+	}
+	foundReason := false
+	for _, r := range season1.RetentionValueReasons {
+		if r.Label == "Associated torrent" {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Fatalf("expected season 1 to explain the torrent contribution: %#v", season1.RetentionValueReasons)
+	}
+	for _, r := range season2.RetentionValueReasons {
+		if r.Label == "Associated torrent" {
+			t.Fatalf("season 2 must not receive a season-1-only torrent's contribution: %#v", season2.RetentionValueReasons)
+		}
+	}
+}
+
+func TestApplyTorrentsProtectsBelowMinimumRatio(t *testing.T) {
+	c := testConfig()
+	c.Protection.MinTorrentRatio = 1.0
+	items := []model.Torrent{{Name: "low", Ratio: 0.5}, {Name: "high", Ratio: 2.0}}
+	ApplyTorrents(items, c)
+	if !items[0].Protected || items[0].ProtectionReason != "Below minimum ratio" {
+		t.Fatalf("expected below-ratio torrent to be protected: %#v", items[0])
+	}
+	if items[1].Protected {
+		t.Fatalf("expected above-ratio torrent to remain unprotected: %#v", items[1])
+	}
+}
+
+func TestApplyTorrentsProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing.T) {
+	c := testConfig()
+	c.Protection.KeepTorrentTags = []string{"keep"}
+	items := []model.Torrent{{Name: "tagged", Ratio: 5, Tags: "other, Keep "}, {Name: "untagged", Ratio: 5, Tags: "other"}}
+	ApplyTorrents(items, c)
+	if !items[0].Protected || items[0].ProtectionReason != "Keep tag" {
+		t.Fatalf("expected keep-tagged torrent to be protected: %#v", items[0])
+	}
+	if items[1].Protected {
+		t.Fatalf("expected untagged torrent to remain unprotected: %#v", items[1])
+	}
+}
+
+func TestApplyTorrentsMinRatioZeroProtectsNothing(t *testing.T) {
+	c := testConfig()
+	items := []model.Torrent{{Name: "zero-ratio", Ratio: 0}}
+	ApplyTorrents(items, c)
+	if items[0].Protected {
+		t.Fatalf("MinTorrentRatio of zero (unset) must never protect anything: %#v", items[0])
+	}
+}
+
+func TestApplyTorrentsBothRatioAndTagCanProtectTheSameTorrent(t *testing.T) {
+	c := testConfig()
+	c.Protection.MinTorrentRatio = 1.0
+	c.Protection.KeepTorrentTags = []string{"keep"}
+	items := []model.Torrent{{Name: "both", Ratio: 0.1, Tags: "keep"}}
+	ApplyTorrents(items, c)
+	if !items[0].Protected {
+		t.Fatalf("expected torrent satisfying both protection rules to be protected: %#v", items[0])
+	}
+}

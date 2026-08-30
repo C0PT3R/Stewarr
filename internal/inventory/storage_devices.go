@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"syscall"
 
 	"connarr/internal/model"
@@ -245,6 +246,49 @@ func (service *Service) MediaByDevice(items []model.Media) map[string][]model.Me
 	out := map[string][]model.Media{}
 	for _, item := range items {
 		device, ok := deviceByMediaKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)]
+		if !ok {
+			continue
+		}
+		group, tracked := groups[device]
+		if !tracked {
+			continue
+		}
+		out[group.representative] = append(out[group.representative], item)
+	}
+	return out
+}
+
+// TorrentsByDevice partitions the given torrents by the physical device their
+// own known files resolve to, keyed by that device's representative root path
+// (the same key used by StorageDevices/MediaByDevice). A torrent's device is
+// resolved from its own files, never from any media it may be associated
+// with, so an independent copy on a different device than its media lands in
+// that device's own list rather than leaking into the media's. A torrent
+// whose device cannot be resolved (no known file yet) is omitted.
+func (service *Service) TorrentsByDevice(items []model.Torrent) map[string][]model.Torrent {
+	groups, _, files, _, torrentRefs := service.deviceGroups()
+	if len(groups) == 0 {
+		return nil
+	}
+	deviceByPath := make(map[string]uint64, len(files))
+	for _, f := range files {
+		if f.IdentityKnown {
+			deviceByPath[f.Path] = f.Device
+		}
+	}
+	deviceByHash := map[string]uint64{}
+	for _, ref := range torrentRefs {
+		hash := strings.ToLower(ref.Hash)
+		if _, known := deviceByHash[hash]; known {
+			continue
+		}
+		if device, ok := deviceByPath[ref.Path]; ok {
+			deviceByHash[hash] = device
+		}
+	}
+	out := map[string][]model.Torrent{}
+	for _, item := range items {
+		device, ok := deviceByHash[strings.ToLower(item.Hash)]
 		if !ok {
 			continue
 		}

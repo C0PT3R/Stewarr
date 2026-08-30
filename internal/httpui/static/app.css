@@ -882,6 +882,19 @@ td:has(> a > strong) > a {
   list-style: none;
   font-size: 12.5px;
 }
+.cleanup-actions {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.cleanup-actions li {
+  padding: 2px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.cleanup-actions li:first-child {
+  border-top: 0;
+}
 .storage-legend li {
   display: flex;
   align-items: center;

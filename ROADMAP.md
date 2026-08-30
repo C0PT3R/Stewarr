@@ -2,7 +2,7 @@
 
 This file separates implemented behavior from intended direction. It is not a promise of release dates.
 
-## Implemented through 0.2.10
+## Implemented through 0.2.12
 
 ### Reactive UI state
 
@@ -83,6 +83,54 @@ This file separates implemented behavior from intended direction. It is not a pr
   device; a device Connarr cannot measure is reported Unavailable without
   affecting others.
 
+### Cross-domain cleanup planning (0.2.11)
+
+- Each device's Cleanup plan reasons across Library media and Torrents
+  together, not Media alone. A Media item physically hardlinked to a Current
+  torrent is bundled with it into one action that is proposed or withheld as
+  a unit, since removing only one side would free none of the shared bytes
+  while still discarding real value. A Current torrent proven to be a
+  separate copy remains fully independent; one whose hardlink status is not
+  yet proven is never proposed alone, the same conservative rule as a proven
+  hardlink.
+- Torrent-domain candidates (Superseded, Unassociated, or independent
+  Current copies) are always proposed before any Media-domain candidate on
+  the same device. Media Retention Value and Torrent Swarm Value are
+  deliberately unrelated scores and are never compared numerically; only
+  this tier order decides which domain is tried first.
+- Unmanaged files are never a candidate source for this planner, under any
+  circumstance — this is a permanent exclusion, not a low priority.
+- Shipped as planning computation only, with automatic execution added
+  separately in 0.2.12 below.
+
+### Torrent protection, automatic execution, and season-level Value (0.2.12)
+
+- Torrents gain the same absolute Protection state Media already has:
+  a configured minimum ratio and an explicit keep-tag both exclude a torrent
+  from the planner entirely, regardless of storage pressure. A protected
+  torrent hardlinked to a media item vetoes that whole bundle, not just
+  itself, since removing the bundle would still delete files it needs.
+- A global auto-removal switch and a per-integration opt-in flag gate real,
+  unattended execution of the cross-domain Cleanup plan; both default to
+  false, so a fresh or upgraded install does nothing automatically. A
+  bundled action spanning integrations with mixed opt-in status is skipped
+  entirely, never partially executed. Automatic submissions travel through
+  the exact same admission/durable-history/scheduler path as a manual
+  browser removal, so `removal.dry_run` and every existing safety mechanism
+  (live final-boundary revalidation included) apply identically regardless
+  of what triggered the removal.
+- Evaluation runs as its own periodic task reading only already-published
+  inventory state, independent of the 12-hour File reconciliation task,
+  since storage pressure can appear from swarm activity alone well within
+  that window.
+- Series media gain per-season Retention Value instead of one score for an
+  entire series: series-wide factors (rating, keep tag, favorite, request
+  state) apply identically to every season, plus season-specific recency and
+  torrent activity scoped to whichever season a hardlinked torrent's files
+  actually belong to. The planner proposes individual old seasons of an
+  otherwise-kept show instead of only ever reasoning about a whole series;
+  a movie, or a series with no season data yet, is unaffected.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and
@@ -126,8 +174,6 @@ This file separates implemented behavior from intended direction. It is not a pr
   timelines.
 - Make Target/Critical reclamation thresholds independently configurable per
   storage device rather than one global percentage applied to every device.
-- Build a non-destructive reclamation planner across Library, Torrents, and
-  Unmanaged data.
 - Continue readability work outside the HTTP/UI files touched through 0.2.8.
 
 ## Later
@@ -138,8 +184,13 @@ This file separates implemented behavior from intended direction. It is not a pr
   integration adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly
   configured emergency behavior.
-- User-defined retention preferences and torrent-retention rules.
-- Safe automatic cleanup policy and observed reclamation verification.
+- Per-tracker torrent retention rules (e.g. a hit-and-run window, or a ratio
+  floor that varies by tracker rather than one global value) on top of the
+  global ratio floor and keep-tag protection already implemented (0.2.12).
+  `Torrent.Tracker` is already a reconciled field; this is a policy layer on
+  existing data, not new integration work.
+- Observed reclamation verification: confirming after automatic execution
+  that the predicted bytes were actually freed, not only that the plan ran.
 - Filesystem-specific shared-storage inspectors for reflinks/extents, ZFS,
   Windows, and network filesystems where reliable.
 - Cross-stack diagnostics, repair workflows, global search, and per-item

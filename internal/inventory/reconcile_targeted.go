@@ -193,6 +193,8 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	applyTorrentFileEstimates(tc, files, torrentRefs)
 	applyTorrentMediaHardlinks(tc, mc, files, mediaRefs, torrentRefs)
 	applyMediaFileEstimates(mc, files, mediaRefs)
+	attachSeasons(mc, mediaRefs, files)
+	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
 	valuation.ApplyTorrents(tc, service.cfg)
 	valuation.ApplyMedia(mc, service.cfg)
@@ -305,7 +307,7 @@ func targetedMediaRefs(service *Service, radarrFiles []radarr.FileRecord, sonarr
 	}
 	for _, file := range sonarrFiles {
 		root := roots[fmt.Sprintf("%s:%d", model.Series, file.SeriesID)]
-		refs = append(refs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: file.SeriesID, Source: "sonarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative)), Parts: append([]model.MediaFilePart(nil), file.Parts...)})
+		refs = append(refs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: file.SeriesID, Source: "sonarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative)), Parts: append([]model.MediaFilePart(nil), file.Parts...), AddedAt: file.DateAdded})
 	}
 	return refs
 }
