@@ -25,11 +25,12 @@ const (
 )
 
 type CandidateFile struct {
-	Path     string    `json:"path"`
-	Owner    FileOwner `json:"owner"`
-	OwnerKey string    `json:"ownerKey"`
-	Label    string    `json:"label"`
-	Selected bool      `json:"selected"`
+	Path       string    `json:"path"`
+	Owner      FileOwner `json:"owner"`
+	OwnerKey   string    `json:"ownerKey"`
+	Label      string    `json:"label"`
+	Selected   bool      `json:"selected"`
+	Selectable bool      `json:"selectable"`
 }
 
 type FileState struct {
@@ -38,6 +39,7 @@ type FileState struct {
 	OwnerKey      string    `json:"ownerKey"`
 	Label         string    `json:"label"`
 	Selected      bool      `json:"selected"`
+	Selectable    bool      `json:"selectable"`
 	Exists        bool      `json:"exists"`
 	SizeBytes     int64     `json:"sizeBytes"`
 	IdentityKnown bool      `json:"identityKnown"`
@@ -91,11 +93,12 @@ func Build(kind ObjectKind, key, label string, dryRun bool, candidates []Candida
 	for _, candidate := range candidates {
 		candidate.Path = filepath.Clean(candidate.Path)
 		fileState := FileState{
-			Path:     candidate.Path,
-			Owner:    candidate.Owner,
-			OwnerKey: candidate.OwnerKey,
-			Label:    candidate.Label,
-			Selected: candidate.Selected,
+			Path:       candidate.Path,
+			Owner:      candidate.Owner,
+			OwnerKey:   candidate.OwnerKey,
+			Label:      candidate.Label,
+			Selected:   candidate.Selected,
+			Selectable: candidate.Selectable,
 		}
 
 		fileInfo, err := os.Stat(candidate.Path)
@@ -113,7 +116,7 @@ func Build(kind ObjectKind, key, label string, dryRun bool, candidates []Candida
 
 		stat, identityAvailable := fileInfo.Sys().(*syscall.Stat_t)
 		if !identityAvailable {
-			// Without physical identity, Togetharr cannot determine whether another
+			// Without physical identity, Connarr cannot determine whether another
 			// path references this File. Count a selected existing File once.
 			if candidate.Selected {
 				plan.SelectedPathBytes += fileState.SizeBytes

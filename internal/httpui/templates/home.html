@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{appName}}</title>
+  {{head}}
+</head>
+<body data-controller="shell revisions">
+  {{chrome "home"}}
+  <main id="home-dashboard" data-controller="dashboard" data-live-policy="dashboard">
+    <h1 class="page-title">Home</h1>
+    {{if .LastErr}}<p class="bad">{{.LastErr}}</p>{{end}}
+    <div class="grid">
+      <section class="card">
+        <h2>Storage</h2>
+        {{if .Plan.Available}}
+          <div class="big" data-dashboard-field="storageUsage">{{printf "%.2f" .Plan.UsagePercent}}%</div>
+          <div class="muted" data-dashboard-field="storageTarget">Target {{printf "%.1f" .Plan.TargetUsagePercent}}</div>
+          {{if gt .Plan.NeedBytes 0}}
+            <p class="bad" data-dashboard-field="storageState"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Selected}} media currently selected · {{humanU .Plan.SelectedBytes}} planned.</p>
+          {{else}}
+            <p class="good" data-dashboard-field="storageState"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
+          {{end}}
+        {{else}}
+          <div class="big bad">UNAVAILABLE</div>
+          <p>{{.Plan.Message}}</p>
+          {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
+        {{end}}
+        {{if .UnclaimedAvailable}}<p><a href="/downloads/unclaimed">Unmanaged files →</a></p>{{end}}
+      </section>
+      <section class="card">
+        <h2>Library</h2>
+        <div class="big" data-dashboard-field="totalMedia">{{.TotalMedia}}</div>
+        <div class="kv">
+          <span>Movies</span><b data-dashboard-field="movies">{{.Movies}}</b>
+          <span>Series</span><b data-dashboard-field="series">{{.Series}}</b>
+          <span>Library size</span><b data-dashboard-field="libraryBytes">{{human .LibraryBytes}}</b>
+        </div>
+        <p><a href="/library">Browse Library →</a></p>
+      </section>
+      <section class="card">
+        <h2>Torrents</h2>
+        <div class="big" data-dashboard-field="totalTorrents">{{.TotalTorrents}}</div>
+        <div class="kv">
+          <span>Current</span><b class="current-status" data-dashboard-field="current">{{.Current}}</b>
+          <span>Superseded</span><b class="superseded" data-dashboard-field="superseded">{{.Superseded}}</b>
+          <span>Unassociated</span><b class="unassociated" data-dashboard-field="unassociated">{{.Unassociated}}</b>
+          {{if gt .ObsoleteKnown 0}}<span>Known reclaimable</span><b data-dashboard-field="obsoleteReclaimable">{{human .ObsoleteReclaimable}}</b>{{end}}
+        </div>
+        <p><a href="/torrents">Browse Torrents →</a></p>
+        {{if .UnclaimedError}}<p class="warn">Unclaimed scan unavailable: {{.UnclaimedError}}</p>{{end}}
+      </section>
+      <section class="card">
+        <h2>Lifetime statistics</h2>
+        <div class="big" data-dashboard-field="reclaimedBytes">{{human .Stats.ReclaimedBytes}}</div>
+        <div class="muted">actual space reclaimed</div>
+        <div class="kv card-kv">
+          <span>Cleanup runs</span><b data-dashboard-field="runs">{{.Stats.Runs}}</b>
+          <span>Media removed</span><b data-dashboard-field="mediaRemoved">{{.Stats.MediaRemoved}}</b>
+          <span>Torrents removed</span><b data-dashboard-field="torrentsRemoved">{{.Stats.TorrentsRemoved}}</b>
+          <span>Library bytes removed</span><b data-dashboard-field="mediaBytes">{{human .Stats.MediaBytes}}</b>
+          <span>Last 30 days</span><b data-dashboard-field="last30Bytes">{{human .Stats.Last30Bytes}}</b>
+        </div>
+        <p><a href="/history">Cleanup history →</a></p>
+      </section>
+      {{if .Services}}
+      <section class="card">
+        <h2>Services</h2>
+        <div class="kv">{{range .Services}}<span>{{.Name}}</span><b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b>{{end}}</div>
+      </section>
+      {{end}}
+    </div>
+  </main>
+</body>
+</html>

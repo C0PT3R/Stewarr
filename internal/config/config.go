@@ -53,28 +53,30 @@ type Integration struct {
 	ID       string `json:"-"`
 }
 
-func integrationID(t, u string) string {
-	h := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(t)) + "\x00" + strings.TrimRight(strings.TrimSpace(u), "/")))
-	return strings.ToLower(strings.TrimSpace(t)) + "-" + hex.EncodeToString(h[:6])
+func integrationID(integrationType, endpoint string) string {
+	normalizedType := strings.ToLower(strings.TrimSpace(integrationType))
+	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	digest := sha256.Sum256([]byte(normalizedType + "\x00" + normalizedEndpoint))
+	return normalizedType + "-" + hex.EncodeToString(digest[:6])
 }
 
-func (i Integration) Enabled() bool {
-	return strings.TrimSpace(i.URL) != "" || strings.TrimSpace(i.RootPath) != ""
+func (integration Integration) Enabled() bool {
+	return strings.TrimSpace(integration.URL) != "" || strings.TrimSpace(integration.RootPath) != ""
 }
 
-func (c Config) IntegrationsOfType(t string) []Integration {
-	out := []Integration{}
-	for _, i := range c.Integrations {
-		if strings.EqualFold(i.Type, t) {
-			out = append(out, i)
+func (configuration Config) IntegrationsOfType(integrationType string) []Integration {
+	matchingIntegrations := []Integration{}
+	for _, integration := range configuration.Integrations {
+		if strings.EqualFold(integration.Type, integrationType) {
+			matchingIntegrations = append(matchingIntegrations, integration)
 		}
 	}
-	return out
+	return matchingIntegrations
 }
-func (c Config) FirstIntegration(t string) (Integration, bool) {
-	for _, i := range c.Integrations {
-		if strings.EqualFold(i.Type, t) {
-			return i, true
+func (configuration Config) FirstIntegration(integrationType string) (Integration, bool) {
+	for _, integration := range configuration.Integrations {
+		if strings.EqualFold(integration.Type, integrationType) {
+			return integration, true
 		}
 	}
 	return Integration{}, false
@@ -121,160 +123,173 @@ type QBittorrentService struct {
 	APIKey   string `json:"api_key"`
 }
 
-func firstNonEmpty(v, fallback string) string {
-	if strings.TrimSpace(v) != "" {
-		return v
+func firstNonEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
 	}
 	return fallback
 }
 
 func Load(path string) (Config, error) {
-	var c Config
-	c.Removal.DryRun = true
-	b, err := os.ReadFile(path)
+	var configuration Config
+	configuration.Removal.DryRun = true
+	fileContents, err := os.ReadFile(path)
 	if err != nil {
-		return c, err
+		return configuration, err
 	}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return c, err
+	if err := json.Unmarshal(fileContents, &configuration); err != nil {
+		return configuration, err
 	}
+	var present struct {
+		Valuation struct {
+			TorrentWeights *json.RawMessage `json:"torrent_weights"`
+		} `json:"valuation"`
+		Scoring struct {
+			TorrentWeights *json.RawMessage `json:"torrent_weights"`
+		} `json:"scoring"`
+	}
+	_ = json.Unmarshal(fileContents, &present)
 	// Migrate the legacy one-service-per-type shape in memory. New configs should
 	// use integrations[]. The stable internal ID deliberately excludes Name so
 	// renaming an integration does not sever persisted ownership.
-	if len(c.Integrations) == 0 {
-		if c.Radarr.URL != "" {
-			c.Integrations = append(c.Integrations, Integration{Type: "radarr", Name: "Movies", URL: c.Radarr.URL, APIKey: c.Radarr.APIKey})
+	if len(configuration.Integrations) == 0 {
+		if configuration.Radarr.URL != "" {
+			configuration.Integrations = append(configuration.Integrations, Integration{Type: "radarr", Name: "Movies", URL: configuration.Radarr.URL, APIKey: configuration.Radarr.APIKey})
 		}
-		if c.Sonarr.URL != "" {
-			c.Integrations = append(c.Integrations, Integration{Type: "sonarr", Name: "Series", URL: c.Sonarr.URL, APIKey: c.Sonarr.APIKey})
+		if configuration.Sonarr.URL != "" {
+			configuration.Integrations = append(configuration.Integrations, Integration{Type: "sonarr", Name: "Series", URL: configuration.Sonarr.URL, APIKey: configuration.Sonarr.APIKey})
 		}
-		if c.Jellyfin.URL != "" {
-			c.Integrations = append(c.Integrations, Integration{Type: "jellyfin", Name: "Jellyfin", URL: c.Jellyfin.URL, APIKey: c.Jellyfin.APIKey})
+		if configuration.Jellyfin.URL != "" {
+			configuration.Integrations = append(configuration.Integrations, Integration{Type: "jellyfin", Name: "Jellyfin", URL: configuration.Jellyfin.URL, APIKey: configuration.Jellyfin.APIKey})
 		}
-		if c.Seerr.URL != "" {
-			c.Integrations = append(c.Integrations, Integration{Type: "seerr", Name: "Seerr", URL: c.Seerr.URL, APIKey: c.Seerr.APIKey})
+		if configuration.Seerr.URL != "" {
+			configuration.Integrations = append(configuration.Integrations, Integration{Type: "seerr", Name: "Seerr", URL: configuration.Seerr.URL, APIKey: configuration.Seerr.APIKey})
 		}
-		if c.QBittorrent.URL != "" {
-			c.Integrations = append(c.Integrations, Integration{Type: "qbittorrent", Name: firstNonEmpty(c.QBittorrent.Name, "Downloader"), URL: c.QBittorrent.URL, APIKey: c.QBittorrent.APIKey, Username: c.QBittorrent.Username, Password: c.QBittorrent.Password})
+		if configuration.QBittorrent.URL != "" {
+			configuration.Integrations = append(configuration.Integrations, Integration{Type: "qbittorrent", Name: firstNonEmpty(configuration.QBittorrent.Name, "Downloader"), URL: configuration.QBittorrent.URL, APIKey: configuration.QBittorrent.APIKey, Username: configuration.QBittorrent.Username, Password: configuration.QBittorrent.Password})
 		}
 	}
 	seenNames := map[string]bool{}
 	typeCounts := map[string]int{}
-	for n := range c.Integrations {
-		i := &c.Integrations[n]
-		i.Type = strings.ToLower(strings.TrimSpace(i.Type))
-		i.Name = strings.TrimSpace(i.Name)
-		i.URL = strings.TrimRight(strings.TrimSpace(i.URL), "/")
-		i.RootPath = strings.TrimSpace(i.RootPath)
-		if i.Type == "" {
-			return c, fmt.Errorf("integrations[%d].type is required", n)
+	for integrationIndex := range configuration.Integrations {
+		integration := &configuration.Integrations[integrationIndex]
+		integration.Type = strings.ToLower(strings.TrimSpace(integration.Type))
+		integration.Name = strings.TrimSpace(integration.Name)
+		integration.URL = strings.TrimRight(strings.TrimSpace(integration.URL), "/")
+		integration.RootPath = strings.TrimSpace(integration.RootPath)
+		if integration.Type == "" {
+			return configuration, fmt.Errorf("integrations[%d].type is required", integrationIndex)
 		}
-		if i.Name == "" {
-			return c, fmt.Errorf("integrations[%d].name is required", n)
+		if integration.Name == "" {
+			return configuration, fmt.Errorf("integrations[%d].name is required", integrationIndex)
 		}
-		nameKey := strings.ToLower(i.Name)
+		nameKey := strings.ToLower(integration.Name)
 		if nameKey == "unclaimed" {
-			return c, fmt.Errorf("integration name %q is reserved", i.Name)
+			return configuration, fmt.Errorf("integration name %q is reserved", integration.Name)
 		}
 		if seenNames[nameKey] {
-			return c, fmt.Errorf("integration name %q must be unique (case-insensitive)", i.Name)
+			return configuration, fmt.Errorf("integration name %q must be unique (case-insensitive)", integration.Name)
 		}
 		seenNames[nameKey] = true
-		endpoint := i.URL
+		endpoint := integration.URL
 		if endpoint == "" {
-			endpoint = i.RootPath
+			endpoint = integration.RootPath
 		}
-		i.ID = integrationID(i.Type, endpoint)
-		typeCounts[i.Type]++
-		switch i.Type {
+		integration.ID = integrationID(integration.Type, endpoint)
+		typeCounts[integration.Type]++
+		switch integration.Type {
 		case "radarr", "sonarr", "qbittorrent", "jellyfin", "seerr":
-			if i.URL == "" {
-				return c, fmt.Errorf("integration %q (%s) requires url", i.Name, i.Type)
+			if integration.URL == "" {
+				return configuration, fmt.Errorf("integration %q (%s) requires url", integration.Name, integration.Type)
+			}
+			if integration.RootPath != "" {
+				return configuration, fmt.Errorf("integration %q (%s) does not support root_path; storage roots are discovered by its adapter", integration.Name, integration.Type)
 			}
 		default:
-			if i.RootPath == "" {
-				return c, fmt.Errorf("integration %q (%s) does not expose roots; root_path is required", i.Name, i.Type)
-			}
+			return configuration, fmt.Errorf("integration %q has unsupported type %q", integration.Name, integration.Type)
 		}
 	}
 	// The config/domain now has stable integration instances, but the current
 	// runtime still has one adapter slot per integration type. Fail closed rather
 	// than silently ignoring a second owner and falsely classifying its files as
 	// Unclaimed. This guard can be removed when adapter fan-out is completed.
-	for typ, n := range typeCounts {
-		if n > 1 {
-			return c, fmt.Errorf("multiple %s integration instances are not supported by this runtime yet", typ)
+	for integrationType, count := range typeCounts {
+		if count > 1 {
+			return configuration, fmt.Errorf("multiple %s integration instances are not supported by this runtime yet", integrationType)
 		}
 	}
 	// Populate legacy fields for code paths that are intentionally still
 	// single-instance while the integration-instance migration proceeds.
-	if i, ok := c.FirstIntegration("radarr"); ok {
-		c.Radarr = Service{URL: i.URL, APIKey: i.APIKey}
+	if integration, ok := configuration.FirstIntegration("radarr"); ok {
+		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
 	}
-	if i, ok := c.FirstIntegration("sonarr"); ok {
-		c.Sonarr = Service{URL: i.URL, APIKey: i.APIKey}
+	if integration, ok := configuration.FirstIntegration("sonarr"); ok {
+		configuration.Sonarr = Service{URL: integration.URL, APIKey: integration.APIKey}
 	}
-	if i, ok := c.FirstIntegration("jellyfin"); ok {
-		c.Jellyfin = Service{URL: i.URL, APIKey: i.APIKey}
+	if integration, ok := configuration.FirstIntegration("jellyfin"); ok {
+		configuration.Jellyfin = Service{URL: integration.URL, APIKey: integration.APIKey}
 	}
-	if i, ok := c.FirstIntegration("seerr"); ok {
-		c.Seerr = Service{URL: i.URL, APIKey: i.APIKey}
+	if integration, ok := configuration.FirstIntegration("seerr"); ok {
+		configuration.Seerr = Service{URL: integration.URL, APIKey: integration.APIKey}
 	}
-	if i, ok := c.FirstIntegration("qbittorrent"); ok {
-		c.QBittorrent = QBittorrentService{Name: i.Name, URL: i.URL, APIKey: i.APIKey, Username: i.Username, Password: i.Password}
+	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
+		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
 	}
 	// Accept pre-Value configs without keeping the old terminology in the domain model.
-	if c.Valuation.Weights == (ValueWeights{}) && c.Valuation.RequestValueBonus == 0 && c.Valuation.FavoriteValueBonus == 0 && c.Valuation.KeepTagValueBonus == 0 {
-		c.Valuation = c.LegacyScoring
+	if configuration.Valuation.Weights == (ValueWeights{}) && configuration.Valuation.RequestValueBonus == 0 && configuration.Valuation.FavoriteValueBonus == 0 && configuration.Valuation.KeepTagValueBonus == 0 {
+		configuration.Valuation = configuration.LegacyScoring
 	}
-	if c.Valuation.RequestValueBonus == 0 {
-		c.Valuation.RequestValueBonus = c.Valuation.RequestStrengthBonus
+	if configuration.Valuation.RequestValueBonus == 0 {
+		configuration.Valuation.RequestValueBonus = configuration.Valuation.RequestStrengthBonus
 	}
-	if c.Valuation.FavoriteValueBonus == 0 {
-		c.Valuation.FavoriteValueBonus = c.Valuation.FavoriteStrengthBonus
+	if configuration.Valuation.FavoriteValueBonus == 0 {
+		configuration.Valuation.FavoriteValueBonus = configuration.Valuation.FavoriteStrengthBonus
 	}
-	if c.Valuation.KeepTagValueBonus == 0 {
-		c.Valuation.KeepTagValueBonus = c.Valuation.KeepTagStrengthBonus
+	if configuration.Valuation.KeepTagValueBonus == 0 {
+		configuration.Valuation.KeepTagValueBonus = configuration.Valuation.KeepTagStrengthBonus
 	}
-	if c.Server.Listen == "" {
-		c.Server.Listen = ":8088"
+	if configuration.Server.Listen == "" {
+		configuration.Server.Listen = ":8088"
 	}
-	if c.Server.RefreshInterval == "" {
-		c.Server.RefreshInterval = "30m"
+	if configuration.Server.RefreshInterval == "" {
+		configuration.Server.RefreshInterval = "30m"
 	}
-	c.RefreshInterval, err = time.ParseDuration(c.Server.RefreshInterval)
+	configuration.RefreshInterval, err = time.ParseDuration(configuration.Server.RefreshInterval)
 	if err != nil {
-		return c, fmt.Errorf("server.refresh_interval: %w", err)
+		return configuration, fmt.Errorf("server.refresh_interval: %w", err)
 	}
-	if c.Protection.SeerrRequestGrace == "" {
-		c.Protection.SeerrRequestGrace = "8760h"
+	if configuration.RefreshInterval <= 0 {
+		return configuration, fmt.Errorf("server.refresh_interval must be greater than zero")
 	}
-	c.RequestGrace, err = time.ParseDuration(c.Protection.SeerrRequestGrace)
+	if configuration.Protection.SeerrRequestGrace == "" {
+		configuration.Protection.SeerrRequestGrace = "8760h"
+	}
+	configuration.RequestGrace, err = time.ParseDuration(configuration.Protection.SeerrRequestGrace)
 	if err != nil {
-		return c, fmt.Errorf("protection.seerr_request_grace: %w", err)
+		return configuration, fmt.Errorf("protection.seerr_request_grace: %w", err)
 	}
-	if c.Valuation.TorrentWeights.Seeds == 0 && c.Valuation.TorrentWeights.Leechers == 0 && c.Valuation.TorrentWeights.UploadRate == 0 {
-		c.Valuation.TorrentWeights.Seeds = 1
-		c.Valuation.TorrentWeights.Leechers = 5
-		c.Valuation.TorrentWeights.UploadRate = 5
+	if configuration.RequestGrace < 0 {
+		return configuration, fmt.Errorf("protection.seerr_request_grace must not be negative")
 	}
-	if c.Storage.Path == "" {
-		c.Storage.Path = "/data"
+	if present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights == nil {
+		configuration.Valuation.TorrentWeights.Seeds = 1
+		configuration.Valuation.TorrentWeights.Leechers = 5
+		configuration.Valuation.TorrentWeights.UploadRate = 5
 	}
-	if c.Storage.TargetUsagePercent <= 0 {
-		c.Storage.TargetUsagePercent = 90
+	if configuration.Storage.Path == "" {
+		configuration.Storage.Path = "/data"
 	}
-	if c.Storage.TargetUsagePercent >= 100 {
-		return c, fmt.Errorf("storage.target_usage_percent must be greater than 0 and less than 100")
+	if configuration.Storage.TargetUsagePercent <= 0 {
+		configuration.Storage.TargetUsagePercent = 90
 	}
-	if c.Storage.CriticalUsagePercent <= 0 {
-		c.Storage.CriticalUsagePercent = c.Storage.TargetUsagePercent
+	if configuration.Storage.TargetUsagePercent >= 100 {
+		return configuration, fmt.Errorf("storage.target_usage_percent must be greater than 0 and less than 100")
 	}
-	if c.Storage.CriticalUsagePercent >= 100 {
-		return c, fmt.Errorf("storage.critical_usage_percent must be greater than 0 and less than 100")
+	if configuration.Storage.CriticalUsagePercent <= 0 {
+		configuration.Storage.CriticalUsagePercent = 95
 	}
-	if c.Storage.CriticalUsagePercent < c.Storage.TargetUsagePercent {
-		return c, fmt.Errorf("storage.critical_usage_percent must be greater than or equal to storage.target_usage_percent")
+	if configuration.Storage.CriticalUsagePercent >= 100 {
+		return configuration, fmt.Errorf("storage.critical_usage_percent must be greater than 0 and less than 100")
 	}
-	return c, nil
+	return configuration, nil
 }

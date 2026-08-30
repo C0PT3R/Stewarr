@@ -1,10 +1,23 @@
 package inventory
 
 import (
+	"connarr/internal/config"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestKnownIntegrationRootFallbackOnlyWhenDiscoveryIsEmpty(t *testing.T) {
+	i := config.Integration{Type: "radarr", Name: "Movies", RootPath: "/fallback"}
+	got := configuredOrDiscoveredRoots(i, []string{"/authoritative"})
+	if len(got) != 1 || got[0].Path != "/authoritative" {
+		t.Fatalf("fallback overrode discovery: %#v", got)
+	}
+	got = configuredOrDiscoveredRoots(i, nil)
+	if len(got) != 1 || got[0].Path != "/fallback" {
+		t.Fatalf("missing configured fallback: %#v", got)
+	}
+}
 
 func TestCollapseStorageRootsAvoidsDuplicateSubtree(t *testing.T) {
 	got := collapse([]string{"/data/Series", "/data", "/data/Series", "/downloads"})
@@ -41,5 +54,23 @@ func TestWalkRootsCreatesOnlyExistingRegularFilesAndPreservesHardlinkIdentity(t 
 func TestWalkRootsFailsClosedOnMissingRoot(t *testing.T) {
 	if _, err := walkRoots([]string{filepath.Join(t.TempDir(), "missing")}); err == nil {
 		t.Fatal("expected missing root to fail reconciliation")
+	}
+}
+
+func TestWalkStorageRootsMergesOverlappingIntegrationContexts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "movie.mkv")
+	if err := os.WriteFile(path, []byte("media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := walkStorageRoots([]storageRoot{
+		{Path: root, Integration: config.Integration{ID: "radarr", Type: "radarr", Name: "Movies"}},
+		{Path: root, Integration: config.Integration{ID: "jellyfin", Type: "jellyfin", Name: "Jellyfin"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || len(files[0].StorageContexts) != 2 {
+		t.Fatalf("files=%#v", files)
 	}
 }

@@ -1,0 +1,167 @@
+<div class="removal-overlay"
+     data-controller="removal"
+     data-removal-model-value="{{.SelectionModel}}"
+     data-action="click->removal#backdrop">
+  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="removal-title" tabindex="-1">
+    <div class="top">
+      <div>
+        <h2 id="removal-title">
+          {{if eq (printf "%s" .Plan.Kind) "media"}}Remove media
+          {{else if eq (printf "%s" .Plan.Kind) "torrent"}}Remove torrent
+          {{else}}Remove files{{end}}
+        </h2>
+        <div class="muted">{{.Plan.RequestedLabel}}</div>
+      </div>
+      {{if .Plan.DryRun}}<span class="dry">DRY RUN</span>{{end}}
+    </div>
+    <div class="removal-scroll">
+    {{if .Plan.DryRun}}<p class="warn">Dry run — nothing will be removed.</p>{{end}}
+
+    <div data-removal-consequences>
+      <div class="summary">
+        <div>
+          <div class="muted">Storage reclaimed</div>
+          <div class="big" data-removal-target="reclaimed">{{human .Plan.ReclaimableBytes}}</div>
+          <div class="muted" data-removal-target="selectedSummary">
+            {{if gt .SelectedFileCount 0}}{{.SelectedFileCount}} file{{if ne .SelectedFileCount 1}}s{{end}} selected · {{human .SelectedLogicalBytes}}{{end}}
+          </div>
+        </div>
+      </div>
+      <div class="storage-guidance" data-removal-target="guidance" {{if not .StorageGuidanceTitle}}hidden{{end}}>
+        <p><strong data-removal-target="guidanceTitle">{{.StorageGuidanceTitle}}</strong></p>
+        <p data-removal-target="guidanceAction">{{.StorageGuidanceAction}}</p>
+      </div>
+      <div data-removal-target="warnings">{{range .Plan.Warnings}}<p class="bad">{{.}}</p>{{end}}</div>
+    </div>
+
+    {{if or .ManagedFileCount .TorrentTarget .RelatedManaged .Related .RelatedUnclaimed}}
+    <form data-removal-target="selection"
+          data-action="change->removal#selectionChanged"
+          method="get">
+      {{if eq (printf "%s" .Plan.Kind) "media"}}
+        {{if .ManagedFileCount}}
+        <section class="optional" data-managed-scope>
+          <h3>{{.ManagedSectionLabel}}</h3>
+          <div class="managed-tree">
+          {{range .ManagedGroups}}
+            {{if and .Complete (ne .Label "Files") (gt (len .Files) 1)}}
+            <details class="managed-group managed-season" data-managed-group>
+              <summary><label class="group-label"><input data-managed-group-all type="checkbox"> {{.Label}} · {{len .Files}} episodes · {{human .SizeBytes}}</label></summary>
+              <div>{{range .Files}}<div class="row managed-file"><label><input data-managed-pick data-physical-pick data-physical-key="{{.PhysicalKey}}" type="checkbox" {{if .Selected}}checked{{end}}><span><strong class="managed-name" title="{{.Filename}}">{{.Filename}}</strong><span class="muted managed-description">{{if and .Label (ne .Label .Filename)}}{{.Label}} · {{end}}{{human .File.SizeBytes}}</span></span></label></div>{{end}}</div>
+            </details>
+            {{else}}
+            <div class="managed-group{{if eq .Label "Files"}} root-files{{end}}" data-managed-group>
+              {{if ne .Label "Files"}}<label class="group-label"><input data-managed-group-all type="checkbox"> {{.Label}}{{if gt .TotalFiles 0}} · {{len .Files}}/{{.TotalFiles}} episodes{{end}} · {{human .SizeBytes}}</label>{{end}}
+              {{range .Files}}<div class="row managed-file"><label><input data-managed-pick data-physical-pick data-physical-key="{{.PhysicalKey}}" type="checkbox" {{if .Selected}}checked{{end}}><span><strong class="managed-name" title="{{.Filename}}">{{.Filename}}</strong><span class="muted managed-description">{{if and .Label (ne .Label .Filename)}}{{.Label}} · {{end}}{{human .File.SizeBytes}}</span></span></label></div>{{end}}
+            </div>
+            {{end}}
+          {{end}}
+          </div>
+        </section>
+        {{end}}
+      {{else if .TorrentTarget}}
+        <section class="optional">
+          <h3>Torrent</h3>
+          <div class="row"><label><input data-target-pick type="checkbox" name="target" value="1" {{if .TorrentSelected}}checked{{end}}> <strong>{{.Plan.RequestedLabel}}</strong></label></div>
+        </section>
+      {{end}}
+
+      {{if and .RelatedManaged (ne (printf "%s" .Plan.Kind) "torrent")}}
+      <section class="optional">
+        <h3>Library files</h3>
+        {{range .RelatedManaged}}
+        <div class="managed-media" data-managed-scope>
+          <label class="group-label"><input data-managed-all type="checkbox"> <strong>{{.Media.Title}}{{if .Media.Year}} ({{.Media.Year}}){{end}}</strong> <span class="muted">· {{.FileCount}} file{{if ne .FileCount 1}}s{{end}}</span></label>
+          {{range .Groups}}
+          <div class="managed-group" data-managed-group>
+            {{if ne .Label "Files"}}<label class="group-label"><input data-managed-group-all type="checkbox"> {{.Label}} · {{len .Files}} file{{if ne (len .Files) 1}}s{{end}}</label>{{end}}
+            {{range .Files}}<div class="row managed-file"><label><input data-managed-pick type="checkbox" name="managed_file" value="{{managedKey .Ref}}" {{if .Selected}}checked{{end}}><span><strong class="managed-name" title="{{.Filename}}">{{.Filename}}</strong><span class="muted managed-description">{{if .Label}}{{.Label}} · {{end}}{{human .File.SizeBytes}}</span></span></label></div>{{end}}
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+      </section>
+      {{end}}
+
+      {{if .RelatedGroups}}
+      <section class="optional">
+        <h3>{{if eq (printf "%s" .Plan.Kind) "media"}}Media torrents · {{.RelatedTorrentCount}}{{else}}Related torrents{{end}}</h3>
+        {{if eq (printf "%s" .Plan.Kind) "media"}}<p class="muted">{{.SelectedTorrentCount}} selected for removal · {{.PreservedTorrentCount}} preserved. Current torrents may be selected; Superseded torrents are historical context.</p>{{end}}
+        {{range .RelatedGroups}}
+        <div class="torrent-group" data-linked-scope>
+          <h4>{{.Label}}</h4>
+          {{range .Torrents}}<div class="row torrent-action-row">{{if .Selectable}}<label><input data-linked-pick type="checkbox" name="torrent" value="{{.Torrent.Hash}}" {{if .Selected}}checked{{end}}> <strong>{{.Torrent.Name}}</strong></label>{{else}}<strong>{{.Torrent.Name}}</strong>{{end}}<div class="muted linked-meta">{{.FileCount}} file{{if ne .FileCount 1}}s{{end}} · {{human .Torrent.SizeBytes}}{{if .PhysicallyBacks}} · physically backs this media{{else if .Selectable}} · current import relationship · not hardlinked{{else}} · preserved historical relationship{{end}}</div></div>{{end}}
+        </div>
+        {{end}}
+      </section>
+      {{end}}
+
+      {{if and .RelatedUnclaimed (eq (printf "%s" .Plan.Kind) "unclaimed")}}
+      <section class="optional" data-unclaimed-scope>
+        <h3>Related unmanaged files</h3>
+        <label><input data-unclaimed-all type="checkbox"> Select all</label>
+        {{range .RelatedUnclaimed}}<div class="row"><label><input data-unclaimed-pick type="checkbox" name="unclaimed_path" value="{{.Path}}" {{if .Selected}}checked{{end}}> <strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}}</span></label></div>{{end}}
+      </section>
+      {{end}}
+
+      {{if and .RelatedUnclaimed (eq (printf "%s" .Plan.Kind) "torrent")}}
+      <section class="optional">
+        <h3>Preserved related library paths</h3>
+        <p class="muted">These paths share physical files with the torrent. Removing the torrent does not remove them.</p>
+        {{range .RelatedUnclaimed}}<div class="row"><strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}} · preserved</span></div>{{end}}
+      </section>
+      {{end}}
+    </form>
+    {{end}}
+
+    <details data-removal-storage>
+      <summary>Files and storage ({{len .FileGroups}} physical file{{if ne (len .FileGroups) 1}}s{{end}} · {{len .Plan.Files}} path{{if ne (len .Plan.Files) 1}}s{{end}})</summary>
+      {{range .FileGroups}}
+      <div class="row"><div>
+        {{range .DisplayPaths}}<div class="mono file-path" title="{{.Path}}"><strong>{{.Label}}:</strong> {{shortPath .Text}}</div>{{end}}
+        <div class="muted">{{if .Exists}}{{human .SizeBytes}}{{if and .IdentityKnown (gt .Links 1)}} · <span class="hardlink">hardlinked{{if gt .MissingLinks 0}} · <span class="bad">{{.MissingLinks}} hardlink{{if ne .MissingLinks 1}}s{{end}} missing</span>{{else}} · {{len .Paths}} paths to the same physical file{{end}}</span>{{end}}{{else}}missing{{end}}{{if .Error}} · {{.Error}}{{end}}</div>
+      </div></div>
+      {{else}}<p class="muted">No files.</p>{{end}}
+    </details>
+
+    <form id="removal-execute-form" data-removal-target="execute" data-action="submit->removal#submit" method="post" action="/removal/execute">
+      <input type="hidden" name="kind" value="{{.Plan.Kind}}">
+      <input type="hidden" name="operation_token" value="{{.OperationToken}}">
+      {{if eq (printf "%s" .Plan.Kind) "media"}}
+        <input type="hidden" name="media_type" value="{{.MediaType}}">
+        <input type="hidden" name="media_id" value="{{.MediaID}}">
+      {{else if eq (printf "%s" .Plan.Kind) "torrent"}}
+        <input type="hidden" name="hash" value="{{.Hash}}">
+      {{end}}
+      <div data-removal-target="generatedInputs">
+        {{if eq (printf "%s" .Plan.Kind) "media"}}
+          {{range .SelectedManaged}}<input data-generated-input type="hidden" name="managed_file" value="{{managedKey .}}">{{end}}
+          {{range .Related}}{{if .Selected}}<input data-generated-input type="hidden" name="torrent" value="{{.Torrent.Hash}}">{{end}}{{end}}
+        {{else if eq (printf "%s" .Plan.Kind) "torrent"}}
+          {{if .TorrentSelected}}<input data-generated-input type="hidden" name="target" value="1">{{end}}
+        {{else}}
+          {{range .UnclaimedPaths}}<input data-generated-input type="hidden" name="path" value="{{.}}">{{end}}
+        {{end}}
+      </div>
+
+      {{if or .CanUnmonitorMovies .CanUnmonitorEpisodes .CanExcludeMovies .CanExcludeSeries}}
+      <section class="owner-options">
+        <h3>After removal</h3>
+        {{if .CanUnmonitorMovies}}<label><input type="checkbox" name="unmonitor_movies" value="1"> Unmonitor affected movies</label><br>{{end}}
+        {{if .CanUnmonitorEpisodes}}<label><input type="checkbox" name="unmonitor_episodes" value="1"> Unmonitor affected episodes</label><br>{{end}}
+        {{if .CanExcludeMovies}}<label><input type="checkbox" name="exclude_movies" value="1"> Add affected movies to import list exclusions</label><br>{{end}}
+        {{if .CanExcludeSeries}}<label><input type="checkbox" name="exclude_series" value="1"> Add affected series to import list exclusions</label>{{end}}
+      </section>
+      {{end}}
+
+      <p class="bad operation-error" data-removal-target="error" hidden></p>
+    </form>
+    </div>
+    <div class="actions">
+      <button type="button" data-action="removal#cancel">Cancel</button>
+      <button form="removal-execute-form" data-removal-target="submitButton" class="{{if .Plan.DryRun}}simulate{{else}}danger{{end}}" type="submit" {{if eq .SelectedActions 0}}disabled{{end}}>
+        {{if .Plan.DryRun}}Simulate{{else}}Remove selected{{end}}
+      </button>
+    </div>
+  </main>
+</div>

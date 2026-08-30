@@ -3,12 +3,14 @@ package cleanup
 import (
 	"fmt"
 	"syscall"
-	"togetharr/internal/model"
+
+	"connarr/internal/model"
 )
 
 type Plan struct {
 	TargetUsagePercent   float64       `json:"targetUsagePercent"`
 	CriticalUsagePercent float64       `json:"criticalUsagePercent"`
+	Reliable             bool          `json:"reliable"`
 	Available            bool          `json:"available"`
 	Path                 string        `json:"path"`
 	TotalBytes           uint64        `json:"totalBytes"`
@@ -22,58 +24,70 @@ type Plan struct {
 	Error                string        `json:"error,omitempty"`
 }
 
-func Build(path string, targetUsage, criticalUsage float64, items []model.Media) (Plan, error) {
-	p := Plan{Path: path, TargetUsagePercent: targetUsage, CriticalUsagePercent: criticalUsage}
-	var st syscall.Statfs_t
-	if err := syscall.Statfs(path, &st); err != nil {
-		p.Message = "Storage unavailable; cleanup planning disabled"
-		p.Error = err.Error()
-		return p, fmt.Errorf("storage path %q: %w", path, err)
+// Build uses Target as the sole storage-reclamation threshold. Critical is
+// carried in the response for configuration compatibility, but belongs to a
+// future emergency/alarm policy and never gates cleanup planning.
+func Build(path string, targetUsage, criticalUsage float64, items []model.Media, reliable bool) (Plan, error) {
+	plan := Plan{Path: path, TargetUsagePercent: targetUsage, CriticalUsagePercent: criticalUsage, Reliable: reliable}
+	var filesystemStats syscall.Statfs_t
+	if err := syscall.Statfs(path, &filesystemStats); err != nil {
+		plan.Message = "Storage unavailable; cleanup planning disabled"
+		plan.Error = err.Error()
+		return plan, fmt.Errorf("storage path %q: %w", path, err)
 	}
-	total := st.Blocks * uint64(st.Bsize)
-	if total == 0 {
+	totalBytes := filesystemStats.Blocks * uint64(filesystemStats.Bsize)
+	if totalBytes == 0 {
 		err := fmt.Errorf("filesystem reports zero total capacity")
-		p.Message = "Storage unavailable; cleanup planning disabled"
-		p.Error = err.Error()
-		return p, fmt.Errorf("storage path %q: %w", path, err)
+		plan.Message = "Storage unavailable; cleanup planning disabled"
+		plan.Error = err.Error()
+		return plan, fmt.Errorf("storage path %q: %w", path, err)
 	}
-	p.Available = true
-	p.TotalBytes = total
-	free := st.Bavail * uint64(st.Bsize)
-	used := total - free
-	p.FreeBytes = free
-	p.UsedBytes = used
-	usagePct := float64(used) / float64(total) * 100
-	p.UsagePercent = usagePct
-	if usagePct < criticalUsage {
-		p.Message = fmt.Sprintf("No cleanup: %.2f%% used (critical %.1f%%, target %.1f%%)", usagePct, criticalUsage, targetUsage)
-		return p, nil
+	plan.Available = true
+	plan.TotalBytes = totalBytes
+	freeBytes := filesystemStats.Bavail * uint64(filesystemStats.Bsize)
+	usedBytes := totalBytes - freeBytes
+	plan.FreeBytes = freeBytes
+	plan.UsedBytes = usedBytes
+	usagePercent := float64(usedBytes) / float64(totalBytes) * 100
+	plan.UsagePercent = usagePercent
+	if usagePercent <= targetUsage {
+		plan.Message = fmt.Sprintf("No cleanup: %.2f%% used (target %.1f%%)", usagePercent, targetUsage)
+		return plan, nil
 	}
-	targetUsed := uint64(float64(total) * targetUsage / 100)
-	if used > targetUsed {
-		p.NeedBytes = used - targetUsed
+	targetUsedBytes := uint64(float64(totalBytes) * targetUsage / 100)
+	if usedBytes > targetUsedBytes {
+		plan.NeedBytes = usedBytes - targetUsedBytes
 	}
-	for _, m := range items {
-		p.Selected = append(p.Selected, m)
-		if m.SizeBytes > 0 {
-			p.SelectedBytes += uint64(m.SizeBytes)
+	if !reliable {
+		plan.Message = "Cleanup planning paused: valuation or File topology is incomplete or stale"
+		return plan, nil
+	}
+	if plan.NeedBytes == 0 {
+		plan.Message = fmt.Sprintf("No cleanup: %.2f%% used (target %.1f%%)", usagePercent, targetUsage)
+		return plan, nil
+	}
+	for _, mediaItem := range items {
+		if mediaItem.Protected || !mediaItem.ReclaimableKnown || mediaItem.ReclaimableBytes <= 0 {
+			continue
 		}
-		if p.SelectedBytes >= p.NeedBytes {
+		plan.Selected = append(plan.Selected, mediaItem)
+		plan.SelectedBytes += uint64(mediaItem.ReclaimableBytes)
+		if plan.SelectedBytes >= plan.NeedBytes {
 			break
 		}
 	}
-	p.Message = fmt.Sprintf("Need to reclaim %s to reach %.1f%% usage", Human(p.NeedBytes), targetUsage)
-	return p, nil
+	plan.Message = fmt.Sprintf("Need to reclaim %s to reach %.1f%% usage", Human(plan.NeedBytes), targetUsage)
+	return plan, nil
 }
 
-func Human(n uint64) string {
-	const u = 1024
-	v := float64(n)
+func Human(bytes uint64) string {
+	const unitSize = 1024
+	value := float64(bytes)
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB"}
-	i := 0
-	for v >= u && i < len(units)-1 {
-		v /= u
-		i++
+	unitIndex := 0
+	for value >= unitSize && unitIndex < len(units)-1 {
+		value /= unitSize
+		unitIndex++
 	}
-	return fmt.Sprintf("%.1f %s", v, units[i])
+	return fmt.Sprintf("%.1f %s", value, units[unitIndex])
 }

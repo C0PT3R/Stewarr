@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"togetharr/internal/model"
+	"connarr/internal/model"
 )
 
 type identity struct {
@@ -36,7 +36,7 @@ type Index struct {
 func mediaKey(kind model.MediaType, id int) string { return string(kind) + ":" + strconv.Itoa(id) }
 
 func New(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) *Index {
-	x := &Index{
+	index := &Index{
 		files:         map[string]model.File{},
 		identityPaths: map[identity][]string{},
 		mediaPaths:    map[string][]string{},
@@ -44,85 +44,161 @@ func New(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model
 		mediaByPath:   map[string][]model.MediaFileRef{},
 		torrentByPath: map[string][]model.TorrentFileRef{},
 	}
-	for _, f := range files {
-		p := filepath.Clean(f.Path)
-		f.Path = p
-		x.files[p] = f
-		if f.Exists && f.IdentityKnown {
-			id := identity{f.Device, f.Inode}
-			x.identityPaths[id] = appendUnique(x.identityPaths[id], p)
+	for _, file := range files {
+		cleanPath := filepath.Clean(file.Path)
+		file.Path = cleanPath
+		index.files[cleanPath] = file
+		if file.Exists && file.IdentityKnown {
+			fileIdentity := identity{file.Device, file.Inode}
+			index.identityPaths[fileIdentity] = appendUnique(index.identityPaths[fileIdentity], cleanPath)
 		}
 	}
-	for _, r := range mediaRefs {
-		p := filepath.Clean(r.Path)
-		x.mediaPaths[mediaKey(r.MediaType, r.MediaID)] = appendUnique(x.mediaPaths[mediaKey(r.MediaType, r.MediaID)], p)
-		x.mediaByPath[p] = append(x.mediaByPath[p], r)
+	for _, mediaRef := range mediaRefs {
+		cleanPath := filepath.Clean(mediaRef.Path)
+		key := mediaKey(mediaRef.MediaType, mediaRef.MediaID)
+		index.mediaPaths[key] = appendUnique(index.mediaPaths[key], cleanPath)
+		index.mediaByPath[cleanPath] = append(index.mediaByPath[cleanPath], mediaRef)
 	}
-	for _, r := range torrentRefs {
-		p := filepath.Clean(r.Path)
-		h := strings.ToLower(r.Hash)
-		x.torrentPaths[h] = appendUnique(x.torrentPaths[h], p)
-		x.torrentByPath[p] = append(x.torrentByPath[p], r)
+	for _, torrentRef := range torrentRefs {
+		cleanPath := filepath.Clean(torrentRef.Path)
+		normalizedHash := strings.ToLower(torrentRef.Hash)
+		index.torrentPaths[normalizedHash] = appendUnique(index.torrentPaths[normalizedHash], cleanPath)
+		index.torrentByPath[cleanPath] = append(index.torrentByPath[cleanPath], torrentRef)
 	}
-	for _, ps := range x.identityPaths {
-		sort.Strings(ps)
+	for _, paths := range index.identityPaths {
+		sort.Strings(paths)
 	}
-	return x
+	return index
 }
 
-func appendUnique(xs []string, v string) []string {
-	for _, x := range xs {
-		if x == v {
-			return xs
+func appendUnique(values []string, candidate string) []string {
+	for _, value := range values {
+		if value == candidate {
+			return values
 		}
 	}
-	return append(xs, v)
+	return append(values, candidate)
 }
 
-func (x *Index) MediaPaths(kind model.MediaType, id int) []string {
-	return append([]string(nil), x.mediaPaths[mediaKey(kind, id)]...)
+func (index *Index) MediaPaths(kind model.MediaType, id int) []string {
+	return append([]string(nil), index.mediaPaths[mediaKey(kind, id)]...)
 }
 
-func (x *Index) TorrentPaths(hash string) []string {
-	return append([]string(nil), x.torrentPaths[strings.ToLower(hash)]...)
+func (index *Index) TorrentPaths(hash string) []string {
+	return append([]string(nil), index.torrentPaths[strings.ToLower(hash)]...)
 }
 
-func (x *Index) File(path string) (model.File, bool) {
-	f, ok := x.files[filepath.Clean(path)]
-	return f, ok
+func (index *Index) File(path string) (model.File, bool) {
+	file, found := index.files[filepath.Clean(path)]
+	return file, found
 }
 
-func (x *Index) SamePhysicalPaths(path string) []string {
-	f, ok := x.File(path)
-	if !ok || !f.Exists || !f.IdentityKnown {
+func (index *Index) SamePhysicalPaths(path string) []string {
+	file, found := index.File(path)
+	if !found || !file.Exists || !file.IdentityKnown {
 		return nil
 	}
-	out := []string{}
-	for _, p := range x.identityPaths[identity{f.Device, f.Inode}] {
-		if p != filepath.Clean(path) {
-			out = append(out, p)
+	physicalPaths := []string{}
+	for _, physicalPath := range index.identityPaths[identity{file.Device, file.Inode}] {
+		if physicalPath != filepath.Clean(path) {
+			physicalPaths = append(physicalPaths, physicalPath)
 		}
 	}
-	return out
+	return physicalPaths
 }
 
-func (x *Index) MediaOwners(path string) []model.MediaFileRef {
-	return append([]model.MediaFileRef(nil), x.mediaByPath[filepath.Clean(path)]...)
+func (index *Index) MediaOwners(path string) []model.MediaFileRef {
+	return append([]model.MediaFileRef(nil), index.mediaByPath[filepath.Clean(path)]...)
 }
 
-func (x *Index) TorrentOwners(path string) []model.TorrentFileRef {
-	return append([]model.TorrentFileRef(nil), x.torrentByPath[filepath.Clean(path)]...)
+func (index *Index) TorrentOwners(path string) []model.TorrentFileRef {
+	return append([]model.TorrentFileRef(nil), index.torrentByPath[filepath.Clean(path)]...)
+}
+
+// TorrentMediaHardlink reports whether at least one torrent path and one media
+// path are distinct directory entries for the same physical inode. known is
+// false when either owner has no indexed paths or any required identity fact is
+// missing; a proven hardlink remains authoritative even if another file in the
+// relationship is unknown.
+func (index *Index) TorrentMediaHardlink(hash string, kind model.MediaType, id int) (hardlinked, known bool) {
+	mediaPaths := index.MediaPaths(kind, id)
+	torrentPaths := index.TorrentPaths(hash)
+	if len(mediaPaths) == 0 || len(torrentPaths) == 0 {
+		return false, false
+	}
+
+	mediaIdentities := map[identity]map[string]bool{}
+	complete := true
+	for _, path := range mediaPaths {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown || file.Links == 0 {
+			complete = false
+			continue
+		}
+		fileIdentity := identity{file.Device, file.Inode}
+		if mediaIdentities[fileIdentity] == nil {
+			mediaIdentities[fileIdentity] = map[string]bool{}
+		}
+		mediaIdentities[fileIdentity][filepath.Clean(path)] = true
+	}
+	for _, path := range torrentPaths {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown || file.Links == 0 {
+			complete = false
+			continue
+		}
+		mediaOwners := mediaIdentities[identity{file.Device, file.Inode}]
+		for mediaPath := range mediaOwners {
+			if mediaPath != filepath.Clean(path) && file.Links > 1 {
+				return true, true
+			}
+		}
+	}
+	return false, complete
+}
+
+// TorrentMediaPhysicalMatch reports whether a torrent and managed media claim
+// the same physical inode. Unlike TorrentMediaHardlink, the two owners may
+// claim the exact same pathname; that still proves the torrent currently backs
+// the managed file even though it is not a distinct hardlink directory entry.
+func (index *Index) TorrentMediaPhysicalMatch(hash string, kind model.MediaType, id int) (matched, known bool) {
+	mediaPaths := index.MediaPaths(kind, id)
+	torrentPaths := index.TorrentPaths(hash)
+	if len(mediaPaths) == 0 || len(torrentPaths) == 0 {
+		return false, false
+	}
+	mediaIdentities := map[identity]bool{}
+	complete := true
+	for _, path := range mediaPaths {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown {
+			complete = false
+			continue
+		}
+		mediaIdentities[identity{file.Device, file.Inode}] = true
+	}
+	for _, path := range torrentPaths {
+		file, found := index.File(path)
+		if !found || !file.Exists || !file.IdentityKnown {
+			complete = false
+			continue
+		}
+		if mediaIdentities[identity{file.Device, file.Inode}] {
+			return true, true
+		}
+	}
+	return false, complete
 }
 
 // Estimate reports the unique bytes that would become unreferenced if all of
 // the supplied paths were unlinked. A physical inode is reclaimable only when
 // the deletion set contains every filesystem link to that inode. Unknown or
 // missing paths make Known false rather than being guessed.
-func (x *Index) Estimate(paths []string) Estimate {
-	var out Estimate
+func (index *Index) Estimate(paths []string) Estimate {
+	var estimate Estimate
 	selected := map[string]bool{}
-	for _, p := range paths {
-		selected[filepath.Clean(p)] = true
+	for _, path := range paths {
+		selected[filepath.Clean(path)] = true
 	}
 	type use struct {
 		size          int64
@@ -131,47 +207,47 @@ func (x *Index) Estimate(paths []string) Estimate {
 		selectedFiles int
 	}
 	uses := map[identity]*use{}
-	for p := range selected {
-		f, ok := x.files[p]
-		if !ok || !f.Exists || !f.IdentityKnown || f.Links == 0 {
-			out.UnknownFiles++
+	for path := range selected {
+		file, found := index.files[path]
+		if !found || !file.Exists || !file.IdentityKnown || file.Links == 0 {
+			estimate.UnknownFiles++
 			continue
 		}
-		out.Files++
-		id := identity{f.Device, f.Inode}
-		u := uses[id]
-		if u == nil {
-			u = &use{size: f.SizeBytes, links: f.Links}
-			uses[id] = u
+		estimate.Files++
+		fileIdentity := identity{file.Device, file.Inode}
+		usage := uses[fileIdentity]
+		if usage == nil {
+			usage = &use{size: file.SizeBytes, links: file.Links}
+			uses[fileIdentity] = usage
 		}
-		u.selected++
-		u.selectedFiles++
+		usage.selected++
+		usage.selectedFiles++
 	}
-	for _, u := range uses {
-		out.TotalBytes += u.size
-		if uint64(u.selected) >= u.links {
-			out.ReclaimableBytes += u.size
+	for _, usage := range uses {
+		estimate.TotalBytes += usage.size
+		if uint64(usage.selected) >= usage.links {
+			estimate.ReclaimableBytes += usage.size
 		} else {
-			out.SharedBytes += u.size
-			out.SharedFiles += u.selectedFiles
+			estimate.SharedBytes += usage.size
+			estimate.SharedFiles += usage.selectedFiles
 		}
 	}
-	out.Known = len(selected) > 0 && out.UnknownFiles == 0
-	return out
+	estimate.Known = len(selected) > 0 && estimate.UnknownFiles == 0
+	return estimate
 }
 
 func Union(pathSets ...[]string) []string {
 	seen := map[string]bool{}
-	var out []string
-	for _, xs := range pathSets {
-		for _, p := range xs {
-			p = filepath.Clean(p)
-			if !seen[p] {
-				seen[p] = true
-				out = append(out, p)
+	var union []string
+	for _, paths := range pathSets {
+		for _, path := range paths {
+			cleanPath := filepath.Clean(path)
+			if !seen[cleanPath] {
+				seen[cleanPath] = true
+				union = append(union, cleanPath)
 			}
 		}
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(union)
+	return union
 }

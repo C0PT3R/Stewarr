@@ -47,6 +47,7 @@
     "seerr_request_grace": "8760h",
     "keep_tags": [
       "keep",
+      "connarr_keep",
       "togetharr_keep",
       "spartarr_keep"
     ]

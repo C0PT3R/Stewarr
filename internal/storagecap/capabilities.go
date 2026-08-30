@@ -20,54 +20,54 @@ type Capabilities struct {
 }
 
 func Inspect(path string) Capabilities {
-	c := Capabilities{Path: path}
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(path, &fs); err != nil {
-		c.Error = err.Error()
-		return c
+	capabilities := Capabilities{Path: path}
+	var filesystemStats syscall.Statfs_t
+	if err := syscall.Statfs(path, &filesystemStats); err != nil {
+		capabilities.Error = err.Error()
+		return capabilities
 	}
-	c.Visible = true
-	c.Filesystem = filesystemName(int64(fs.Type))
+	capabilities.Visible = true
+	capabilities.Filesystem = filesystemName(int64(filesystemStats.Type))
 
-	fi, err := os.Stat(path)
+	fileInfo, err := os.Stat(path)
 	if err != nil {
-		c.Error = err.Error()
-		return c
+		capabilities.Error = err.Error()
+		return capabilities
 	}
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		c.Device = uint64(st.Dev)
-		c.FileIdentity = true
-		c.HardlinkDetection = true
+	if fileStat, ok := fileInfo.Sys().(*syscall.Stat_t); ok {
+		capabilities.Device = uint64(fileStat.Dev)
+		capabilities.FileIdentity = true
+		capabilities.HardlinkDetection = true
 	}
 
 	// Shared extents/reflinks need filesystem-specific extent inspection. Keep
 	// this capability explicit rather than pretending inode checks solve it.
-	c.SharedExtentDetection = false
+	capabilities.SharedExtentDetection = false
 	// Exact reclaim calculation also needs every surviving reference (including
 	// torrent data) to be visible and inspected. That layer is not implemented yet.
-	c.ExactReclaimEstimate = false
-	return c
+	capabilities.ExactReclaimEstimate = false
+	return capabilities
 }
 
-func SameFile(a, b string) (bool, error) {
-	ai, err := os.Stat(filepath.Clean(a))
+func SameFile(firstPath, secondPath string) (bool, error) {
+	firstInfo, err := os.Stat(filepath.Clean(firstPath))
 	if err != nil {
 		return false, err
 	}
-	bi, err := os.Stat(filepath.Clean(b))
+	secondInfo, err := os.Stat(filepath.Clean(secondPath))
 	if err != nil {
 		return false, err
 	}
-	as, aok := ai.Sys().(*syscall.Stat_t)
-	bs, bok := bi.Sys().(*syscall.Stat_t)
-	if !aok || !bok {
+	firstStat, firstIdentityAvailable := firstInfo.Sys().(*syscall.Stat_t)
+	secondStat, secondIdentityAvailable := secondInfo.Sys().(*syscall.Stat_t)
+	if !firstIdentityAvailable || !secondIdentityAvailable {
 		return false, fmt.Errorf("file identity is unavailable")
 	}
-	return as.Dev == bs.Dev && as.Ino == bs.Ino, nil
+	return firstStat.Dev == secondStat.Dev && firstStat.Ino == secondStat.Ino, nil
 }
 
-func filesystemName(t int64) string {
-	switch uint64(t) {
+func filesystemName(filesystemType int64) string {
+	switch uint64(filesystemType) {
 	case 0xEF53:
 		return "ext2/ext3/ext4"
 	case 0x58465342:
@@ -85,6 +85,6 @@ func filesystemName(t int64) string {
 	case 0x794C7630:
 		return "overlayfs"
 	default:
-		return fmt.Sprintf("0x%x", uint64(t))
+		return fmt.Sprintf("0x%x", uint64(filesystemType))
 	}
 }

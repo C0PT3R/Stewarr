@@ -1,11 +1,13 @@
 services:
-  togetharr:
+  connarr:
     build: .
-    container_name: togetharr
+    container_name: connarr
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      - TZ=America/Toronto
     ports:
       - "8088:8088"
     volumes:
       - ./config:/config
-      - /mnt/media:/data:ro
+      - /mnt/media:/data

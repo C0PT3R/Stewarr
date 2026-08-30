@@ -8,9 +8,8 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"time"
 
-	"togetharr/internal/model"
+	"connarr/internal/model"
 )
 
 type Result struct {
@@ -22,13 +21,16 @@ type Result struct {
 	Error            string
 }
 
-type fileID struct{ dev, ino uint64 }
+type fileIdentity struct {
+	device uint64
+	inode  uint64
+}
 
 type inodeGroup struct {
-	size  int64
-	links uint64
-	count int
-	idxs  []int
+	sizeBytes       int64
+	filesystemLinks uint64
+	discoveredPaths int
+	fileIndexes     []int
 }
 
 func inside(root, path string) bool {
@@ -39,32 +41,34 @@ func inside(root, path string) bool {
 }
 
 func collapseRoots(paths []string) []string {
-	uniq := map[string]bool{}
-	for _, p := range paths {
-		p = filepath.Clean(p)
-		if p != "." && p != "" {
-			uniq[p] = true
+	uniqueRoots := map[string]bool{}
+	for _, path := range paths {
+		cleanPath := filepath.Clean(path)
+		if cleanPath != "." && cleanPath != "" {
+			uniqueRoots[cleanPath] = true
 		}
 	}
-	xs := make([]string, 0, len(uniq))
-	for p := range uniq {
-		xs = append(xs, p)
+	candidates := make([]string, 0, len(uniqueRoots))
+	for path := range uniqueRoots {
+		candidates = append(candidates, path)
 	}
-	sort.Slice(xs, func(i, j int) bool { return len(xs[i]) < len(xs[j]) })
-	out := []string{}
-	for _, p := range xs {
+	sort.Slice(candidates, func(leftIndex, rightIndex int) bool {
+		return len(candidates[leftIndex]) < len(candidates[rightIndex])
+	})
+	collapsedRoots := []string{}
+	for _, candidate := range candidates {
 		nested := false
-		for _, r := range out {
-			if inside(r, p) {
+		for _, acceptedRoot := range collapsedRoots {
+			if inside(acceptedRoot, candidate) {
 				nested = true
 				break
 			}
 		}
 		if !nested {
-			out = append(out, p)
+			collapsedRoots = append(collapsedRoots, candidate)
 		}
 	}
-	return out
+	return collapsedRoots
 }
 
 // Scan enumerates regular files below the supplied download roots and returns
@@ -72,86 +76,86 @@ func collapseRoots(paths []string) []string {
 // must only invoke this after every torrent file list has been loaded
 // successfully; otherwise absence from claimedPaths is not proof of anything.
 func Scan(storageRoot string, downloadRoots []string, claimedPaths map[string]bool) Result {
-	var out Result
+	var result Result
 	roots := collapseRoots(downloadRoots)
 	if len(roots) == 0 {
-		out.Error = "no visible torrent save paths"
-		return out
+		result.Error = "no visible torrent save paths"
+		return result
 	}
 	cleanStorage := filepath.Clean(storageRoot)
 	for _, root := range roots {
 		if !inside(cleanStorage, root) {
-			out.Error = fmt.Sprintf("download path %s is outside configured storage path", root)
-			return out
+			result.Error = fmt.Sprintf("download path %s is outside configured storage path", root)
+			return result
 		}
 		if _, err := os.Stat(root); err != nil {
-			out.Error = fmt.Sprintf("download path %s: %v", root, err)
-			return out
+			result.Error = fmt.Sprintf("download path %s: %v", root, err)
+			return result
 		}
 	}
 
-	groups := map[fileID]*inodeGroup{}
+	inodeGroups := map[fileIdentity]*inodeGroup{}
 	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(root, func(path string, directoryEntry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if directoryEntry.IsDir() {
+				return nil
+			}
+			fileInfo, err := directoryEntry.Info()
 			if err != nil {
 				return err
 			}
-			if d.IsDir() {
+			if !fileInfo.Mode().IsRegular() {
 				return nil
 			}
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			if !info.Mode().IsRegular() {
+			cleanPath := filepath.Clean(path)
+			if claimedPaths[cleanPath] {
 				return nil
 			}
-			cp := filepath.Clean(path)
-			if claimedPaths[cp] {
-				return nil
-			}
-			st, ok := info.Sys().(*syscall.Stat_t)
+			fileStat, ok := fileInfo.Sys().(*syscall.Stat_t)
 			if !ok {
 				return fmt.Errorf("file identity/link count unavailable for %s", path)
 			}
-			uf := model.UnclaimedFile{Path: cp, SizeBytes: info.Size(), ModifiedAt: info.ModTime(), Device: uint64(st.Dev), Inode: uint64(st.Ino), Links: uint64(st.Nlink), ReclaimableKnown: true}
-			idx := len(out.Files)
-			out.Files = append(out.Files, uf)
-			out.TotalBytes += info.Size()
-			id := fileID{uint64(st.Dev), uint64(st.Ino)}
-			g := groups[id]
-			if g == nil {
-				g = &inodeGroup{size: info.Size(), links: uint64(st.Nlink)}
-				groups[id] = g
+			unclaimedFile := model.UnclaimedFile{Path: cleanPath, SizeBytes: fileInfo.Size(), ModifiedAt: fileInfo.ModTime(), Device: uint64(fileStat.Dev), Inode: uint64(fileStat.Ino), Links: uint64(fileStat.Nlink), ReclaimableKnown: true}
+			fileIndex := len(result.Files)
+			result.Files = append(result.Files, unclaimedFile)
+			result.TotalBytes += fileInfo.Size()
+			identity := fileIdentity{device: uint64(fileStat.Dev), inode: uint64(fileStat.Ino)}
+			group := inodeGroups[identity]
+			if group == nil {
+				group = &inodeGroup{sizeBytes: fileInfo.Size(), filesystemLinks: uint64(fileStat.Nlink)}
+				inodeGroups[identity] = group
 			}
-			g.count++
-			g.idxs = append(g.idxs, idx)
+			group.discoveredPaths++
+			group.fileIndexes = append(group.fileIndexes, fileIndex)
 			return nil
 		})
 		if err != nil {
-			out.Error = err.Error()
-			out.Files = nil
-			return out
+			result.Error = err.Error()
+			result.Files = nil
+			return result
 		}
 	}
-	for _, g := range groups {
-		reclaim := uint64(g.count) >= g.links
-		for _, idx := range g.idxs {
-			if reclaim {
-				out.Files[idx].ReclaimableBytes = out.Files[idx].SizeBytes
+	for _, group := range inodeGroups {
+		fullyDiscovered := uint64(group.discoveredPaths) >= group.filesystemLinks
+		for _, fileIndex := range group.fileIndexes {
+			if fullyDiscovered {
+				result.Files[fileIndex].ReclaimableBytes = result.Files[fileIndex].SizeBytes
 			} else {
-				out.Files[idx].SharedBytes = out.Files[idx].SizeBytes
+				result.Files[fileIndex].SharedBytes = result.Files[fileIndex].SizeBytes
 			}
 		}
-		if reclaim {
-			out.ReclaimableBytes += g.size
+		if fullyDiscovered {
+			result.ReclaimableBytes += group.sizeBytes
 		} else {
-			out.SharedBytes += g.size
+			result.SharedBytes += group.sizeBytes
 		}
 	}
-	sort.Slice(out.Files, func(i, j int) bool { return strings.ToLower(out.Files[i].Path) < strings.ToLower(out.Files[j].Path) })
-	out.Available = true
-	return out
+	sort.Slice(result.Files, func(leftIndex, rightIndex int) bool {
+		return strings.ToLower(result.Files[leftIndex].Path) < strings.ToLower(result.Files[rightIndex].Path)
+	})
+	result.Available = true
+	return result
 }
-
-var _ = time.Time{}

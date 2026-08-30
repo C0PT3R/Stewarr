@@ -1,112 +1,140 @@
-# Togetharr Roadmap
+# Connarr Roadmap
 
 This file separates implemented behavior from intended direction. It is not a promise of release dates.
 
-## Implemented through 0.1.21
+## Implemented through 0.2.8
 
-- Adopted cheap scans / small durable model / lazy details as an architecture invariant.
-- Torrent detail diagnostics are fetched live from qBittorrent and are not persisted as durable index state.
-- Media with no files are retained as media; Library hides them by default with an explicit opt-in checkbox.
-- Library default ordering is now title ascending rather than lowest-value Value first.
+### Reactive UI state
 
-- Home dashboard.
-- Library profiles and Value valuation.
-- Radarr and Sonarr inventory/history integration.
-- Jellyfin activity integration.
-- Seerr request integration.
-- qBittorrent incremental synchronization and detailed torrent pages.
-- Torrent provenance: Associated / Superseded / Orphaned / Unassociated.
-- File-topology-derived reclaimability for torrent content, including hardlinked/shared data.
-- Unclaimed download-data detection with fail-closed ownership inventory.
-- Hardlink-aware reclaimability for unclaimed files.
-- First-class generic File model with separate media-file and torrent-file ownership relations.
-- Same-physical-data relationships derived from device+inode and exposed in detail views.
-- Media-only, torrent-only, and combined unlink/reclaim estimates derived from File topology.
-- Sparse file reconciliation task with filesystem existence/device/inode/link-count enrichment.
-- Media and torrent detail pages expose reconciled file previews; `/api/files` exposes the indexed file graph.
-- Search, filtering, sorting and server-side pagination for Library/Torrents; search/sort/pagination for unclaimed data.
-- SQLite durable state and legacy Spartarr DB filename migration.
-- Cleanup-run/statistics persistence schema and History UI (no destructive execution yet).
-- Storage capability reporting.
-- Tasks page with Run now.
-- Inventory refresh and unclaimed scans separated into independent schedules.
-- PUID/PGID-friendly Docker deployment.
-- Canonical project name: Togetharr.
+- Server-rendered Go templates enhanced by pinned, embedded htmx and Stimulus;
+  Connarr has no CDN, SPA, or mandatory frontend build service.
+- Cached, revisioned dashboard state with SSE invalidation and conditional
+  five-second polling fallback. Storage sampling is independent and no UI
+  refresh calls an integration or starts a filesystem scan.
+- Stable open lists: background additions and reorderings show **Updates
+  available**, while removals always disappear immediately. Filters, paging,
+  focus, scroll, disclosures, and list layout survive ordinary updates.
+- Home, Library, Torrents, Unclaimed, Tasks, History, and object details update
+  as bounded fragments instead of reloading the page.
+- Persistent operation status and failures, accessibility announcements,
+  keyboard/backdrop modal dismissal, reduced-motion support, and duplicate
+  action prevention.
+
+### Removal interaction and projection
+
+- Removal plans inspect topology once. Every checkbox consequence is calculated
+  locally within one browser frame; selection makes no HTTP or filesystem call.
+- Confirmation durably journals and schedules work, then returns 202 Accepted.
+  The scheduler performs authoritative owner/filesystem revalidation inside its
+  exclusive mutation boundary, independently of the browser connection.
+- A central pending-operation projection suppresses selected Media, Torrents,
+  managed files, and Unclaimed files across every view. Successful mutations
+  remain suppressed until consistency reconciliation catches up; failures
+  restore the object and expose a persistent History-linked error.
+- Detail pages become durable operation-result views instead of reloading into
+  a 404 after their object is removed.
+- Actual Movie/Episode filenames, plain season disclosures, local group
+  selection, hardlink guidance, optional unmonitoring, and Radarr/Sonarr
+  import-list exclusions.
+- File-level series selection supersedes the old partial-series removal roadmap
+  item; there is no separate series-wide removal primitive to add.
+
+### Torrent relationships and Value
+
+- Current torrent states are **Current**, **Superseded**, and **Unassociated**.
+  The legacy Orphaned state migrates to Unassociated while its former media
+  identity remains provenance History.
+- Current and historical relationships project bidirectionally between Media
+  and Torrents without fuzzy title matching.
+- Authoritative current import provenance and proven device/inode physical
+  backing independently establish a Current relationship. Physical proof can
+  therefore correct stale or absent provenance; neither source is allowed to
+  demote the other.
+- Torrent health contributes to Media Value only when the relationship is
+  Current and reconciled device/inode identity proves the torrent and media
+  paths are hardlinks. Copies, unknown topology, and provenance alone
+  contribute nothing; the Value explanation states the hardlink requirement.
+- Torrent Value remains an independent explainable swarm-retention signal.
+
+### Scheduler and safety
+
+- Durable event-driven scheduler with trigger/execution identity, coverage-aware
+  coalescing, FIFO tie-breaking, fixed-rate catch-up, bounded aging, retries,
+  cooldowns, cooperative preemption, and injected-clock tests.
+- Shared/exclusive resource arbitration with exact wait reasons and generic
+  durable workflows.
+- Immediate post-removal Base inventory → File reconciliation workflow with
+  scheduler coalescing and a five-minute consistency deadline.
+- Browser-independent durable mutations, restart reconciliation, and attention
+  rather than blind replay for uncertain irreversible work.
+- Dry-run-by-default removal, owner-backed mutations, final-boundary live
+  ownership/device/inode revalidation, and fail-closed Unclaimed discovery.
+
+### Model and operations
+
+- First-class generic File model with separate media/torrent ownership and
+  physical device/inode/link-count identity.
+- Generation-bound atomic inventory/file publication and topology-derived
+  reclaimability.
+- Home, Library, Torrent, Unclaimed, Tasks, and History views; server-side
+  search/filter/sort/pagination; SQLite state and legacy DB migration.
+- Radarr, Sonarr, Jellyfin, Seerr, and qBittorrent adapters with small durable
+  index data and lazy source-owned detail loading.
+- Owner-scoped removals that reject cross-owner fields at admission and again
+  inside scheduled execution.
+- Isolated integration authority: Jellyfin enrichment requires no shared path
+  namespace, topology is informational, and cross-owner mutations fail closed.
+- Unmanaged file inventory is read-only until a cleanup root is explicitly
+  delegated to Connarr.
+- Mandatory origin-labelled application logging to stdout and daily persistent
+  files, with ten-day retention and fail-stop behavior.
+- Complete line-oriented removal audits keyed by durable operation identity.
+- One terminal log summary per scheduler execution, with reconciliation mode,
+  stage timings, path counts, and torrent cache/fetch counts when relevant.
+- Exact removal scopes durably merge across overlapping mutations and drive targeted
+  owner, path, physical-peer, projection, and SQLite reconciliation.
+- Missing, uncertain, partial, or invariant-breaking scopes automatically
+  promote to the complete Base inventory → File reconciliation path.
+- Removal disclosure and History details that distinguish physical-file count,
+  path count, selected paths, and preserved paths.
+- Media removal presents its Movie/Season/Episode files and lists every Current
+  or Superseded torrent exactly once. Physically backing Current torrents are
+  selected by default, other Current torrents remain optional, Superseded
+  torrents remain preserved context, and the physical action graph synchronizes
+  selections without becoming the primary UI.
+- PUID/PGID-friendly Docker deployment and centralized Connarr product identity.
 
 ## Near-term
 
-- Make Target the sole operational storage threshold; demote/remove Critical from normal cleanup logic.
 - Make task schedules configurable through the GUI.
-- Improve task run history/status and add full reconciliation task.
-- Reuse/carry forward reconciled torrent-file ownership so unclaimed scans can eventually avoid refetching all file lists when nothing changed.
-- Add filters to Unclaimed downloads where useful.
-- Expand storage-pool modeling beyond a single configured path.
-- Improve provenance for explicit deletion reasons and richer historical timelines.
-- Build non-destructive storage reclamation planning across Library, torrents and unclaimed data.
+- Add richer task execution history and reconciliation diagnostics.
+- Add useful Unclaimed filters.
+- Improve explicit provenance-change reasons and per-object historical
+  timelines.
+- Expand the single-path storage model into explicit storage pools.
+- Build a non-destructive reclamation planner across Library, Torrents, and
+  Unclaimed data.
+- Continue readability work outside the HTTP/UI files touched through 0.2.8.
 
 ## Later
 
-- Multiple instances of Radarr/Sonarr/qBittorrent and other integrations.
-- GUI integration manager with connection testing and capability discovery.
-- Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent and Plex support.
-- Per-storage-pool targets and pressure planning.
-- Torrent retention valuation independent of Library Value.
-- Safe automatic cleanup policies and actual cleanup execution.
-- Detailed cleanup statistics/history and observed reclamation verification.
-- Filesystem-specific shared-storage inspectors (reflinks/extents/ZFS/Windows/network filesystems where reliable).
-- Cross-stack diagnostics and repair workflows.
-- Global cross-integration search and per-item timelines.
-- Quality-vs-storage-cost reasoning and upgrade/downgrade recommendations.
-- Event/webhook support where integrations expose useful reliable events.
+- Multiple Radarr/Sonarr/qBittorrent instances and a GUI integration manager
+  with capability discovery and connection testing.
+- Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
+  integration adapters.
+- Per-storage-pool targets, alarms, acquisition inhibition, and explicitly
+  configured emergency behavior.
+- User-defined retention preferences and torrent-retention rules.
+- Safe automatic cleanup policy and observed reclamation verification.
+- Filesystem-specific shared-storage inspectors for reflinks/extents, ZFS,
+  Windows, and network filesystems where reliable.
+- Cross-stack diagnostics, repair workflows, global search, and per-item
+  timelines.
+- Quality-versus-storage-cost reasoning and upgrade/downgrade recommendations.
+- Webhook/event adapters where integrations expose useful reliable events.
 
 ## Product direction
 
-Togetharr should become the missing coordination layer in a modular media stack: not another specialized media manager, but the place where facts from specialized tools gain cross-stack context and purpose.
-
-- Media detail torrent relationships are grouped by current/superseded/orphaned provenance and display torrent release names.
-
-
-## Manual Removal foundation (0.1.16)
-
-- Mandatory RemovalPlan for Media, Torrent, and Unclaimed File removal.
-- Dry-run-by-default execution gate.
-- Owner-driven managed removals; direct OS removal only for confirmed Unclaimed Files.
-- Durable removal History events.
-- Multi-select/Select-all for Unclaimed Files and linked torrents.
-- Future dry-run cleanup and automation must reuse the same RemovalPlan/executor primitives rather than creating parallel destructive paths.
-
-
-## 0.1.16 UI/removal normalization
-
-- Shared application chrome/AppInfo across primary and detail pages.
-- RemovalPlan runs as a blocking overlay without browser-history mutations.
-- Media with no managed files is non-removable at planner level and shown with a disabled trash action.
-- Torrent RemovalPlans expose only managed files whose correspondence to torrent files is proven; they never widen a torrent relationship to an entire Media object.
-- Unclaimed files support per-item trash actions and bulk Remove with disabled empty selection.
-- Operational UI hides unsupported or unconfigured capability clutter where practical.
-
-## 0.1.17 removal/UX cleanup
-
-- Removal targets are selectable rather than mandatory; empty selections cannot execute.
-- Media removal availability is based on the full removal graph, so Media with no current files can still expose removable related Torrents.
-- Operational UI follows two rules: show facts, choices, and consequences rather than implementation machinery; omit capabilities irrelevant to the current configuration/topology.
-- Torrent and Library filters apply directly, inventory summaries no longer interrupt filter/result flow, and internal/debug prose is reduced across primary pages.
-
-
-## 0.1.21 stabilization
-
-- Fixed automatic Library, Torrents, and Unclaimed filter submission.
-- Clear appears only when actual filters are active; pagination is not a filter.
-- Normalized the Library filter strip, especially the no-files toggle.
-- Removal target selection is separate from linked-object Select all behavior.
-- Partial-series torrent removal scope remains intentionally deferred to the next iteration.
-
-## 0.1.21 managed-file removal model
-
-- Media is removal context/grouping, not an executable removal primitive.
-- Managed storage removal is atomic at `MediaFileRef` and delegated to Radarr MovieFile / Sonarr EpisodeFile APIs.
-- Sonarr file reconciliation stores season/episode grouping metadata for episode files.
-- Media-originated plans may select all or only part of a Media's managed files.
-- Torrent-originated plans may offer only managed files proven to be the same physical data as torrent files; filenames are never accepted as proof.
-- Torrent removal remains independently selectable, so copied torrent data can be reclaimed while managed Media files remain.
-- Manual managed-file plans keep monitoring unchanged by default and can optionally unmonitor affected Radarr movies or Sonarr episodes.
+Connarr should become the missing coordination layer in a modular media stack:
+not another specialized media manager, but the place where facts from
+specialized tools gain cross-stack context and purpose.

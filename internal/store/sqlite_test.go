@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"togetharr/internal/model"
+	"connarr/internal/model"
 )
 
 func TestStoreRoundTrip(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "togetharr.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestStoreRoundTrip(t *testing.T) {
 }
 
 func TestConcurrentWritesAreSerialized(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "togetharr.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,8 +87,223 @@ func TestConcurrentWritesAreSerialized(t *testing.T) {
 	}
 }
 
+func TestPublishReconciliationRollsBackWholeGeneration(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	oldFiles := []model.File{{Path: "/data/old.mkv", Exists: true}}
+	oldUnclaimed := []model.UnclaimedFile{{Path: "/data/old.mkv"}}
+	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Title: "Old"}}
+	oldTorrents := []model.Torrent{{Client: "qBittorrent", Hash: "old", Name: "Old"}}
+	if err := db.PublishReconciliation(1, oldFiles, nil, nil, oldUnclaimed, oldTorrents, oldMedia); err != nil {
+		t.Fatal(err)
+	}
+	db.beforeCommit = func() error { return fmt.Errorf("injected commit failure") }
+	err = db.PublishReconciliation(2,
+		[]model.File{{Path: "/data/new.mkv", Exists: true}}, nil, nil,
+		[]model.UnclaimedFile{{Path: "/data/new.mkv"}},
+		[]model.Torrent{{Client: "qBittorrent", Hash: "new", Name: "New"}},
+		[]model.Media{{Type: model.Movie, SourceID: 2, Title: "New"}},
+	)
+	db.beforeCommit = nil
+	if err == nil {
+		t.Fatal("expected injected publication failure")
+	}
+	files, _, _, _, err := db.LoadFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	unclaimed, _, err := db.LoadUnclaimedFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	media, _, err := db.LoadMedia()
+	if err != nil {
+		t.Fatal(err)
+	}
+	torrents, err := db.LoadTorrents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != "/data/old.mkv" || len(unclaimed) != 1 || unclaimed[0].Path != "/data/old.mkv" || len(media) != 1 || media[0].SourceID != 1 || len(torrents) != 1 || torrents[0].Hash != "old" {
+		t.Fatalf("mixed generation survived rollback: files=%#v unclaimed=%#v media=%#v torrents=%#v", files, unclaimed, media, torrents)
+	}
+}
+
+func TestPublishReconciliationDeltaUpdatesOnlyScopedRows(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	files := []model.File{{Path: "/data/removed.mkv", Exists: true}, {Path: "/data/preserved.mkv", Exists: true}}
+	torrentRefs := []model.TorrentFileRef{{Client: "qBittorrent", Hash: "removed", FileIndex: 0, Path: "/data/removed.mkv"}, {Client: "qBittorrent", Hash: "preserved", FileIndex: 0, Path: "/data/preserved.mkv"}}
+	if err := db.PublishReconciliation(1, files, nil, torrentRefs, nil, []model.Torrent{{Client: "qBittorrent", Hash: "removed"}, {Client: "qBittorrent", Hash: "preserved"}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetMeta("scope", `{"paths":["/data/removed.mkv"]}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.PublishReconciliationDelta(ReconciliationDelta{
+		Paths: []string{"/data/removed.mkv"}, RemovedTorrentHashes: []string{"removed"},
+		Torrents: []model.Torrent{{Client: "qBittorrent", Hash: "preserved"}}, Generation: 2, ScopeMetadataKey: "scope",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	gotFiles, _, gotTorrentRefs, _, err := db.LoadFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotFiles) != 1 || gotFiles[0].Path != "/data/preserved.mkv" || len(gotTorrentRefs) != 1 || gotTorrentRefs[0].Hash != "preserved" {
+		t.Fatalf("files=%#v torrentRefs=%#v", gotFiles, gotTorrentRefs)
+	}
+	if scope, err := db.Meta("scope"); err != nil || scope != "" {
+		t.Fatalf("scope=%q err=%v", scope, err)
+	}
+}
+
+func TestPublishReconciliationDeltaRollsBackScopeAndRowsTogether(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PublishReconciliation(1, []model.File{{Path: "/data/file.mkv", Exists: true}}, nil, nil, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetMeta("scope", "pending"); err != nil {
+		t.Fatal(err)
+	}
+	db.beforeCommit = func() error { return fmt.Errorf("injected delta failure") }
+	err = db.PublishReconciliationDelta(ReconciliationDelta{Paths: []string{"/data/file.mkv"}, Generation: 2, ScopeMetadataKey: "scope"})
+	db.beforeCommit = nil
+	if err == nil {
+		t.Fatal("expected delta publication failure")
+	}
+	files, _, _, _, loadErr := db.LoadFiles()
+	if loadErr != nil || len(files) != 1 || files[0].Path != "/data/file.mkv" {
+		t.Fatalf("files=%#v err=%v", files, loadErr)
+	}
+	if scope, metaErr := db.Meta("scope"); metaErr != nil || scope != "pending" {
+		t.Fatalf("scope=%q err=%v", scope, metaErr)
+	}
+}
+
+func TestReadersCannotObserveReplacementTransaction(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.SaveMedia([]model.Media{{Type: model.Movie, SourceID: 1, Title: "Old"}}); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	db.beforeCommit = func() error { close(entered); <-release; return nil }
+	writeDone := make(chan error, 1)
+	go func() { writeDone <- db.SaveMedia([]model.Media{{Type: model.Movie, SourceID: 2, Title: "New"}}) }()
+	<-entered
+	type readResult struct {
+		items []model.Media
+		err   error
+	}
+	readDone := make(chan readResult, 1)
+	go func() { xs, _, e := db.LoadMedia(); readDone <- readResult{xs, e} }()
+	select {
+	case <-readDone:
+		t.Fatal("reader entered an uncommitted replacement transaction")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-writeDone; err != nil {
+		t.Fatal(err)
+	}
+	db.beforeCommit = nil
+	r := <-readDone
+	if r.err != nil || len(r.items) != 1 || r.items[0].SourceID != 2 {
+		t.Fatalf("reader did not receive committed snapshot: items=%#v err=%v", r.items, r.err)
+	}
+}
+
+func TestPublishInventoryRollsBackCursorAndSnapshotTogether(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Title: "old"}}
+	oldTorrents := []model.Torrent{{Hash: "old", Name: "old"}}
+	if err := db.PublishInventory(1, 10, oldTorrents, oldMedia); err != nil {
+		t.Fatal(err)
+	}
+
+	db.beforeCommit = func() error { return fmt.Errorf("injected commit failure") }
+	err = db.PublishInventory(2, 20,
+		[]model.Torrent{{Hash: "new", Name: "new"}},
+		[]model.Media{{Type: model.Movie, SourceID: 2, Title: "new"}},
+	)
+	db.beforeCommit = nil
+	if err == nil {
+		t.Fatal("expected injected failure")
+	}
+
+	got, err := db.MetaInt64("qbittorrent.rid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 10 {
+		t.Fatalf("cursor changed after rollback: got %d want 10", got)
+	}
+	media, _, err := db.LoadMedia()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(media) != 1 || media[0].Title != "old" {
+		t.Fatalf("media snapshot changed after rollback: %#v", media)
+	}
+	torrents, err := db.LoadTorrents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(torrents) != 1 || torrents[0].Hash != "old" {
+		t.Fatalf("torrent snapshot changed after rollback: %#v", torrents)
+	}
+}
+
+func TestPublishEnrichmentRollsBackMediaAndGenerationTogether(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PublishEnrichment("jellyfin", 1, []model.Media{{Type: model.Movie, SourceID: 1, Title: "old"}}); err != nil {
+		t.Fatal(err)
+	}
+	db.beforeCommit = func() error { return fmt.Errorf("injected commit failure") }
+	if err := db.PublishEnrichment("jellyfin", 2, []model.Media{{Type: model.Movie, SourceID: 2, Title: "new"}}); err == nil {
+		t.Fatal("expected injected failure")
+	}
+	db.beforeCommit = nil
+	media, _, err := db.LoadMedia()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(media) != 1 || media[0].Title != "old" {
+		t.Fatalf("enrichment media changed after rollback: %#v", media)
+	}
+	generation, err := db.Meta("generation.enrichment.jellyfin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation != "1" {
+		t.Fatalf("enrichment generation changed after rollback: %q", generation)
+	}
+}
+
 func TestCleanupStatisticsStartAtZero(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "togetharr.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +318,7 @@ func TestCleanupStatisticsStartAtZero(t *testing.T) {
 }
 
 func TestFileModelRoundTrip(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "togetharr.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,12 +346,12 @@ func TestFileModelRoundTrip(t *testing.T) {
 }
 
 func TestRemovalHistoryRoundTrip(t *testing.T) {
-	db, err := Open(filepath.Join(t.TempDir(), "togetharr.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	_, err = db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, Payload: []byte(`{"x":1}`)})
+	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, Payload: []byte(`{"x":1}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,5 +361,73 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 	}
 	if len(xs) != 1 || xs[0].RequestedKey != "movie:42" || !xs[0].DryRun || xs[0].ReclaimableBytes != 1234 {
 		t.Fatalf("unexpected history: %#v", xs)
+	}
+	byID, err := db.HistoryEventByID(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byID.ID != id || byID.RequestedKey != "movie:42" || string(byID.Payload) != `{"x":1}` {
+		t.Fatalf("unexpected history lookup: %#v", byID)
+	}
+}
+
+func TestFileIntegrationIdentitySurvivesReload(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	mr := []model.MediaFileRef{{IntegrationID: "radarr-1", IntegrationName: "Movies", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 2, Path: "/movies/a.mkv"}}
+	tr := []model.TorrentFileRef{{IntegrationID: "qb-1", IntegrationName: "Downloader", Client: "Downloader", Hash: "abc", FileIndex: 0, Path: "/downloads/a.mkv"}}
+	if err := db.ReplaceFiles(nil, mr, tr); err != nil {
+		t.Fatal(err)
+	}
+	_, gotM, gotT, _, err := db.LoadFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotM) != 1 || gotM[0].IntegrationID != "radarr-1" || gotM[0].IntegrationName != "Movies" {
+		t.Fatalf("media refs=%#v", gotM)
+	}
+	if len(gotT) != 1 || gotT[0].IntegrationID != "qb-1" || gotT[0].IntegrationName != "Downloader" {
+		t.Fatalf("torrent refs=%#v", gotT)
+	}
+}
+
+func TestStartedRemovalCanBeFinalizedOrRecovered(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "started", RequestedLabel: "A"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpdateHistoryEvent(HistoryEvent{ID: id, EventType: "removal", Status: "success", RequestedLabel: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "started", RequestedLabel: "B"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "queued", RequestedLabel: "C"}); err != nil {
+		t.Fatal(err)
+	}
+	inFlight, err := db.InFlightRemovalHistoryEvents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inFlight) != 2 || inFlight[0].RequestedLabel != "B" || inFlight[1].RequestedLabel != "C" {
+		t.Fatalf("in-flight events=%#v", inFlight)
+	}
+	if err := db.InterruptStartedHistoryEvents(); err != nil {
+		t.Fatal(err)
+	}
+	xs, err := db.HistoryEvents(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(xs) != 3 || xs[0].Status != "queued" || xs[1].Status != "interrupted" || xs[2].Status != "success" {
+		t.Fatalf("events=%#v", xs)
 	}
 }

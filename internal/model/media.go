@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type MediaType string
 
@@ -13,6 +16,29 @@ type Reason struct {
 	Label  string  `json:"label"`
 	Value  string  `json:"value"`
 	Points float64 `json:"points"`
+	Note   string  `json:"note,omitempty"`
+}
+
+const (
+	TorrentCurrent      = "CURRENT"
+	TorrentSuperseded   = "SUPERSEDED"
+	TorrentUnassociated = "UNASSOCIATED"
+)
+
+// NormalizeTorrentStatus migrates legacy cached provenance labels into the
+// current three-state relationship model. "Orphaned" is historical context,
+// not a present torrent state.
+func NormalizeTorrentStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "OPEN", "ASSOCIATED", TorrentCurrent:
+		return TorrentCurrent
+	case TorrentSuperseded:
+		return TorrentSuperseded
+	case "ORPHANED", "UNMATCHED", TorrentUnassociated:
+		return TorrentUnassociated
+	default:
+		return TorrentUnassociated
+	}
 }
 
 type MediaRef struct {
@@ -29,56 +55,63 @@ type Torrent struct {
 	AssociationReason string     `json:"associationReason,omitempty"`
 	MediaItems        []MediaRef `json:"media,omitempty"`
 	FormerMediaItems  []MediaRef `json:"formerMedia,omitempty"`
-	SupersededByHash  string     `json:"supersededByHash,omitempty"`
-	ReclaimableKnown  bool       `json:"reclaimableKnown,omitempty"`
-	ReclaimableBytes  int64      `json:"reclaimableBytes,omitempty"`
-	SharedBytes       int64      `json:"sharedBytes,omitempty"`
-	InspectedBytes    int64      `json:"inspectedBytes,omitempty"`
-	InspectedFiles    int        `json:"inspectedFiles,omitempty"`
-	SharedFiles       int        `json:"sharedFiles,omitempty"`
-	StorageError      string     `json:"storageError,omitempty"`
-	Client            string     `json:"client"`
-	Hash              string     `json:"hash"`
-	Name              string     `json:"name"`
-	State             string     `json:"state"`
-	Category          string     `json:"category"`
-	Tags              string     `json:"tags"`
-	Tracker           string     `json:"tracker"`
-	SavePath          string     `json:"savePath"`
-	ContentPath       string     `json:"contentPath"`
-	SizeBytes         int64      `json:"sizeBytes"`
-	TotalSizeBytes    int64      `json:"totalSizeBytes"`
-	CompletedBytes    int64      `json:"completedBytes"`
-	AmountLeftBytes   int64      `json:"amountLeftBytes"`
-	DownloadedBytes   int64      `json:"downloadedBytes"`
-	UploadedBytes     int64      `json:"uploadedBytes"`
-	DownloadedSession int64      `json:"downloadedSessionBytes"`
-	UploadedSession   int64      `json:"uploadedSessionBytes"`
-	DownloadSpeed     int64      `json:"downloadSpeed"`
-	UploadSpeed       int64      `json:"uploadSpeed"`
-	DownloadLimit     int64      `json:"downloadLimit"`
-	UploadLimit       int64      `json:"uploadLimit"`
-	Ratio             float64    `json:"ratio"`
-	MaxRatio          float64    `json:"maxRatio"`
-	Progress          float64    `json:"progress"`
-	Availability      float64    `json:"availability"`
-	SeedsConnected    int        `json:"seedsConnected"`
-	LeechersConnected int        `json:"leechersConnected"`
-	SeedsSwarm        int        `json:"seedsSwarm"`
-	LeechersSwarm     int        `json:"leechersSwarm"`
-	AddedOn           int64      `json:"addedOn"`
-	CompletionOn      int64      `json:"completionOn"`
-	LastActivity      int64      `json:"lastActivity"`
-	SeenComplete      int64      `json:"seenComplete"`
-	TimeActive        int64      `json:"timeActive"`
-	SeedingTime       int64      `json:"seedingTime"`
-	ETA               int64      `json:"eta"`
-	Reannounce        int64      `json:"reannounce"`
-	ForceStart        bool       `json:"forceStart"`
-	AutoTMM           bool       `json:"autoTmm"`
-	Sequential        bool       `json:"sequential"`
-	SuperSeeding      bool       `json:"superSeeding"`
-	Private           bool       `json:"private"`
+	// Hardlink facts are computed from the last published file topology. The
+	// slices describe global current relationships; the scalar fields describe
+	// the relationship of a torrent copy projected into one media item.
+	HardlinkKnownMediaItems []MediaRef `json:"hardlinkKnownMedia,omitempty"`
+	HardlinkedMediaItems    []MediaRef `json:"hardlinkedMedia,omitempty"`
+	MediaHardlinkKnown      bool       `json:"mediaHardlinkKnown,omitempty"`
+	MediaHardlinked         bool       `json:"mediaHardlinked,omitempty"`
+	SupersededByHash        string     `json:"supersededByHash,omitempty"`
+	ReclaimableKnown        bool       `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes        int64      `json:"reclaimableBytes,omitempty"`
+	SharedBytes             int64      `json:"sharedBytes,omitempty"`
+	InspectedBytes          int64      `json:"inspectedBytes,omitempty"`
+	InspectedFiles          int        `json:"inspectedFiles,omitempty"`
+	SharedFiles             int        `json:"sharedFiles,omitempty"`
+	StorageError            string     `json:"storageError,omitempty"`
+	Client                  string     `json:"client"`
+	Hash                    string     `json:"hash"`
+	Name                    string     `json:"name"`
+	State                   string     `json:"state"`
+	Category                string     `json:"category"`
+	Tags                    string     `json:"tags"`
+	Tracker                 string     `json:"tracker"`
+	SavePath                string     `json:"savePath"`
+	ContentPath             string     `json:"contentPath"`
+	SizeBytes               int64      `json:"sizeBytes"`
+	TotalSizeBytes          int64      `json:"totalSizeBytes"`
+	CompletedBytes          int64      `json:"completedBytes"`
+	AmountLeftBytes         int64      `json:"amountLeftBytes"`
+	DownloadedBytes         int64      `json:"downloadedBytes"`
+	UploadedBytes           int64      `json:"uploadedBytes"`
+	DownloadedSession       int64      `json:"downloadedSessionBytes"`
+	UploadedSession         int64      `json:"uploadedSessionBytes"`
+	DownloadSpeed           int64      `json:"downloadSpeed"`
+	UploadSpeed             int64      `json:"uploadSpeed"`
+	DownloadLimit           int64      `json:"downloadLimit"`
+	UploadLimit             int64      `json:"uploadLimit"`
+	Ratio                   float64    `json:"ratio"`
+	MaxRatio                float64    `json:"maxRatio"`
+	Progress                float64    `json:"progress"`
+	Availability            float64    `json:"availability"`
+	SeedsConnected          int        `json:"seedsConnected"`
+	LeechersConnected       int        `json:"leechersConnected"`
+	SeedsSwarm              int        `json:"seedsSwarm"`
+	LeechersSwarm           int        `json:"leechersSwarm"`
+	AddedOn                 int64      `json:"addedOn"`
+	CompletionOn            int64      `json:"completionOn"`
+	LastActivity            int64      `json:"lastActivity"`
+	SeenComplete            int64      `json:"seenComplete"`
+	TimeActive              int64      `json:"timeActive"`
+	SeedingTime             int64      `json:"seedingTime"`
+	ETA                     int64      `json:"eta"`
+	Reannounce              int64      `json:"reannounce"`
+	ForceStart              bool       `json:"forceStart"`
+	AutoTMM                 bool       `json:"autoTmm"`
+	Sequential              bool       `json:"sequential"`
+	SuperSeeding            bool       `json:"superSeeding"`
+	Private                 bool       `json:"private"`
 }
 
 // File is an existing filesystem path with physical identity facts. Ownership is
@@ -87,6 +120,7 @@ type Torrent struct {
 type StorageContext struct {
 	IntegrationID   string `json:"integrationId,omitempty"`
 	IntegrationName string `json:"integrationName,omitempty"`
+	IntegrationType string `json:"integrationType,omitempty"`
 	Root            string `json:"root,omitempty"`
 	RootLabel       string `json:"rootLabel,omitempty"`
 }
@@ -173,6 +207,8 @@ type Media struct {
 
 	Protected        bool     `json:"protected"`
 	ProtectionReason string   `json:"protectionReason,omitempty"`
+	ReclaimableKnown bool     `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes int64    `json:"reclaimableBytes,omitempty"`
 	Value            float64  `json:"value"`
 	Reasons          []Reason `json:"reasons"`
 }

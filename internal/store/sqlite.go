@@ -19,12 +19,13 @@ import (
 	"time"
 	"unsafe"
 
-	"togetharr/internal/model"
+	"connarr/internal/model"
 )
 
 type Store struct {
-	db      *C.sqlite3
-	writeMu sync.Mutex
+	db           *C.sqlite3
+	accessMu     sync.RWMutex
+	beforeCommit func() error // test failure/blocking hook; nil in production
 }
 
 type HistoryEvent struct {
@@ -77,12 +78,12 @@ func Open(path string) (*Store, error) {
 		`CREATE TABLE IF NOT EXISTS portals (client TEXT NOT NULL, hash TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client,hash));`,
 		`CREATE TABLE IF NOT EXISTS unclaimed_files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(kind,source_id,source,source_file_id));`,
+		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(kind,source_id,source,source_file_id));`,
 		`CREATE INDEX IF NOT EXISTS idx_media_files_media ON media_files(kind,source_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_media_files_path ON media_files(path);`,
 		`CREATE TABLE IF NOT EXISTS media_file_parts (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, part_group TEXT NOT NULL DEFAULT '', part_label TEXT NOT NULL DEFAULT '', part_order INTEGER NOT NULL DEFAULT 0, source_part_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(kind,source_id,source,source_file_id,source_part_id));`,
 		`CREATE INDEX IF NOT EXISTS idx_media_file_parts_file ON media_file_parts(kind,source_id,source,source_file_id);`,
-		`CREATE TABLE IF NOT EXISTS torrent_files (client TEXT NOT NULL, hash TEXT NOT NULL, file_index INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(client,hash,file_index));`,
+		`CREATE TABLE IF NOT EXISTS torrent_files (client TEXT NOT NULL, hash TEXT NOT NULL, file_index INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(client,hash,file_index));`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_hash ON torrent_files(client,hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_path ON torrent_files(path);`,
 		`CREATE TABLE IF NOT EXISTS arr_imports (source TEXT NOT NULL, owner_id INTEGER NOT NULL, sub_id INTEGER NOT NULL DEFAULT 0, download_id TEXT NOT NULL, imported_at TEXT NOT NULL, PRIMARY KEY(source,owner_id,sub_id,download_id,imported_at));`,
@@ -100,11 +101,54 @@ func Open(path string) (*Store, error) {
 			return nil, err
 		}
 	}
+	for _, migration := range []struct{ table, column, definition string }{
+		{"media_files", "integration_id", "TEXT NOT NULL DEFAULT ''"},
+		{"media_files", "integration_name", "TEXT NOT NULL DEFAULT ''"},
+		{"torrent_files", "integration_id", "TEXT NOT NULL DEFAULT ''"},
+		{"torrent_files", "integration_name", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := s.ensureColumn(migration.table, migration.column, migration.definition); err != nil {
+			s.Close()
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
+func (s *Store) ensureColumn(table, column, definition string) error {
+	st, err := s.prepare(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for {
+		rc := C.sqlite3_step(st)
+		if rc == C.SQLITE_DONE {
+			break
+		}
+		if rc != C.SQLITE_ROW {
+			C.sqlite3_finalize(st)
+			return s.err(rc)
+		}
+		if colText(st, 1) == column {
+			found = true
+			break
+		}
+	}
+	C.sqlite3_finalize(st)
+	if found {
+		return nil
+	}
+	return s.exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+}
+
 func (s *Store) Close() error {
-	if s == nil || s.db == nil {
+	if s == nil {
+		return nil
+	}
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	if s.db == nil {
 		return nil
 	}
 	if rc := C.sqlite3_close(s.db); rc != C.SQLITE_OK {
@@ -164,13 +208,41 @@ func stepDone(s *Store, st *C.sqlite3_stmt) error {
 	return nil
 }
 
+// withWriteTx publishes a logical snapshot atomically. The caller must own
+// accessMu exclusively so no reader on the shared connection can observe the
+// DELETE/INSERT replacement while it is in progress.
+func (s *Store) withWriteTx(fn func() error) error {
+	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = s.exec("ROLLBACK")
+		}
+	}()
+	if err := fn(); err != nil {
+		return err
+	}
+	if s.beforeCommit != nil {
+		if err := s.beforeCommit(); err != nil {
+			return err
+		}
+	}
+	if err := s.exec("COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 func (s *Store) SetMeta(key, value string) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
 	return s.setMeta(key, value)
 }
 
-// setMeta writes metadata while the caller already owns writeMu.
+// setMeta writes metadata while the caller already owns accessMu.
 func (s *Store) setMeta(key, value string) error {
 	st, e := s.prepare(`INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`)
 	if e != nil {
@@ -182,6 +254,12 @@ func (s *Store) setMeta(key, value string) error {
 	return stepDone(s, st)
 }
 func (s *Store) Meta(key string) (string, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
+	return s.meta(key)
+}
+
+func (s *Store) meta(key string) (string, error) {
 	st, e := s.prepare(`SELECT value FROM metadata WHERE key=?`)
 	if e != nil {
 		return "", e
@@ -209,17 +287,12 @@ func (s *Store) SetMetaInt64(key string, v int64) error {
 }
 
 func (s *Store) SaveMedia(items []model.Media) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = s.exec("ROLLBACK")
-		}
-	}()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error { return s.saveMedia(items) })
+}
+
+func (s *Store) saveMedia(items []model.Media) error {
 	if err := s.exec("DELETE FROM warriors"); err != nil {
 		return err
 	}
@@ -244,13 +317,11 @@ func (s *Store) SaveMedia(items []model.Media) error {
 			return e
 		}
 	}
-	if err := s.exec("COMMIT"); err != nil {
-		return err
-	}
-	ok = true
 	return s.setMeta("warriors.updated_at", now)
 }
 func (s *Store) LoadMedia() ([]model.Media, time.Time, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	st, e := s.prepare(`SELECT payload FROM warriors`)
 	if e != nil {
 		return nil, time.Time{}, e
@@ -277,23 +348,18 @@ func (s *Store) LoadMedia() ([]model.Media, time.Time, error) {
 		}
 		return out[i].SizeBytes > out[j].SizeBytes
 	})
-	ts, _ := s.Meta("warriors.updated_at")
+	ts, _ := s.meta("warriors.updated_at")
 	t, _ := time.Parse(time.RFC3339Nano, ts)
 	return out, t, nil
 }
 
 func (s *Store) SaveTorrents(items []model.Torrent) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = s.exec("ROLLBACK")
-		}
-	}()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error { return s.saveTorrents(items) })
+}
+
+func (s *Store) saveTorrents(items []model.Torrent) error {
 	if err := s.exec("DELETE FROM portals"); err != nil {
 		return err
 	}
@@ -304,7 +370,7 @@ func (s *Store) SaveTorrents(items []model.Torrent) error {
 	defer C.sqlite3_finalize(st)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, p := range items {
-		// Persist only the torrent index Togetharr needs for lists, valuation,
+		// Persist only the torrent index Connarr needs for lists, valuation,
 		// relationships and storage work. Client-owned diagnostics are lazy.
 		p.Tracker = ""
 		p.TotalSizeBytes = 0
@@ -344,13 +410,11 @@ func (s *Store) SaveTorrents(items []model.Torrent) error {
 			return e
 		}
 	}
-	if err := s.exec("COMMIT"); err != nil {
-		return err
-	}
-	ok = true
 	return s.setMeta("portals.updated_at", now)
 }
 func (s *Store) LoadTorrents() ([]model.Torrent, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	st, e := s.prepare(`SELECT payload FROM portals`)
 	if e != nil {
 		return nil, e
@@ -378,8 +442,8 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
 	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
 		return err
 	}
@@ -413,6 +477,8 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 	return nil
 }
 func (s *Store) ImportEvents(source string) ([]ImportEvent, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	st, e := s.prepare(`SELECT owner_id,sub_id,download_id,imported_at FROM arr_imports WHERE source=? ORDER BY imported_at DESC`)
 	if e != nil {
 		return nil, e
@@ -434,6 +500,8 @@ func (s *Store) ImportEvents(source string) ([]ImportEvent, error) {
 	return out, nil
 }
 func (s *Store) AllImportHashes() (map[string]bool, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	st, e := s.prepare(`SELECT DISTINCT download_id FROM arr_imports`)
 	if e != nil {
 		return nil, e
@@ -482,6 +550,8 @@ type CleanupRun struct {
 }
 
 func (s *Store) CleanupStatistics() (CleanupStats, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	var out CleanupStats
 	st, e := s.prepare(`SELECT COUNT(*), COALESCE(SUM(media_removed),0), COALESCE(SUM(torrents_removed),0), COALESCE(SUM(media_bytes),0), COALESCE(SUM(reclaimed_bytes),0) FROM cleanup_runs WHERE status='completed'`)
 	if e != nil {
@@ -516,6 +586,8 @@ func (s *Store) CleanupStatistics() (CleanupStats, error) {
 }
 
 func (s *Store) CleanupRuns(limit int) ([]CleanupRun, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	if limit <= 0 {
 		limit = 50
 	}
@@ -548,8 +620,8 @@ func (s *Store) CleanupRuns(limit int) ([]CleanupRun, error) {
 }
 
 func (s *Store) RecordCleanupRun(r CleanupRun) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
 	st, e := s.prepare(`INSERT INTO cleanup_runs(started_at,completed_at,usage_before,usage_after,target_usage,critical_usage,planned_bytes,media_bytes,reclaimed_bytes,media_removed,torrents_removed,status,reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if e != nil {
 		return 0, e
@@ -575,17 +647,12 @@ func (s *Store) RecordCleanupRun(r CleanupRun) (int64, error) {
 }
 
 func (s *Store) SaveUnclaimedFiles(items []model.UnclaimedFile) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = s.exec("ROLLBACK")
-		}
-	}()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error { return s.saveUnclaimedFiles(items) })
+}
+
+func (s *Store) saveUnclaimedFiles(items []model.UnclaimedFile) error {
 	if err := s.exec("DELETE FROM unclaimed_files"); err != nil {
 		return err
 	}
@@ -609,14 +676,12 @@ func (s *Store) SaveUnclaimedFiles(items []model.UnclaimedFile) error {
 			return e
 		}
 	}
-	if err := s.exec("COMMIT"); err != nil {
-		return err
-	}
-	ok = true
 	return s.setMeta("unclaimed.updated_at", now)
 }
 
 func (s *Store) LoadUnclaimedFiles() ([]model.UnclaimedFile, time.Time, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	st, e := s.prepare(`SELECT payload FROM unclaimed_files`)
 	if e != nil {
 		return nil, time.Time{}, e
@@ -638,23 +703,18 @@ func (s *Store) LoadUnclaimedFiles() ([]model.UnclaimedFile, time.Time, error) {
 		out = append(out, f)
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
-	ts, _ := s.Meta("unclaimed.updated_at")
+	ts, _ := s.meta("unclaimed.updated_at")
 	t, _ := time.Parse(time.RFC3339Nano, ts)
 	return out, t, nil
 }
 
 func (s *Store) ReplaceFiles(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) error {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	if err := s.exec("BEGIN IMMEDIATE"); err != nil {
-		return err
-	}
-	ok := false
-	defer func() {
-		if !ok {
-			_ = s.exec("ROLLBACK")
-		}
-	}()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error { return s.replaceFiles(files, mediaRefs, torrentRefs) })
+}
+
+func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) error {
 	for _, q := range []string{"DELETE FROM files", "DELETE FROM media_file_parts", "DELETE FROM media_files", "DELETE FROM torrent_files"} {
 		if err := s.exec(q); err != nil {
 			return err
@@ -680,7 +740,7 @@ func (s *Store) ReplaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 			return err
 		}
 	}
-	mst, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path) VALUES(?,?,?,?,?)`)
+	mst, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,integration_id,integration_name) VALUES(?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -698,6 +758,8 @@ func (s *Store) ReplaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 		bindText(mst, 3, r.Source)
 		bindInt(mst, 4, int64(r.SourceFileID))
 		bindText(mst, 5, filepath.Clean(r.Path))
+		bindText(mst, 6, r.IntegrationID)
+		bindText(mst, 7, r.IntegrationName)
 		if err := stepDone(s, mst); err != nil {
 			return err
 		}
@@ -717,7 +779,7 @@ func (s *Store) ReplaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 			}
 		}
 	}
-	tst, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path) VALUES(?,?,?,?)`)
+	tst, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,integration_id,integration_name) VALUES(?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -729,18 +791,258 @@ func (s *Store) ReplaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 		bindText(tst, 2, strings.ToLower(r.Hash))
 		bindInt(tst, 3, int64(r.FileIndex))
 		bindText(tst, 4, filepath.Clean(r.Path))
+		bindText(tst, 5, r.IntegrationID)
+		bindText(tst, 6, r.IntegrationName)
 		if err := stepDone(s, tst); err != nil {
 			return err
 		}
 	}
-	if err := s.exec("COMMIT"); err != nil {
-		return err
-	}
-	ok = true
 	return s.setMeta("files.updated_at", now)
 }
 
+// PublishReconciliation commits every projection derived by one filesystem
+// generation together. A crash or error therefore leaves the previous complete
+// generation intact instead of mixing new topology with old Unclaimed, Media,
+// or Torrent rows.
+func (s *Store) PublishReconciliation(generation uint64, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef, unclaimed []model.UnclaimedFile, torrents []model.Torrent, media []model.Media) error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error {
+		if err := s.replaceFiles(files, mediaRefs, torrentRefs); err != nil {
+			return err
+		}
+		if err := s.saveUnclaimedFiles(unclaimed); err != nil {
+			return err
+		}
+		if err := s.saveTorrents(torrents); err != nil {
+			return err
+		}
+		if err := s.saveMedia(media); err != nil {
+			return err
+		}
+		return s.setMeta("generation.files", strconv.FormatUint(generation, 10))
+	})
+}
+
+type MediaIdentity struct {
+	Kind     model.MediaType
+	SourceID int
+}
+
+type ReconciliationDelta struct {
+	Paths                []string
+	Files                []model.File
+	MediaOwners          []MediaIdentity
+	MediaRefs            []model.MediaFileRef
+	RemovedTorrentHashes []string
+	Unclaimed            []model.UnclaimedFile
+	Torrents             []model.Torrent
+	Media                []model.Media
+	Generation           uint64
+	ScopeMetadataKey     string
+}
+
+// PublishReconciliationDelta commits only topology rows affected by a known
+// mutation. Global Media/Torrent projections are still published atomically
+// because their values and relationship explanations may depend on those rows.
+func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		deletePath, err := s.prepare(`DELETE FROM files WHERE path=?`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(deletePath)
+		deleteUnclaimed, err := s.prepare(`DELETE FROM unclaimed_files WHERE path=?`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(deleteUnclaimed)
+		for _, path := range delta.Paths {
+			for _, statement := range []*C.sqlite3_stmt{deletePath, deleteUnclaimed} {
+				C.sqlite3_reset(statement)
+				C.sqlite3_clear_bindings(statement)
+				bindText(statement, 1, filepath.Clean(path))
+				if err := stepDone(s, statement); err != nil {
+					return err
+				}
+			}
+		}
+		insertFile, err := s.prepare(`INSERT INTO files(path,payload,updated_at) VALUES(?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(insertFile)
+		for _, file := range delta.Files {
+			payload, err := json.Marshal(file)
+			if err != nil {
+				return err
+			}
+			C.sqlite3_reset(insertFile)
+			C.sqlite3_clear_bindings(insertFile)
+			bindText(insertFile, 1, filepath.Clean(file.Path))
+			bindText(insertFile, 2, string(payload))
+			bindText(insertFile, 3, now)
+			if err := stepDone(s, insertFile); err != nil {
+				return err
+			}
+		}
+		insertUnclaimed, err := s.prepare(`INSERT INTO unclaimed_files(path,payload,updated_at) VALUES(?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(insertUnclaimed)
+		for _, file := range delta.Unclaimed {
+			payload, err := json.Marshal(file)
+			if err != nil {
+				return err
+			}
+			C.sqlite3_reset(insertUnclaimed)
+			C.sqlite3_clear_bindings(insertUnclaimed)
+			bindText(insertUnclaimed, 1, filepath.Clean(file.Path))
+			bindText(insertUnclaimed, 2, string(payload))
+			bindText(insertUnclaimed, 3, now)
+			if err := stepDone(s, insertUnclaimed); err != nil {
+				return err
+			}
+		}
+		deleteParts, err := s.prepare(`DELETE FROM media_file_parts WHERE kind=? AND source_id=?`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(deleteParts)
+		deleteMedia, err := s.prepare(`DELETE FROM media_files WHERE kind=? AND source_id=?`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(deleteMedia)
+		for _, owner := range delta.MediaOwners {
+			for _, statement := range []*C.sqlite3_stmt{deleteParts, deleteMedia} {
+				C.sqlite3_reset(statement)
+				C.sqlite3_clear_bindings(statement)
+				bindText(statement, 1, string(owner.Kind))
+				bindInt(statement, 2, int64(owner.SourceID))
+				if err := stepDone(s, statement); err != nil {
+					return err
+				}
+			}
+		}
+		mediaStatement, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,integration_id,integration_name) VALUES(?,?,?,?,?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(mediaStatement)
+		partStatement, err := s.prepare(`INSERT INTO media_file_parts(kind,source_id,source,source_file_id,part_group,part_label,part_order,source_part_id) VALUES(?,?,?,?,?,?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(partStatement)
+		for _, ref := range delta.MediaRefs {
+			C.sqlite3_reset(mediaStatement)
+			C.sqlite3_clear_bindings(mediaStatement)
+			bindText(mediaStatement, 1, string(ref.MediaType))
+			bindInt(mediaStatement, 2, int64(ref.MediaID))
+			bindText(mediaStatement, 3, ref.Source)
+			bindInt(mediaStatement, 4, int64(ref.SourceFileID))
+			bindText(mediaStatement, 5, filepath.Clean(ref.Path))
+			bindText(mediaStatement, 6, ref.IntegrationID)
+			bindText(mediaStatement, 7, ref.IntegrationName)
+			if err := stepDone(s, mediaStatement); err != nil {
+				return err
+			}
+			for _, part := range ref.Parts {
+				C.sqlite3_reset(partStatement)
+				C.sqlite3_clear_bindings(partStatement)
+				bindText(partStatement, 1, string(ref.MediaType))
+				bindInt(partStatement, 2, int64(ref.MediaID))
+				bindText(partStatement, 3, ref.Source)
+				bindInt(partStatement, 4, int64(ref.SourceFileID))
+				bindText(partStatement, 5, part.Group)
+				bindText(partStatement, 6, part.Label)
+				bindInt(partStatement, 7, int64(part.Order))
+				bindInt(partStatement, 8, int64(part.SourcePartID))
+				if err := stepDone(s, partStatement); err != nil {
+					return err
+				}
+			}
+		}
+		deleteTorrent, err := s.prepare(`DELETE FROM torrent_files WHERE hash=?`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(deleteTorrent)
+		for _, hash := range delta.RemovedTorrentHashes {
+			C.sqlite3_reset(deleteTorrent)
+			C.sqlite3_clear_bindings(deleteTorrent)
+			bindText(deleteTorrent, 1, strings.ToLower(strings.TrimSpace(hash)))
+			if err := stepDone(s, deleteTorrent); err != nil {
+				return err
+			}
+		}
+		if err := s.saveTorrents(delta.Torrents); err != nil {
+			return err
+		}
+		if err := s.saveMedia(delta.Media); err != nil {
+			return err
+		}
+		if err := s.setMeta("files.updated_at", now); err != nil {
+			return err
+		}
+		if err := s.setMeta("unclaimed.updated_at", now); err != nil {
+			return err
+		}
+		if err := s.setMeta("generation.files", strconv.FormatUint(delta.Generation, 10)); err != nil {
+			return err
+		}
+		if delta.ScopeMetadataKey != "" {
+			if err := s.setMeta(delta.ScopeMetadataKey, ""); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PublishInventory atomically advances qBittorrent's incremental cursor with
+// the Media and Torrent snapshot to which it belongs. Replaying an old RID is
+// safe; advancing it without its snapshot is not.
+func (s *Store) PublishInventory(generation uint64, torrentRID int64, torrents []model.Torrent, media []model.Media) error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error {
+		if err := s.saveTorrents(torrents); err != nil {
+			return err
+		}
+		if torrentRID != 0 {
+			if err := s.setMeta("qbittorrent.rid", strconv.FormatInt(torrentRID, 10)); err != nil {
+				return err
+			}
+		}
+		if err := s.saveMedia(media); err != nil {
+			return err
+		}
+		return s.setMeta("generation.inventory", strconv.FormatUint(generation, 10))
+	})
+}
+
+// PublishEnrichment replaces only Media valuation inputs/results and records
+// the base generation they enrich. It cannot disturb Torrent or File topology.
+func (s *Store) PublishEnrichment(name string, generation uint64, media []model.Media) error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.withWriteTx(func() error {
+		if err := s.saveMedia(media); err != nil {
+			return err
+		}
+		return s.setMeta("generation.enrichment."+name, strconv.FormatUint(generation, 10))
+	})
+}
+
 func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.TorrentFileRef, time.Time, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	var files []model.File
 	st, err := s.prepare(`SELECT payload FROM files ORDER BY path`)
 	if err != nil {
@@ -764,7 +1066,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 	}
 	C.sqlite3_finalize(st)
 	var mr []model.MediaFileRef
-	st, err = s.prepare(`SELECT kind,source_id,source,source_file_id,path FROM media_files ORDER BY kind,source_id,path`)
+	st, err = s.prepare(`SELECT kind,source_id,source,source_file_id,path,integration_id,integration_name FROM media_files ORDER BY kind,source_id,path`)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, err
 	}
@@ -777,7 +1079,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 			C.sqlite3_finalize(st)
 			return nil, nil, nil, time.Time{}, s.err(rc)
 		}
-		mr = append(mr, model.MediaFileRef{MediaType: model.MediaType(colText(st, 0)), MediaID: int(C.sqlite3_column_int64(st, 1)), Source: colText(st, 2), SourceFileID: int(C.sqlite3_column_int64(st, 3)), Path: colText(st, 4)})
+		mr = append(mr, model.MediaFileRef{MediaType: model.MediaType(colText(st, 0)), MediaID: int(C.sqlite3_column_int64(st, 1)), Source: colText(st, 2), SourceFileID: int(C.sqlite3_column_int64(st, 3)), Path: colText(st, 4), IntegrationID: colText(st, 5), IntegrationName: colText(st, 6)})
 	}
 	C.sqlite3_finalize(st)
 	partsByFile := map[string][]model.MediaFilePart{}
@@ -803,7 +1105,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 		mr[i].Parts = append([]model.MediaFilePart(nil), partsByFile[key]...)
 	}
 	var tr []model.TorrentFileRef
-	st, err = s.prepare(`SELECT client,hash,file_index,path FROM torrent_files ORDER BY client,hash,file_index`)
+	st, err = s.prepare(`SELECT client,hash,file_index,path,integration_id,integration_name FROM torrent_files ORDER BY client,hash,file_index`)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, err
 	}
@@ -816,17 +1118,17 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 			C.sqlite3_finalize(st)
 			return nil, nil, nil, time.Time{}, s.err(rc)
 		}
-		tr = append(tr, model.TorrentFileRef{Client: colText(st, 0), Hash: colText(st, 1), FileIndex: int(C.sqlite3_column_int64(st, 2)), Path: colText(st, 3)})
+		tr = append(tr, model.TorrentFileRef{Client: colText(st, 0), Hash: colText(st, 1), FileIndex: int(C.sqlite3_column_int64(st, 2)), Path: colText(st, 3), IntegrationID: colText(st, 4), IntegrationName: colText(st, 5)})
 	}
 	C.sqlite3_finalize(st)
-	ts, _ := s.Meta("files.updated_at")
+	ts, _ := s.meta("files.updated_at")
 	updated, _ := time.Parse(time.RFC3339Nano, ts)
 	return files, mr, tr, updated, nil
 }
 
 func (s *Store) SaveHistoryEvent(e HistoryEvent) (int64, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now().UTC()
 	}
@@ -854,6 +1156,73 @@ func (s *Store) SaveHistoryEvent(e HistoryEvent) (int64, error) {
 	return int64(C.sqlite3_last_insert_rowid(s.db)), nil
 }
 
+// UpdateHistoryEvent finalizes the durable operation row created before a
+// removal begins. The operation identity is preserved across every outcome.
+func (s *Store) UpdateHistoryEvent(e HistoryEvent) error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	if e.ID <= 0 {
+		return fmt.Errorf("history event id is required")
+	}
+	if len(e.Payload) == 0 {
+		e.Payload = json.RawMessage(`{}`)
+	}
+	st, err := s.prepare(`UPDATE history_events SET status=?,dry_run=?,requested_kind=?,requested_key=?,requested_label=?,reclaimable_bytes=?,payload=?,error=? WHERE id=?`)
+	if err != nil {
+		return err
+	}
+	defer C.sqlite3_finalize(st)
+	bindText(st, 1, e.Status)
+	bindInt(st, 2, boolInt(e.DryRun))
+	bindText(st, 3, e.RequestedKind)
+	bindText(st, 4, e.RequestedKey)
+	bindText(st, 5, e.RequestedLabel)
+	bindInt(st, 6, e.ReclaimableBytes)
+	bindText(st, 7, string(e.Payload))
+	bindText(st, 8, e.Error)
+	bindInt(st, 9, e.ID)
+	if err := stepDone(s, st); err != nil {
+		return err
+	}
+	if C.sqlite3_changes(s.db) != 1 {
+		return fmt.Errorf("history event %d does not exist", e.ID)
+	}
+	return nil
+}
+
+// InterruptStartedHistoryEvents closes operations left in-flight by a prior
+// process exit. Their exact starting plan remains available in payload.
+func (s *Store) InterruptStartedHistoryEvents() error {
+	s.accessMu.Lock()
+	defer s.accessMu.Unlock()
+	return s.exec(`UPDATE history_events SET status='interrupted', error=CASE WHEN error='' THEN 'application stopped before the removal operation was finalized' ELSE error END WHERE event_type='removal' AND status='started'`)
+}
+
+// InFlightRemovalHistoryEvents returns the domain journal entries that need to
+// be reconciled with scheduler state before new work starts after a restart.
+func (s *Store) InFlightRemovalHistoryEvents() ([]HistoryEvent, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
+	statement, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at FROM history_events WHERE event_type='removal' AND status IN ('queued','started') ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer C.sqlite3_finalize(statement)
+	var events []HistoryEvent
+	for {
+		result := C.sqlite3_step(statement)
+		if result == C.SQLITE_DONE {
+			break
+		}
+		if result != C.SQLITE_ROW {
+			return nil, s.err(result)
+		}
+		createdAt, _ := time.Parse(time.RFC3339Nano, colText(statement, 10))
+		events = append(events, HistoryEvent{ID: int64(C.sqlite3_column_int64(statement, 0)), EventType: colText(statement, 1), Status: colText(statement, 2), DryRun: C.sqlite3_column_int64(statement, 3) != 0, RequestedKind: colText(statement, 4), RequestedKey: colText(statement, 5), RequestedLabel: colText(statement, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(statement, 7)), Payload: json.RawMessage(colText(statement, 8)), Error: colText(statement, 9), CreatedAt: createdAt})
+	}
+	return events, nil
+}
+
 func boolInt(v bool) int64 {
 	if v {
 		return 1
@@ -862,6 +1231,8 @@ func boolInt(v bool) int64 {
 }
 
 func (s *Store) HistoryEvents(limit int) ([]HistoryEvent, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
 	if limit <= 0 {
 		limit = 100
 	}
@@ -884,4 +1255,27 @@ func (s *Store) HistoryEvents(limit int) ([]HistoryEvent, error) {
 		out = append(out, HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: t})
 	}
 	return out, nil
+}
+
+func (s *Store) HistoryEventByID(id int64) (HistoryEvent, error) {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
+	if id <= 0 {
+		return HistoryEvent{}, fmt.Errorf("history event id is required")
+	}
+	st, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at FROM history_events WHERE id=?`)
+	if err != nil {
+		return HistoryEvent{}, err
+	}
+	defer C.sqlite3_finalize(st)
+	bindInt(st, 1, id)
+	rc := C.sqlite3_step(st)
+	if rc == C.SQLITE_DONE {
+		return HistoryEvent{}, fmt.Errorf("history event %d does not exist", id)
+	}
+	if rc != C.SQLITE_ROW {
+		return HistoryEvent{}, s.err(rc)
+	}
+	createdAt, _ := time.Parse(time.RFC3339Nano, colText(st, 10))
+	return HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: createdAt}, nil
 }

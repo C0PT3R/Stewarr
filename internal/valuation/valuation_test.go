@@ -1,10 +1,10 @@
 package valuation
 
 import (
+	"connarr/internal/config"
+	"connarr/internal/model"
 	"testing"
 	"time"
-	"togetharr/internal/config"
-	"togetharr/internal/model"
 )
 
 func testConfig() config.Config {
@@ -30,12 +30,25 @@ func TestLowestValueComesFirst(t *testing.T) {
 		t.Fatalf("unexpected order: %s, %s, %s", items[0].Title, items[1].Title, items[2].Title)
 	}
 }
-func TestKeepTagAddsValueWithoutMakingItemImmortal(t *testing.T) {
+func TestKeepTagCreatesAbsoluteProtection(t *testing.T) {
 	c := testConfig()
 	items := []model.Media{{Title: "Tagged", Rating: 1, Tags: []string{"keep"}}, {Title: "Ordinary", Rating: 9}}
 	ApplyMedia(items, c)
 	if items[0].Title != "Ordinary" || items[1].Title != "Tagged" {
 		t.Fatalf("value ordering failed: %#v", items)
+	}
+	if !items[1].Protected || items[1].ProtectionReason != "Keep tag" {
+		t.Fatalf("keep-tagged media must be absolutely protected: %#v", items[1])
+	}
+}
+
+func TestNeverWatchedWeightIsApplied(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.NeverWatched = 25
+	items := []model.Media{{Title: "Unwatched"}}
+	ApplyMedia(items, c)
+	if items[0].Value != 25 || len(items[0].Reasons) == 0 || items[0].Reasons[0].Points != 25 {
+		t.Fatalf("never-watched weight was ignored: %#v", items[0])
 	}
 }
 func TestSizeBreaksEqualValueTie(t *testing.T) {
@@ -53,7 +66,7 @@ func TestHistoricalTorrentsDoNotAddMediaValue(t *testing.T) {
 	items := []model.Media{{
 		Title: "Test",
 		Torrents: []model.Torrent{
-			{Hash: "current", AssociationStatus: "ASSOCIATED", LeechersSwarm: 1},
+			{Hash: "current", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, LeechersSwarm: 1},
 			{Hash: "old", AssociationStatus: "SUPERSEDED", LeechersSwarm: 1023, UploadSpeed: 1024 * 1024 * 1024},
 		},
 	}}
@@ -64,14 +77,51 @@ func TestHistoricalTorrentsDoNotAddMediaValue(t *testing.T) {
 	}
 }
 
+func TestCurrentTorrentMustBeHardlinkedToAddMediaValue(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.TorrentActivity = 10
+	items := []model.Media{{
+		Title: "Test",
+		Torrents: []model.Torrent{
+			{Hash: "copy", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, LeechersSwarm: 1023},
+			{Hash: "unknown", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: false, LeechersSwarm: 1023},
+		},
+	}}
+	ApplyMedia(items, c)
+	if items[0].Value != 0 {
+		t.Fatalf("non-hardlinked activity must not add media value: got %.2f", items[0].Value)
+	}
+	for _, reason := range items[0].Reasons {
+		if reason.Label == "Associated torrent" {
+			t.Fatalf("non-hardlinked torrent produced a contribution: %#v", reason)
+		}
+	}
+}
+
+func TestHardlinkedTorrentContributionExplainsWhy(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.TorrentActivity = 10
+	items := []model.Media{{Title: "Test", Torrents: []model.Torrent{{AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, LeechersSwarm: 1}}}}
+	ApplyMedia(items, c)
+	found := false
+	for _, reason := range items[0].Reasons {
+		if reason.Label == "Associated torrent" && reason.Note != "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("missing hardlink-gated explanation: %#v", items[0].Reasons)
+	}
+}
+
 func TestTorrentValueIsIndependentFromMediaAndStorage(t *testing.T) {
 	c := testConfig()
 	c.Valuation.TorrentWeights.Seeds = 1
 	c.Valuation.TorrentWeights.Leechers = 5
 	c.Valuation.TorrentWeights.UploadRate = 5
 	items := []model.Torrent{
-		{Name: "active", SeedsSwarm: 100, LeechersSwarm: 10, UploadSpeed: 2 * 1024 * 1024, ReclaimableBytes: 99 << 30, AssociationStatus: "ORPHANED"},
-		{Name: "quiet", SeedsSwarm: 1, ReclaimableBytes: 0, AssociationStatus: "ASSOCIATED"},
+		{Name: "active", SeedsSwarm: 100, LeechersSwarm: 10, UploadSpeed: 2 * 1024 * 1024, ReclaimableBytes: 99 << 30, AssociationStatus: model.TorrentUnassociated},
+		{Name: "quiet", SeedsSwarm: 1, ReclaimableBytes: 0, AssociationStatus: model.TorrentCurrent},
 	}
 	ApplyTorrents(items, c)
 	if items[0].Value <= items[1].Value {

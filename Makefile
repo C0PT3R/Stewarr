@@ -1,15 +1,15 @@
 SHELL := /bin/sh
 
 REMOTE ?= user@your-server
-REMOTE_DIR ?= ./servarr/togetharr
+REMOTE_DIR ?= ./servarr/connarr
 
-.PHONY: build run fmt test deploy logs
+.PHONY: build run fmt test test-browser deploy logs
 
 build:
-	go build ./cmd/togetharr
+	go build ./cmd/connarr
 
 run:
-	go run ./cmd/togetharr -config ./config.json
+	go run ./cmd/connarr -config ./config.json
 
 fmt:
 	gofmt -w ./cmd ./internal
@@ -17,10 +17,16 @@ fmt:
 test:
 	go test ./...
 
+test-browser:
+	node tests/ui/reactivity.mjs
+
 deploy:
-	ssh $(REMOTE) 'mkdir -p $(REMOTE_DIR)/config'
-	rsync -av --delete --exclude '.git' --exclude 'config.json' ./ $(REMOTE):$(REMOTE_DIR)/
+	@stage=$$(mktemp -d); \
+	trap 'rm -rf "$$stage"' EXIT HUP INT TERM; \
+	tar -cf - -T .release-manifest | tar -xf - -C "$$stage"; \
+	ssh $(REMOTE) 'mkdir -p $(REMOTE_DIR)/config'; \
+	rsync -av --delete --exclude '/config/' --exclude '/config.json' "$$stage"/ $(REMOTE):$(REMOTE_DIR)/; \
 	ssh $(REMOTE) 'cd $(REMOTE_DIR) && PUID=$$(id -u) PGID=$$(id -g) docker compose up -d --build'
 
 logs:
-	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f togetharr'
+	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f connarr'
