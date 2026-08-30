@@ -505,6 +505,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.files = files
 	service.mediaFileRefs = mediaRefs
 	service.torrentFileRefs = torrentRefs
+	service.storageRoots = collapseStorageRoots(roots)
 	service.filesUpdated = now
 	service.filesErr = nil
 	service.unclaimed = unclaimedFiles

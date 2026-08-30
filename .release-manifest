@@ -18,6 +18,7 @@ internal/config/config.go
 internal/config/config_test.go
 internal/filetopology/topology.go
 internal/filetopology/topology_test.go
+internal/httpui/home_test.go
 internal/httpui/middleware.go
 internal/httpui/reactive.go
 internal/httpui/reactive_test.go
@@ -66,6 +67,8 @@ internal/inventory/reconciliation_scope.go
 internal/inventory/reconciliation_scope_test.go
 internal/inventory/service.go
 internal/inventory/service_test.go
+internal/inventory/storage_devices.go
+internal/inventory/storage_devices_test.go
 internal/model/media.go
 internal/model/media_test.go
 internal/product/product.go

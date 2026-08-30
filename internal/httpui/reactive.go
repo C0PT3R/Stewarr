@@ -140,18 +140,43 @@ func sampleStorage(path string) (storageFingerprint, bool) {
 	return storageFingerprint{blocks: statistics.Blocks, free: statistics.Bavail}, true
 }
 
+// sampleAllStorage stats every currently known storage device's
+// representative path. It never calls an integration or walks a
+// filesystem, so it is safe on a short polling interval.
+func (server *Server) sampleAllStorage() map[string]storageFingerprint {
+	fingerprints := map[string]storageFingerprint{}
+	for _, path := range server.inv.KnownStorageDevicePaths() {
+		if fingerprint, available := sampleStorage(path); available {
+			fingerprints[path] = fingerprint
+		}
+	}
+	return fingerprints
+}
+
+func storageFingerprintsEqual(a, b map[string]storageFingerprint) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for path, fingerprint := range a {
+		if b[path] != fingerprint {
+			return false
+		}
+	}
+	return true
+}
+
 func (server *Server) watchStorageChanges(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	last, available := sampleStorage(server.inv.Config().Storage.Path)
+	last := server.sampleAllStorage()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			current, currentAvailable := sampleStorage(server.inv.Config().Storage.Path)
-			if currentAvailable != available || (currentAvailable && current != last) {
-				last, available = current, currentAvailable
+			current := server.sampleAllStorage()
+			if !storageFingerprintsEqual(current, last) {
+				last = current
 				server.publishUIChange("storage")
 			}
 		}

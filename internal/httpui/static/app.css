@@ -817,6 +817,49 @@ td:has(> a > strong) > a {
   }
 }
 
+.storage-device {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.storage-device:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.storage-bar {
+  display: flex;
+  height: 14px;
+  margin: 8px 0;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface-soft);
+}
+.storage-bar .segment {
+  height: 100%;
+}
+.storage-bar .segment.claim:nth-of-type(4n + 1) {
+  background: var(--accent);
+}
+.storage-bar .segment.claim:nth-of-type(4n + 2) {
+  background: #9bd28f;
+}
+.storage-bar .segment.claim:nth-of-type(4n + 3) {
+  background: #c6a0e8;
+}
+.storage-bar .segment.claim:nth-of-type(4n + 4) {
+  background: #e8a86e;
+}
+.storage-bar .segment.unclaimed {
+  background: var(--warn);
+}
+.storage-bar .segment.other {
+  background: var(--faint);
+}
+.storage-bar .segment.free {
+  background: transparent;
+}
+
 body {
   font-family: system-ui, sans-serif;
   margin: 24px;

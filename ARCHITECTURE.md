@@ -54,7 +54,7 @@ Historical relationships between downloads/torrents and managed media. Preserve 
 A representation occupies bytes on a storage pool. Library and torrent representations can be independent copies, hardlinks to one inode, reflinks/shared extents, remote data or unknown relationships.
 
 ### Storage pool
-Target/pressure ultimately belongs to a storage device/pool, not globally to the application. Multiple configured paths may map to the same underlying pool and should eventually be detected as such.
+Target/pressure ultimately belongs to a storage device/pool, not globally to the application. There is no configured storage path: known devices are derived from the storage roots each integration already discovers on its own, and roots resolving to the same physical device are grouped into one pool.
 
 ## Reclaimability
 

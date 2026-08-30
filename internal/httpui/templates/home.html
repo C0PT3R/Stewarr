@@ -12,20 +12,33 @@
     <h1 class="page-title">Home</h1>
     {{if .LastErr}}<p class="bad">{{.LastErr}}</p>{{end}}
     <div class="grid">
-      <section class="card">
+      <section class="card" id="storage-devices" data-reactive-fragment data-live-policy="immediate">
         <h2>Storage</h2>
-        {{if .Plan.Available}}
-          <div class="big" data-dashboard-field="storageUsage">{{printf "%.2f" .Plan.UsagePercent}}%</div>
-          <div class="muted" data-dashboard-field="storageTarget">Target {{printf "%.1f" .Plan.TargetUsagePercent}}</div>
-          {{if gt .Plan.NeedBytes 0}}
-            <p class="bad" data-dashboard-field="storageState"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Selected}} media currently selected · {{humanU .Plan.SelectedBytes}} planned.</p>
-          {{else}}
-            <p class="good" data-dashboard-field="storageState"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
-          {{end}}
+        {{if not .Devices}}
+          <p class="muted">No storage devices are known yet; file reconciliation has not completed.</p>
         {{else}}
-          <div class="big bad">UNAVAILABLE</div>
-          <p>{{.Plan.Message}}</p>
-          {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
+          {{range $device := .Devices}}
+          <div class="storage-device">
+            <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
+            {{if .Storage.Available}}
+              <div class="storage-bar">
+                {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Integration}}: {{humanU .Bytes}}"></span>{{end}}
+                {{if gt .Storage.UnclaimedBytes 0}}<span class="segment unclaimed" style="width:{{widthPct .Storage.UnclaimedBytes .Storage.TotalBytes}}%" title="Unclaimed: {{humanU .Storage.UnclaimedBytes}}"></span>{{end}}
+                {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
+                <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
+              </div>
+              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%)</div>
+              {{if gt .Plan.NeedBytes 0}}
+                <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Selected}} media currently selected · {{humanU .Plan.SelectedBytes}} planned.</p>
+              {{else}}
+                <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
+              {{end}}
+            {{else}}
+              <p class="bad">UNAVAILABLE{{if .Storage.Error}}: {{.Storage.Error}}{{end}}</p>
+              {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
+            {{end}}
+          </div>
+          {{end}}
         {{end}}
         {{if .UnclaimedAvailable}}<p><a href="/downloads/unclaimed">Unmanaged files →</a></p>{{end}}
       </section>

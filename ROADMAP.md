@@ -2,7 +2,7 @@
 
 This file separates implemented behavior from intended direction. It is not a promise of release dates.
 
-## Implemented through 0.2.9
+## Implemented through 0.2.10
 
 ### Reactive UI state
 
@@ -70,6 +70,18 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Dry-run-by-default removal, owner-backed mutations, final-boundary live
   ownership/device/inode revalidation, and fail-closed Unclaimed discovery.
 
+### Storage devices (0.2.10)
+
+- No configured global storage path. Known storage devices are derived from
+  the roots each integration already discovers on its own, grouped by
+  physical device when multiple roots share one disk.
+- Home shows one usage graphic per known device, broken down by which
+  integration's files occupy it, with Unclaimed and unattributed real usage
+  kept as separate, honestly-labeled segments rather than forced to match.
+- Target/Critical reclamation thresholds apply independently to every known
+  device; a device Connarr cannot measure is reported Unavailable without
+  affecting others.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and
@@ -111,7 +123,8 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Add useful Unclaimed filters.
 - Improve explicit provenance-change reasons and per-object historical
   timelines.
-- Expand the single-path storage model into explicit storage pools.
+- Make Target/Critical reclamation thresholds independently configurable per
+  storage device rather than one global percentage applied to every device.
 - Build a non-destructive reclamation planner across Library, Torrents, and
   Unclaimed data.
 - Continue readability work outside the HTTP/UI files touched through 0.2.8.

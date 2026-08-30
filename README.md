@@ -1,5 +1,7 @@
 # Connarr
 
+> **0.2.10 storage devices:** There is no configured global storage path. Connarr derives known storage devices from the roots each integration already discovers on its own, and Home shows one usage graphic per device broken down by which integration's files occupy it.
+
 > **0.2.9 scheduler rewrite:** Background and mutation work now runs on a durable, domain-neutral engine with trigger/execution identity, coverage-aware coalescing, resource arbitration, and workflow-driven post-removal consistency. See `Scheduler-Spec.md` for the full contract.
 
 > **0.2.8 relationship and removal clarity:** Proven physical backing promotes a torrent to Current, and media removal presents the complete Current/Superseded set without exposing the physical graph as the primary interface.
@@ -12,7 +14,15 @@ Connarr does not try to replace the applications it integrates with. Integration
 
 ## Current version
 
-`0.2.9`
+`0.2.10`
+
+There is no configured global storage path. Connarr derives its known
+storage devices from the roots each integration already discovers on its
+own, grouping roots that resolve to the same physical device. Home shows one
+usage graphic per device, broken down by which integration's files occupy
+it, with Unclaimed and unattributed real usage kept as separate, honestly
+labeled segments rather than forced to match; Target/Critical reclamation
+thresholds apply independently to every device.
 
 Background and mutation work now runs on the scheduler engine described in
 `Scheduler-Spec.md`: durable trigger/execution identity, coverage-aware
@@ -208,17 +218,25 @@ Example:
 
 ```json
 "storage": {
-  "path": "/data",
   "target_usage_percent": 90,
   "critical_usage_percent": 95
 }
 ```
 
-Target is the operational reclamation threshold and return point. Critical is
-independent and reserved for a future emergency policy such as alerting or
-pausing new downloads; it does not activate or gate cleanup planning.
+There is no configured storage path. Connarr derives its known storage
+devices from the roots each integration already discovers on its own
+(Radarr/Sonarr root folders, qBittorrent save paths); roots that resolve to
+the same physical device are grouped into one device. Home shows one usage
+bar per device, broken down by which integration's files occupy it, with
+Target/Critical applied independently to each device.
 
-If `storage.path` cannot be measured, Connarr reports storage as **UNAVAILABLE** and does not produce a cleanup plan.
+Target is the operational reclamation threshold and return point per device.
+Critical is independent and reserved for a future emergency policy such as
+alerting or pausing new downloads; it does not activate or gate cleanup
+planning.
+
+A device Connarr cannot measure is reported as **UNAVAILABLE** and produces
+no cleanup plan; other devices are unaffected.
 
 ## Docker
 

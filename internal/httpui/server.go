@@ -22,7 +22,6 @@ import (
 	"connarr/internal/model"
 	"connarr/internal/product"
 	"connarr/internal/removal"
-	"connarr/internal/storagecap"
 	"connarr/internal/store"
 	"connarr/internal/tasks"
 )
@@ -60,7 +59,12 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fmtUpdated": func(timestamp time.Time) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "widthPct": func(part, total uint64) string {
+		if total == 0 {
+			return "0"
+		}
+		return fmt.Sprintf("%.3f", float64(part)/float64(total)*100)
+	}, "fmtUpdated": func(timestamp time.Time) string {
 		if timestamp.IsZero() {
 			return "Never"
 		}
@@ -231,13 +235,28 @@ func (server *Server) planningReliable(r inventory.Reliability) bool {
 	return r.Inventory && r.Valuation && r.FileModel == "reliable" && (server.tasks == nil || !server.tasks.ConsistencyPending())
 }
 
+// deviceViews builds one cleanup plan per known storage device, since there
+// is no longer a single global storage path to build one plan against.
+func (server *Server) deviceViews(items []model.Media, planningReliable bool) []deviceView {
+	devices := server.inv.StorageDevices()
+	if len(devices) == 0 {
+		return nil
+	}
+	mediaByDevice := server.inv.MediaByDevice(items)
+	cfg := server.inv.Config()
+	views := make([]deviceView, 0, len(devices))
+	for _, device := range devices {
+		p, planErr := cleanup.Build(device.RepresentativePath, cfg.Storage.TargetUsagePercent, cfg.Storage.CriticalUsagePercent, mediaByDevice[device.RepresentativePath], planningReliable)
+		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr})
+	}
+	return views
+}
+
 type libraryData struct {
 	Rows            []mediaRow
 	Updated         time.Time
 	LastErr         error
-	Plan            cleanup.Plan
 	Refreshing      bool
-	PlanErr         error
 	TotalItems      int
 	Page            int
 	PageSize        int
@@ -261,9 +280,17 @@ type libraryData struct {
 	ClearURL        string
 }
 
+// deviceView pairs one physical storage device with its own cleanup plan:
+// removing the single global storage path means there is no longer one
+// answer to "is cleanup needed," only a per-device one.
+type deviceView struct {
+	Storage inventory.StorageDevice
+	Plan    cleanup.Plan
+	PlanErr error
+}
+
 type homeData struct {
-	Plan                 cleanup.Plan
-	PlanErr              error
+	Devices              []deviceView
 	Reliability          inventory.Reliability
 	Updated              time.Time
 	LastErr              error
@@ -284,7 +311,6 @@ type homeData struct {
 	UnclaimedAvailable   bool
 	UnclaimedError       string
 	Services             []inventory.ServiceStatus
-	Capabilities         storagecap.Capabilities
 	Stats                store.CleanupStats
 }
 
@@ -311,8 +337,7 @@ func (server *Server) dashboardSnapshot() homeData {
 	items = projection.filterMedia(items)
 	reliability := server.inv.ReliabilitySnapshot()
 	planningReliable := server.planningReliable(reliability)
-	p, planErr := cleanup.Build(server.inv.Config().Storage.Path, server.inv.Config().Storage.TargetUsagePercent, server.inv.Config().Storage.CriticalUsagePercent, items, planningReliable)
-	d := homeData{Plan: p, PlanErr: planErr, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Capabilities: storagecap.Inspect(server.inv.Config().Storage.Path)}
+	d := homeData{Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, planningReliable)}
 	if !planningReliable && d.LastErr == nil {
 		if server.tasks != nil && server.tasks.ConsistencyPending() {
 			d.LastErr = fmt.Errorf("Automatic removal planning paused. Post-removal synchronization is pending")
@@ -476,7 +501,6 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 			last = fmt.Errorf("Automatic removal planning paused. Jellyfin: %s; Seerr: %s; File topology: %s", reliability.Jellyfin, reliability.Seerr, reliability.FileModel)
 		}
 	}
-	p, planErr := cleanup.Build(server.inv.Config().Storage.Path, server.inv.Config().Storage.TargetUsagePercent, server.inv.Config().Storage.CriticalUsagePercent, items, planningReliable)
 
 	allItems := len(items)
 
@@ -570,7 +594,7 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	for pg := maxInt(1, page-2); pg <= minInt(totalPages, page+2); pg++ {
 		pageLinks = append(pageLinks, navLink{Value: pg, URL: mkURL(pg, pageSize, sortKey, order)})
 	}
-	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Plan: p, Refreshing: server.inv.IsRefreshing(), PlanErr: planErr, TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library"}
+	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library"}
 	if d.HasPrev {
 		d.PrevURL = mkURL(page-1, pageSize, sortKey, order)
 	}
@@ -1476,11 +1500,6 @@ func (server *Server) apiMedia(w http.ResponseWriter, r *http.Request) {
 
 type dashboardAPI struct {
 	Revision            uint64                    `json:"revision"`
-	StorageAvailable    bool                      `json:"storageAvailable"`
-	StorageUsage        string                    `json:"storageUsage"`
-	StorageTarget       string                    `json:"storageTarget"`
-	StorageActive       bool                      `json:"storageActive"`
-	StorageMessage      string                    `json:"storageMessage"`
 	TotalMedia          int                       `json:"totalMedia"`
 	Movies              int                       `json:"movies"`
 	Series              int                       `json:"series"`
@@ -1509,19 +1528,8 @@ func (server *Server) apiDashboard(response http.ResponseWriter, request *http.R
 		return
 	}
 	data := server.dashboardSnapshot()
-	storageUsage := "UNAVAILABLE"
-	storageTarget := ""
-	if data.Plan.Available {
-		storageUsage = fmt.Sprintf("%.2f%%", data.Plan.UsagePercent)
-		storageTarget = fmt.Sprintf("Target %.1f%%", data.Plan.TargetUsagePercent)
-	}
-	message := data.Plan.Message
-	if data.Plan.NeedBytes > 0 {
-		message = fmt.Sprintf("%s %d media currently selected · %s planned.", message, len(data.Plan.Selected), cleanup.Human(data.Plan.SelectedBytes))
-	}
 	writeJSON(response, dashboardAPI{
-		Revision: revision, StorageAvailable: data.Plan.Available, StorageUsage: storageUsage,
-		StorageTarget: storageTarget, StorageActive: data.Plan.NeedBytes > 0, StorageMessage: message,
+		Revision:   revision,
 		TotalMedia: data.TotalMedia, Movies: data.Movies, Series: data.Series, LibraryBytes: cleanup.Human(uint64(max64(data.LibraryBytes, 0))),
 		TotalTorrents: data.TotalTorrents, Current: data.Current, Superseded: data.Superseded, Unassociated: data.Unassociated,
 		ObsoleteReclaimable: cleanup.Human(uint64(max64(data.ObsoleteReclaimable, 0))), ObsoleteKnown: data.ObsoleteKnown,
@@ -1558,14 +1566,12 @@ func (server *Server) refresh(w http.ResponseWriter, r *http.Request) {
 func (server *Server) plan(w http.ResponseWriter, r *http.Request) {
 	x, _, _ := server.inv.Snapshot()
 	reliability := server.inv.ReliabilitySnapshot()
-	p, e := cleanup.Build(server.inv.Config().Storage.Path, server.inv.Config().Storage.TargetUsagePercent, server.inv.Config().Storage.CriticalUsagePercent, x, server.planningReliable(reliability))
-	if e != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(p)
-		return
+	views := server.deviceViews(x, server.planningReliable(reliability))
+	plans := make([]cleanup.Plan, 0, len(views))
+	for _, view := range views {
+		plans = append(plans, view.Plan)
 	}
-	writeJSON(w, p)
+	writeJSON(w, plans)
 }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

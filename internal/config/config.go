@@ -94,7 +94,6 @@ type Config struct {
 	Seerr        Service            `json:"seerr"`
 	QBittorrent  QBittorrentService `json:"qbittorrent"`
 	Storage      struct {
-		Path                 string  `json:"path"`
 		TargetUsagePercent   float64 `json:"target_usage_percent"`
 		CriticalUsagePercent float64 `json:"critical_usage_percent"`
 	} `json:"storage"`
@@ -282,9 +281,6 @@ func Load(path string) (Config, error) {
 		// with other new-style valuation fields still needs its torrent weights
 		// carried over individually.
 		configuration.Valuation.TorrentWeights = configuration.LegacyScoring.TorrentWeights
-	}
-	if configuration.Storage.Path == "" {
-		configuration.Storage.Path = "/data"
 	}
 	if configuration.Storage.TargetUsagePercent <= 0 {
 		configuration.Storage.TargetUsagePercent = 90

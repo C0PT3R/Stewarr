@@ -154,16 +154,6 @@
 		this.etag = response.headers.get("ETag") || "";
 		const data = await response.json();
 		for (const name of ["totalMedia", "movies", "series", "libraryBytes", "totalTorrents", "current", "superseded", "unassociated", "obsoleteReclaimable"]) this.set(name, data[name]);
-		this.set("storageUsage", data.storageUsage);
-		this.set("storageTarget", data.storageTarget);
-		const state = this.field("storageState");
-		if (state) {
-		  state.classList.toggle("bad", data.storageActive);
-		  state.classList.toggle("good", !data.storageActive);
-		  const title = document.createElement("b");
-		  title.textContent = data.storageActive ? "Cleanup active." : "Cleanup inactive.";
-		  state.replaceChildren(title, document.createElement("br"), document.createTextNode(data.storageMessage));
-		}
 		const stats = data.stats || {};
 		this.set("reclaimedBytes", formatBytes(stats.ReclaimedBytes));
 		this.set("runs", stats.Runs || 0);

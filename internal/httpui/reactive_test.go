@@ -67,7 +67,6 @@ func TestRemovalAdmissionReturnsImmediatelyAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var configuration config.Config
-	configuration.Storage.Path = t.TempDir()
 	service := inventory.New(configuration, database)
 	manager, err := tasks.NewPersistent(database)
 	if err != nil {

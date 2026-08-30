@@ -11,6 +11,8 @@ type Capabilities struct {
 	Visible               bool   `json:"visible"`
 	Filesystem            string `json:"filesystem"`
 	Device                uint64 `json:"device"`
+	TotalBytes            uint64 `json:"totalBytes"`
+	FreeBytes             uint64 `json:"freeBytes"`
 	FileIdentity          bool   `json:"fileIdentity"`
 	HardlinkDetection     bool   `json:"hardlinkDetection"`
 	SharedExtentDetection bool   `json:"sharedExtentDetection"`
@@ -27,6 +29,8 @@ func Inspect(path string) Capabilities {
 	}
 	capabilities.Visible = true
 	capabilities.Filesystem = filesystemName(int64(filesystemStats.Type))
+	capabilities.TotalBytes = filesystemStats.Blocks * uint64(filesystemStats.Bsize)
+	capabilities.FreeBytes = filesystemStats.Bavail * uint64(filesystemStats.Bsize)
 
 	fileInfo, err := os.Stat(path)
 	if err != nil {

@@ -50,6 +50,7 @@ type Service struct {
 	files                    []model.File
 	mediaFileRefs            []model.MediaFileRef
 	torrentFileRefs          []model.TorrentFileRef
+	storageRoots             []storageRoot
 	filesUpdated             time.Time
 	filesErr                 error
 	updated                  time.Time
