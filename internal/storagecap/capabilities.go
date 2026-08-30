@@ -3,7 +3,6 @@ package storagecap
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 )
 
@@ -47,23 +46,6 @@ func Inspect(path string) Capabilities {
 	// torrent data) to be visible and inspected. That layer is not implemented yet.
 	capabilities.ExactReclaimEstimate = false
 	return capabilities
-}
-
-func SameFile(firstPath, secondPath string) (bool, error) {
-	firstInfo, err := os.Stat(filepath.Clean(firstPath))
-	if err != nil {
-		return false, err
-	}
-	secondInfo, err := os.Stat(filepath.Clean(secondPath))
-	if err != nil {
-		return false, err
-	}
-	firstStat, firstIdentityAvailable := firstInfo.Sys().(*syscall.Stat_t)
-	secondStat, secondIdentityAvailable := secondInfo.Sys().(*syscall.Stat_t)
-	if !firstIdentityAvailable || !secondIdentityAvailable {
-		return false, fmt.Errorf("file identity is unavailable")
-	}
-	return firstStat.Dev == secondStat.Dev && firstStat.Ino == secondStat.Ino, nil
 }
 
 func filesystemName(filesystemType int64) string {

@@ -622,7 +622,6 @@ func defaultSortOrder(key string) string {
 	}
 	return "desc"
 }
-func mediaKey(m model.Media) string { return fmt.Sprintf("%s:%d", m.Type, m.SourceID) }
 func sortMediaItems(items []model.Media, key, order string) {
 	dir := 1
 	if order == "desc" {
@@ -2172,8 +2171,6 @@ func managedFileKey(r model.MediaFileRef) string {
 	return strings.ToLower(strings.TrimSpace(r.Source)) + ":" + strconv.Itoa(r.SourceFileID)
 }
 
-func mediaRefKey(m model.MediaRef) string { return fmt.Sprintf("%s:%d", m.Type, m.SourceID) }
-
 func mediaRefFor(items []model.Media, kind model.MediaType, id int) (model.MediaRef, bool) {
 	for _, m := range items {
 		if m.Type == kind && m.SourceID == id {
@@ -3078,20 +3075,6 @@ func cloneForm(source url.Values) url.Values {
 		cloned[key] = append([]string(nil), values...)
 	}
 	return cloned
-}
-
-func (server *Server) buildRemovalFromForm(form url.Values) (removalData, error) {
-	switch form.Get("kind") {
-	case "media":
-		mediaID, _ := strconv.Atoi(form.Get("media_id"))
-		return server.buildMediaRemovalPlan(model.MediaType(form.Get("media_type")), mediaID, true, selectedManagedSet(form["managed_file"]), mapFromValues(form["torrent"]), map[string]bool{})
-	case "torrent":
-		return server.buildTorrentRemovalPlan(form.Get("hash"), form.Get("target") == "1", map[string]bool{}, map[string]bool{})
-	case "unclaimed":
-		return server.buildUnclaimedRemovalPlan(form["path"], map[string]bool{})
-	default:
-		return removalData{}, fmt.Errorf("unknown removal kind")
-	}
 }
 
 func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Request, ctx context.Context) {

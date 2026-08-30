@@ -22,22 +22,13 @@ import (
 	"time"
 )
 
-// ValidateIntegrations is a hard preflight: no task may start from unchecked
-// integration state. Optional/unconfigured integrations are skipped.
-func (service *Service) ValidateIntegrations(ctx context.Context) error {
-	return service.validateIntegrationTypes(ctx, nil)
-}
-
 func (service *Service) ValidateBaseIntegrations(ctx context.Context) error {
 	return service.validateIntegrationTypes(ctx, map[string]bool{"radarr": true, "sonarr": true, "qbittorrent": true})
 }
 
 func (service *Service) validateIntegrationTypes(ctx context.Context, allowed map[string]bool) error {
 	service.mu.RLock()
-	validatedAt := service.validatedAt
-	if allowed != nil {
-		validatedAt = service.validatedBaseAt
-	}
+	validatedAt := service.validatedBaseAt
 	service.mu.RUnlock()
 	if !validatedAt.IsZero() && time.Since(validatedAt) < 30*time.Second {
 		return nil
@@ -49,7 +40,7 @@ func (service *Service) validateIntegrationTypes(ctx context.Context, allowed ma
 	checks := []check{}
 	for _, i := range service.cfg.Integrations {
 		i := i
-		if allowed != nil && !allowed[i.Type] {
+		if !allowed[i.Type] {
 			continue
 		}
 		if !i.Enabled() {
@@ -96,11 +87,7 @@ func (service *Service) validateIntegrationTypes(ctx context.Context, allowed ma
 		return fmt.Errorf("integration validation failed: %s", strings.Join(errs, "; "))
 	}
 	service.mu.Lock()
-	if allowed == nil {
-		service.validatedAt = time.Now()
-	} else {
-		service.validatedBaseAt = time.Now()
-	}
+	service.validatedBaseAt = time.Now()
 	service.mu.Unlock()
 	return nil
 }

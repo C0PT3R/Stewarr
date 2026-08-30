@@ -406,23 +406,6 @@ type File struct {
 	Progress float64 `json:"progress"`
 }
 
-// Files returns the files claimed by a torrent. Names are relative to the
-// torrent save path as exposed by qBittorrent.
-func (client *Client) Files(hash string) ([]File, error) {
-	if !client.enabled() {
-		return nil, fmt.Errorf("qbittorrent is not configured")
-	}
-	if err := client.login(); err != nil {
-		return nil, err
-	}
-	var out []File
-	path := "/api/v2/torrents/files?hash=" + url.QueryEscape(strings.TrimSpace(hash))
-	if err := client.get(path, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ClaimedFiles returns the exact filesystem paths claimed by all current
 // torrents plus the distinct save roots that should be checked for leftovers.
 // It fails closed: if any torrent file list cannot be retrieved, no result is
@@ -502,19 +485,6 @@ func (client *Client) ClaimedFiles(torrents map[string]model.Torrent) (map[strin
 	}
 	sort.Strings(roots)
 	return claimed, roots, nil
-}
-
-// CurrentClaimedFiles discovers the current torrent set before asking for file
-// membership. Callers that authorize direct filesystem deletion must not seed
-// this operation from Connarr's cached torrent snapshot: a torrent added
-// since the last refresh is still an authoritative owner.
-func (client *Client) CurrentClaimedFiles() (map[string]bool, error) {
-	torrents, err := client.Inventory()
-	if err != nil {
-		return nil, err
-	}
-	claimed, _, err := client.ClaimedFiles(torrents)
-	return claimed, err
 }
 
 func pathInside(root, path string) bool {

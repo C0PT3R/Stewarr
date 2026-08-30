@@ -667,10 +667,7 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 	if !foundPreservedOwner {
 		t.Fatalf("multi-file torrent did not disclose the preserved other media owner: %#v", plan.FileGroups)
 	}
-	revalidated, err := server.buildRemovalFromForm(url.Values{
-		"kind": {"media"}, "media_type": {"movie"}, "media_id": {"1"},
-		"managed_file": {"radarr:9"}, "torrent": {"linked"},
-	})
+	revalidated, err := server.buildMediaRemovalPlan(model.Movie, 1, true, selectedManagedSet([]string{"radarr:9"}), mapFromValues([]string{"linked"}), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}

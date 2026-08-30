@@ -324,14 +324,6 @@ func (manager *Manager) submitLocked(request Request) (Receipt, error) {
 	return Receipt{TriggerID: trigger.ID, Disposition: "pending", TargetID: intent.ID}, nil
 }
 
-func (manager *Manager) rejectTriggerLocked(triggerID string, err error) {
-	trigger := manager.state.Triggers[triggerID]
-	if trigger == nil {
-		return
-	}
-	trigger.State, trigger.Disposition, trigger.Error, trigger.FinishedAt = "rejected", "rejected", err.Error(), manager.clock.Now()
-}
-
 func (manager *Manager) Await(ctx context.Context, triggerID string) (Result, error) {
 	for {
 		manager.mu.Lock()
@@ -382,14 +374,6 @@ func (manager *Manager) Run(ctx context.Context, taskID string) error {
 	}
 	_, err = manager.Await(ctx, receipt.TriggerID)
 	return err
-}
-
-func (manager *Manager) RunAsync(ctx context.Context, taskID string) {
-	receipt, err := manager.Submit(Request{TaskID: taskID, Kind: TriggerManual, Priority: PriorityManual, Durable: true, Cause: "Run now"})
-	if err != nil {
-		return
-	}
-	go func() { _, _ = manager.Await(ctx, receipt.TriggerID) }()
 }
 
 func (manager *Manager) RunAsyncApp(taskID string) (Receipt, error) {

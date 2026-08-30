@@ -59,7 +59,6 @@ type Service struct {
 	baseReady                chan struct{}
 	baseReadyOnce            sync.Once
 	stageTimings             map[string]time.Duration
-	validatedAt              time.Time
 	validatedBaseAt          time.Time
 	generation               uint64
 	fileGeneration           uint64
@@ -909,24 +908,6 @@ func (service *Service) FileSnapshot() ([]model.File, []model.MediaFileRef, []mo
 	mr := append([]model.MediaFileRef(nil), service.mediaFileRefs...)
 	tr := append([]model.TorrentFileRef(nil), service.torrentFileRefs...)
 	return files, mr, tr, service.filesUpdated, service.filesErr
-}
-
-func (service *Service) MediaFiles(kind model.MediaType, id int) ([]model.File, time.Time, error) {
-	files, refs, _, updated, err := service.FileSnapshot()
-	byPath := map[string]model.File{}
-	for _, f := range files {
-		byPath[f.Path] = f
-	}
-	out := []model.File{}
-	for _, r := range refs {
-		if r.MediaType == kind && r.MediaID == id {
-			if f, ok := byPath[r.Path]; ok {
-				out = append(out, f)
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
-	return out, updated, err
 }
 
 func (service *Service) ManagedFileRefs(kind model.MediaType, id int) ([]model.MediaFileRef, time.Time, error) {
