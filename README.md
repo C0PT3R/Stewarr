@@ -1,5 +1,7 @@
 # Connarr
 
+> **0.2.9 scheduler rewrite:** Background and mutation work now runs on a durable, domain-neutral engine with trigger/execution identity, coverage-aware coalescing, resource arbitration, and workflow-driven post-removal consistency. See `Scheduler-Spec.md` for the full contract.
+
 > **0.2.8 relationship and removal clarity:** Proven physical backing promotes a torrent to Current, and media removal presents the complete Current/Superseded set without exposing the physical graph as the primary interface.
 
 > **Your media stack, together.**
@@ -10,7 +12,14 @@ Connarr does not try to replace the applications it integrates with. Integration
 
 ## Current version
 
-`0.2.8`
+`0.2.9`
+
+Background and mutation work now runs on the scheduler engine described in
+`Scheduler-Spec.md`: durable trigger/execution identity, coverage-aware
+coalescing, shared/exclusive resource arbitration, retries, and generic
+workflows replace the previous ad hoc scheduling. Removal admission and the
+post-removal Base inventory → File reconciliation workflow are built on it,
+and no legacy dirty loop, polling wait, or hardcoded task ID remains.
 
 Filesystem identity and import provenance now form one coherent relationship
 model. A torrent is Current when an authoritative current import says so or

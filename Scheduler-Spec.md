@@ -1,7 +1,11 @@
 # Connarr Scheduler Specification
 
-Status: design target for the scheduler overhaul; core policy confirmed
-2026-08-29; not implemented.
+Status: implemented in `internal/tasks` and composed by `cmd/connarr/main.go`
+and the removal admission path in `internal/httpui`. Core policy confirmed and
+built 2026-08-29. `internal/tasks/manager_test.go` exercises every mandatory
+acceptance test in section 14 under an injected clock, and no legacy manager,
+dirty loop, or hardcoded task ID remains. This document now describes current
+behavior rather than a future target.
 
 Confirmed policy decisions:
 

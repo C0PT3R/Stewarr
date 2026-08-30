@@ -2,7 +2,7 @@
 
 This file separates implemented behavior from intended direction. It is not a promise of release dates.
 
-## Implemented through 0.2.8
+## Implemented through 0.2.9
 
 ### Reactive UI state
 
@@ -56,7 +56,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   contribute nothing; the Value explanation states the hardlink requirement.
 - Torrent Value remains an independent explainable swarm-retention signal.
 
-### Scheduler and safety
+### Scheduler and safety (0.2.9)
 
 - Durable event-driven scheduler with trigger/execution identity, coverage-aware
   coalescing, FIFO tie-breaking, fixed-rate catch-up, bounded aging, retries,
