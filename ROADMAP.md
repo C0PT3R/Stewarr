@@ -14,7 +14,7 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Stable open lists: background additions and reorderings show **Updates
   available**, while removals always disappear immediately. Filters, paging,
   focus, scroll, disclosures, and list layout survive ordinary updates.
-- Home, Library, Torrents, Unclaimed, Tasks, History, and object details update
+- Home, Library, Torrents, Unmanaged, Tasks, History, and object details update
   as bounded fragments instead of reloading the page.
 - Persistent operation status and failures, accessibility announcements,
   keyboard/backdrop modal dismissal, reduced-motion support, and duplicate
@@ -28,7 +28,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   The scheduler performs authoritative owner/filesystem revalidation inside its
   exclusive mutation boundary, independently of the browser connection.
 - A central pending-operation projection suppresses selected Media, Torrents,
-  managed files, and Unclaimed files across every view. Successful mutations
+  managed files, and Unmanaged files across every view. Successful mutations
   remain suppressed until consistency reconciliation catches up; failures
   restore the object and expose a persistent History-linked error.
 - Detail pages become durable operation-result views instead of reloading into
@@ -39,7 +39,7 @@ This file separates implemented behavior from intended direction. It is not a pr
 - File-level series selection supersedes the old partial-series removal roadmap
   item; there is no separate series-wide removal primitive to add.
 
-### Torrent relationships and Value
+### Torrent relationships and Retention/Swarm Value
 
 - Current torrent states are **Current**, **Superseded**, and **Unassociated**.
   The legacy Orphaned state migrates to Unassociated while its former media
@@ -50,11 +50,12 @@ This file separates implemented behavior from intended direction. It is not a pr
   backing independently establish a Current relationship. Physical proof can
   therefore correct stale or absent provenance; neither source is allowed to
   demote the other.
-- Torrent health contributes to Media Value only when the relationship is
-  Current and reconciled device/inode identity proves the torrent and media
-  paths are hardlinks. Copies, unknown topology, and provenance alone
-  contribute nothing; the Value explanation states the hardlink requirement.
-- Torrent Value remains an independent explainable swarm-retention signal.
+- Torrent health contributes to media Retention Value only when the
+  relationship is Current and reconciled device/inode identity proves the
+  torrent and media paths are hardlinks. Copies, unknown topology, and
+  provenance alone contribute nothing; the Retention Value explanation states
+  the hardlink requirement.
+- Swarm Value remains an independent explainable swarm-retention signal.
 
 ### Scheduler and safety (0.2.9)
 
@@ -68,7 +69,7 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Browser-independent durable mutations, restart reconciliation, and attention
   rather than blind replay for uncertain irreversible work.
 - Dry-run-by-default removal, owner-backed mutations, final-boundary live
-  ownership/device/inode revalidation, and fail-closed Unclaimed discovery.
+  ownership/device/inode revalidation, and fail-closed Unmanaged discovery.
 
 ### Storage devices (0.2.10)
 
@@ -76,7 +77,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   the roots each integration already discovers on its own, grouped by
   physical device when multiple roots share one disk.
 - Home shows one usage graphic per known device, broken down by which
-  integration's files occupy it, with Unclaimed and unattributed real usage
+  integration's files occupy it, with Unmanaged and unattributed real usage
   kept as separate, honestly-labeled segments rather than forced to match.
 - Target/Critical reclamation thresholds apply independently to every known
   device; a device Connarr cannot measure is reported Unavailable without
@@ -88,7 +89,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   physical device/inode/link-count identity.
 - Generation-bound atomic inventory/file publication and topology-derived
   reclaimability.
-- Home, Library, Torrent, Unclaimed, Tasks, and History views; server-side
+- Home, Library, Torrent, Unmanaged, Tasks, and History views; server-side
   search/filter/sort/pagination; SQLite state and legacy DB migration.
 - Radarr, Sonarr, Jellyfin, Seerr, and qBittorrent adapters with small durable
   index data and lazy source-owned detail loading.
@@ -120,13 +121,13 @@ This file separates implemented behavior from intended direction. It is not a pr
 
 - Make task schedules configurable through the GUI.
 - Add richer task execution history and reconciliation diagnostics.
-- Add useful Unclaimed filters.
+- Add useful Unmanaged filters.
 - Improve explicit provenance-change reasons and per-object historical
   timelines.
 - Make Target/Critical reclamation thresholds independently configurable per
   storage device rather than one global percentage applied to every device.
 - Build a non-destructive reclamation planner across Library, Torrents, and
-  Unclaimed data.
+  Unmanaged data.
 - Continue readability work outside the HTTP/UI files touched through 0.2.8.
 
 ## Later
@@ -135,7 +136,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   with capability discovery and connection testing.
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
   integration adapters.
-- Per-storage-pool targets, alarms, acquisition inhibition, and explicitly
+- Per-storage-device alarms, acquisition inhibition, and explicitly
   configured emergency behavior.
 - User-defined retention preferences and torrent-retention rules.
 - Safe automatic cleanup policy and observed reclamation verification.

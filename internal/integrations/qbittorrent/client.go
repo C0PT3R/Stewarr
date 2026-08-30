@@ -409,7 +409,7 @@ type File struct {
 // ClaimedFiles returns the exact filesystem paths claimed by all current
 // torrents plus the distinct save roots that should be checked for leftovers.
 // It fails closed: if any torrent file list cannot be retrieved, no result is
-// returned so callers cannot misclassify owned data as unclaimed.
+// returned so callers cannot misclassify owned data as unmanaged.
 func (client *Client) ClaimedFiles(torrents map[string]model.Torrent) (map[string]bool, []string, error) {
 	claimed := map[string]bool{}
 	rootsSet := map[string]bool{}
@@ -493,11 +493,11 @@ func pathInside(root, path string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// VerifyPathsUnclaimed checks the live torrent index rather than a cached
+// VerifyPathsUnmanaged checks the live torrent index rather than a cached
 // Connarr snapshot. content_path cheaply narrows exact file-membership calls
 // to torrents that could own a requested path. Rare records without a usable
 // content_path are conservatively included in the exact check.
-func (client *Client) VerifyPathsUnclaimed(paths []string) error {
+func (client *Client) VerifyPathsUnmanaged(paths []string) error {
 	torrents, err := client.Inventory()
 	if err != nil {
 		return err

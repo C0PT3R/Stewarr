@@ -163,7 +163,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	}
 	files = append(files, refreshedFiles...)
 	sort.Slice(files, func(i, j int) bool { return strings.ToLower(files[i].Path) < strings.ToLower(files[j].Path) })
-	unclaimed := projectUnclaimed(files, mediaRefs, torrentRefs)
+	unmanaged := projectUnmanaged(files, mediaRefs, torrentRefs)
 
 	service.mu.RLock()
 	generationCurrent := service.generation == generation
@@ -204,15 +204,15 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 			owners = append(owners, store.MediaIdentity{Kind: owner.Type, SourceID: owner.ID})
 		}
 		paths := mapKeys(affectedPaths)
-		updatedUnclaimed := make([]model.UnclaimedFile, 0)
-		for _, file := range unclaimed {
+		updatedUnmanaged := make([]model.UnmanagedFile, 0)
+		for _, file := range unmanaged {
 			if affectedPaths[filepath.Clean(file.Path)] {
-				updatedUnclaimed = append(updatedUnclaimed, file)
+				updatedUnmanaged = append(updatedUnmanaged, file)
 			}
 		}
 		if err := service.db.PublishReconciliationDelta(store.ReconciliationDelta{
 			Paths: paths, Files: refreshedFiles, MediaOwners: owners, MediaRefs: replacementMediaRefs,
-			RemovedTorrentHashes: mapKeys(removedHashes), Unclaimed: updatedUnclaimed,
+			RemovedTorrentHashes: mapKeys(removedHashes), Unmanaged: updatedUnmanaged,
 			Torrents: tc, Media: mc, Generation: generation, ScopeMetadataKey: reconciliationScopeKey,
 		}); err != nil {
 			service.filesErr = fmt.Errorf("persist targeted reconciliation: %w", err)
@@ -224,7 +224,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	now := time.Now()
 	service.files, service.mediaFileRefs, service.torrentFileRefs = files, mediaRefs, torrentRefs
 	service.filesUpdated, service.filesErr = now, nil
-	service.unclaimed, service.unclaimedUpdated, service.unclaimedErr = unclaimed, now, nil
+	service.unmanaged, service.unmanagedUpdated, service.unmanagedErr = unmanaged, now, nil
 	service.reliability.FileModel = "reliable"
 	service.fileGeneration = generation
 	service.torrents, service.items = tc, mc
@@ -333,7 +333,7 @@ func mediaRefChangesWithinScope(oldRefs, newRefs []model.MediaFileRef, owners ma
 	return true
 }
 
-func projectUnclaimed(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) []model.UnclaimedFile {
+func projectUnmanaged(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) []model.UnmanagedFile {
 	claimed := map[string]bool{}
 	for _, ref := range mediaRefs {
 		claimed[filepath.Clean(ref.Path)] = true
@@ -341,20 +341,20 @@ func projectUnclaimed(files []model.File, mediaRefs []model.MediaFileRef, torren
 	for _, ref := range torrentRefs {
 		claimed[filepath.Clean(ref.Path)] = true
 	}
-	unclaimed := []model.UnclaimedFile{}
+	unmanaged := []model.UnmanagedFile{}
 	for _, file := range files {
 		if claimed[filepath.Clean(file.Path)] {
 			continue
 		}
-		item := model.UnclaimedFile{Path: file.Path, SizeBytes: file.SizeBytes, ModifiedAt: file.ModifiedAt, Device: file.Device, Inode: file.Inode, Links: file.Links, ReclaimableKnown: file.IdentityKnown, StorageContexts: append([]model.StorageContext(nil), file.StorageContexts...)}
+		item := model.UnmanagedFile{Path: file.Path, SizeBytes: file.SizeBytes, ModifiedAt: file.ModifiedAt, Device: file.Device, Inode: file.Inode, Links: file.Links, ReclaimableKnown: file.IdentityKnown, StorageContexts: append([]model.StorageContext(nil), file.StorageContexts...)}
 		if file.IdentityKnown && file.Links <= 1 {
 			item.ReclaimableBytes = file.SizeBytes
 		} else if file.IdentityKnown {
 			item.SharedBytes = file.SizeBytes
 		}
-		unclaimed = append(unclaimed, item)
+		unmanaged = append(unmanaged, item)
 	}
-	return unclaimed
+	return unmanaged
 }
 
 func mapKeys[T any](values map[string]T) []string {

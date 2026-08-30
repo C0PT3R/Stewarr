@@ -50,10 +50,10 @@ func TestTorrentRemovalRejectsInjectedLibraryPath(t *testing.T) {
 		"kind":           {"torrent"},
 		"hash":           {"0ce683820c305af1aaca0c1fde91f08eccb9e374"},
 		"target":         {"1"},
-		"unclaimed_path": {"/data/Films/Afterburn (2025)/Afterburn.mkv"},
+		"unmanaged_path": {"/data/Films/Afterburn (2025)/Afterburn.mkv"},
 	}
 	if err := validateRemovalScope(form); err == nil {
-		t.Fatal("torrent removal accepted an injected unclaimed library path")
+		t.Fatal("torrent removal accepted an injected unmanaged library path")
 	}
 }
 
@@ -66,7 +66,7 @@ func TestScheduledExecutionRejectsInjectedLibraryPathBeforeInventoryAccess(t *te
 		"kind":           {"torrent"},
 		"hash":           {"abc"},
 		"target":         {"1"},
-		"unclaimed_path": {"/data/Films/Afterburn (2025)/Afterburn.mkv"},
+		"unmanaged_path": {"/data/Films/Afterburn (2025)/Afterburn.mkv"},
 	}
 	request := &http.Request{Method: http.MethodPost, Form: form}
 	response := httptest.NewRecorder()
@@ -92,8 +92,8 @@ func TestMediaRemovalScopeAcceptsRelatedTorrentAction(t *testing.T) {
 
 func TestEveryRemovalKindRejectsCrossOwnerActions(t *testing.T) {
 	for name, form := range map[string]url.Values{
-		"media with direct path":   {"kind": {"media"}, "unclaimed_path": {"/data/file"}},
-		"unmanaged with torrent":   {"kind": {"unclaimed"}, "path": {"/data/file"}, "torrent": {"abc"}},
+		"media with direct path":   {"kind": {"media"}, "unmanaged_path": {"/data/file"}},
+		"unmanaged with torrent":   {"kind": {"unmanaged"}, "path": {"/data/file"}, "torrent": {"abc"}},
 		"torrent with media owner": {"kind": {"torrent"}, "target": {"1"}, "managed_file": {"radarr:1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -105,7 +105,7 @@ func TestEveryRemovalKindRejectsCrossOwnerActions(t *testing.T) {
 }
 
 func TestUnmanagedFilesystemRemovalIsDisabledWithoutDelegatedRoot(t *testing.T) {
-	form := url.Values{"kind": {"unclaimed"}, "path": {"/data/Films/Agent Zeta/movie.mkv"}}
+	form := url.Values{"kind": {"unmanaged"}, "path": {"/data/Films/Agent Zeta/movie.mkv"}}
 	if err := validateRemovalScope(form); err == nil || !strings.Contains(err.Error(), "explicitly delegated") {
 		t.Fatalf("error=%v", err)
 	}
@@ -114,18 +114,18 @@ func TestUnmanagedFilesystemRemovalIsDisabledWithoutDelegatedRoot(t *testing.T) 
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
-	server.removalUnclaimed(response, httptest.NewRequest(http.MethodGet, "/removal/unclaimed?path=/data/file", nil))
+	server.removalUnmanaged(response, httptest.NewRequest(http.MethodGet, "/removal/unmanaged?path=/data/file", nil))
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 
 func TestUnmanagedPageHasNoMutationControls(t *testing.T) {
-	content, err := uiFiles.ReadFile("templates/unclaimed.html")
+	content, err := uiFiles.ReadFile("templates/unmanaged.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"/removal/unclaimed", "unclaimedRemove", "unclaimedPick", "class=trash"} {
+	for _, forbidden := range []string{"/removal/unmanaged", "unmanagedRemove", "unmanagedPick", "class=trash"} {
 		if bytes.Contains(content, []byte(forbidden)) {
 			t.Fatalf("Unmanaged page still exposes %q", forbidden)
 		}
@@ -149,12 +149,12 @@ func TestCrossOriginWriteIsRejected(t *testing.T) {
 	}
 }
 
-func TestSelectedUnclaimedStatesPreservesConfirmedIdentity(t *testing.T) {
+func TestSelectedUnmanagedStatesPreservesConfirmedIdentity(t *testing.T) {
 	p := removal.RemovalPlan{Files: []removal.FileState{
-		{Path: "/data/a", Owner: removal.UnclaimedOwner, Selected: true, Exists: true, IdentityKnown: true, Device: 7, Inode: 9},
-		{Path: "/data/b", Owner: removal.UnclaimedOwner, Selected: false},
+		{Path: "/data/a", Owner: removal.UnmanagedOwner, Selected: true, Exists: true, IdentityKnown: true, Device: 7, Inode: 9},
+		{Path: "/data/b", Owner: removal.UnmanagedOwner, Selected: false},
 	}}
-	xs := selectedUnclaimedStates(p, []string{"/data/a", "/data/b"})
+	xs := selectedUnmanagedStates(p, []string{"/data/a", "/data/b"})
 	if len(xs) != 1 || xs[0].Device != 7 || xs[0].Inode != 9 {
 		t.Fatalf("states=%#v", xs)
 	}
@@ -252,10 +252,10 @@ func TestTorrentRemovalDisclosesButCannotSelectRelatedLibraryPath(t *testing.T) 
 	data := removalData{
 		Plan: removal.RemovalPlan{Kind: removal.TorrentObject, RequestedLabel: "Afterburn", Files: []removal.FileState{
 			{Path: "/data/downloads/complete/Afterburn.mkv", Owner: removal.TorrentOwner},
-			{Path: "/data/Films/Afterburn (2025)/Afterburn.mkv", Owner: removal.UnclaimedOwner},
+			{Path: "/data/Films/Afterburn (2025)/Afterburn.mkv", Owner: removal.UnmanagedOwner},
 		}},
 		TorrentTarget: true, TorrentSelected: true, SelectedActions: 1, Hash: "abc",
-		RelatedUnclaimed: []relatedUnclaimedFile{{Path: "/data/Films/Afterburn (2025)/Afterburn.mkv", SizeBytes: 10}},
+		RelatedUnmanaged: []relatedUnmanagedFile{{Path: "/data/Films/Afterburn (2025)/Afterburn.mkv", SizeBytes: 10}},
 		FileGroups:       []removalPhysicalFileGroup{{Paths: []string{"/data/downloads/complete/Afterburn.mkv", "/data/Films/Afterburn (2025)/Afterburn.mkv"}}},
 	}
 	var output bytes.Buffer
@@ -268,7 +268,7 @@ func TestTorrentRemovalDisclosesButCannotSelectRelatedLibraryPath(t *testing.T) 
 			t.Fatalf("torrent removal disclosure missing %q: %s", expected, html)
 		}
 	}
-	if bytes.Contains(output.Bytes(), []byte(`name="unclaimed_path"`)) || bytes.Contains(output.Bytes(), []byte(`name="managed_file"`)) {
+	if bytes.Contains(output.Bytes(), []byte(`name="unmanaged_path"`)) || bytes.Contains(output.Bytes(), []byte(`name="managed_file"`)) {
 		t.Fatalf("torrent removal exposed a cross-owner action: %s", html)
 	}
 }
@@ -296,7 +296,7 @@ func TestLibraryTemplateRenders(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := libraryData{
-		Rows: []mediaRow{{Media: model.Media{Type: model.Movie, SourceID: 1, Title: "Test", Year: 2026, Value: 12.5, SizeBytes: 1024}}},
+		Rows: []mediaRow{{Media: model.Media{Type: model.Movie, SourceID: 1, Title: "Test", Year: 2026, RetentionValue: 12.5, SizeBytes: 1024}}},
 		Page: 1, PageSize: 50, TotalPages: 1, TotalItems: 1, Sort: "title", Order: "asc",
 		SortURLs:  map[string]string{"value": "/library", "title": "/library", "type": "/library", "rating": "/library", "votes": "/library", "views": "/library", "lastwatched": "/library", "requested": "/library", "size": "/library", "torrents": "/library"},
 		SizeLinks: []navLink{{Value: 25, URL: "/library"}, {Value: 50, URL: "/library"}, {Value: 100, URL: "/library"}, {Value: 250, URL: "/library"}},
@@ -349,22 +349,22 @@ func TestFilterTorrents(t *testing.T) {
 	}
 }
 
-func TestApplyUnclaimedSummaryBeforeFirstScan(t *testing.T) {
+func TestApplyUnmanagedSummaryBeforeFirstScan(t *testing.T) {
 	var d homeData
-	applyUnclaimedSummary(&d, nil, time.Time{}, nil)
-	if d.UnclaimedAvailable {
-		t.Fatal("unclaimed data must not be authoritative before first successful scan")
+	applyUnmanagedSummary(&d, nil, time.Time{}, nil)
+	if d.UnmanagedAvailable {
+		t.Fatal("unmanaged data must not be authoritative before first successful scan")
 	}
-	if d.UnclaimedError != "" {
-		t.Fatalf("startup without a completed scan is not an error: %q", d.UnclaimedError)
+	if d.UnmanagedError != "" {
+		t.Fatalf("startup without a completed scan is not an error: %q", d.UnmanagedError)
 	}
 }
 
-func TestApplyUnclaimedSummaryError(t *testing.T) {
+func TestApplyUnmanagedSummaryError(t *testing.T) {
 	var d homeData
-	applyUnclaimedSummary(&d, nil, time.Time{}, errors.New("qBittorrent unavailable"))
-	if d.UnclaimedError != "qBittorrent unavailable" {
-		t.Fatalf("unexpected error: %q", d.UnclaimedError)
+	applyUnmanagedSummary(&d, nil, time.Time{}, errors.New("qBittorrent unavailable"))
+	if d.UnmanagedError != "qBittorrent unavailable" {
+		t.Fatalf("unexpected error: %q", d.UnmanagedError)
 	}
 }
 
@@ -682,7 +682,7 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 	}
 }
 
-func TestPhysicalCandidatesExposeUnclaimedHardlinkSibling(t *testing.T) {
+func TestPhysicalCandidatesExposeUnmanagedHardlinkSibling(t *testing.T) {
 	files := []model.File{
 		{Path: "/downloads/a.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 2, Links: 2, SizeBytes: 100},
 		{Path: "/series/a.mkv", Exists: true, IdentityKnown: true, Device: 1, Inode: 2, Links: 2, SizeBytes: 100},
@@ -701,8 +701,8 @@ func TestPhysicalCandidatesExposeUnclaimedHardlinkSibling(t *testing.T) {
 	if !ok {
 		t.Fatal("expected physical sibling candidate")
 	}
-	if sibling.Owner != removal.UnclaimedOwner {
-		t.Fatalf("expected unclaimed sibling, got %s", sibling.Owner)
+	if sibling.Owner != removal.UnmanagedOwner {
+		t.Fatalf("expected unmanaged sibling, got %s", sibling.Owner)
 	}
 }
 
@@ -740,12 +740,12 @@ func TestGroupRemovalFilesReportsMissingHardlinks(t *testing.T) {
 	}
 }
 
-func TestGroupUnclaimedFilesCollapsesHardlinks(t *testing.T) {
-	items := []model.UnclaimedFile{
+func TestGroupUnmanagedFilesCollapsesHardlinks(t *testing.T) {
+	items := []model.UnmanagedFile{
 		{Path: "/a", SizeBytes: 54321, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},
 		{Path: "/b", SizeBytes: 54321, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},
 	}
-	groups := groupUnclaimedFiles(items)
+	groups := groupUnmanagedFiles(items)
 	if len(groups) != 1 {
 		t.Fatalf("got %d groups, want 1", len(groups))
 	}

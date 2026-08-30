@@ -15,16 +15,16 @@
     {{if .ScanErr}}
     <p class="warn">Scan unavailable: {{.ScanErr}}</p>
     {{end}}
-    <div id="unclaimed-summary" class="summary-line" data-reactive-fragment data-live-policy="immediate">
+    <div id="unmanaged-summary" class="summary-line" data-reactive-fragment data-live-policy="immediate">
       <b>{{.AllItems}}</b> files · <b>{{human .TotalBytes}}</b>{{if gt .ReclaimableBytes 0}} · <b>{{human .ReclaimableBytes}}</b> physically reclaimable if an authorized owner removes every link{{end}}{{if gt .SharedBytes 0}} · {{human .SharedBytes}} shared through hardlinks{{end}}
     </div>
     <div class="toolbar">
-      <form class="filters" data-auto-filter method="get" action="/downloads/unclaimed">
-        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/downloads/unclaimed">Clear</a>{{else}}<a data-filter-clear hidden href="/downloads/unclaimed">Clear</a>{{end}}
+      <form class="filters" data-auto-filter method="get" action="/downloads/unmanaged">
+        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/downloads/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/downloads/unmanaged">Clear</a>{{end}}
       </form>
-      <button class="scan" type="button" data-unclaimed-scan>Refresh inventory</button>
+      <button class="scan" type="button" data-unmanaged-scan>Refresh inventory</button>
     </div>
-    <div id="unclaimed-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
+    <div id="unmanaged-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
       <div class="result-count muted">
         <b>{{.TotalItems}}</b>{{if ne .TotalItems .AllItems}} of {{.AllItems}}{{end}} files
       </div>

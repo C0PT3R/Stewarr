@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestVerifyPathsUnclaimedUsesFreshContentPath(t *testing.T) {
+func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/torrents/info":
@@ -19,7 +19,7 @@ func TestVerifyPathsUnclaimedUsesFreshContentPath(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	err := New("qBittorrent", srv.URL, "", "", "token").VerifyPathsUnclaimed([]string{"/data/downloads/new/file.mkv"})
+	err := New("qBittorrent", srv.URL, "", "", "token").VerifyPathsUnmanaged([]string{"/data/downloads/new/file.mkv"})
 	if err == nil {
 		t.Fatal("fresh torrent content path was not treated as an owner")
 	}

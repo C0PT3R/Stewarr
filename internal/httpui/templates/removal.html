@@ -34,7 +34,7 @@
       <div data-removal-target="warnings">{{range .Plan.Warnings}}<p class="bad">{{.}}</p>{{end}}</div>
     </div>
 
-    {{if or .ManagedFileCount .TorrentTarget .RelatedManaged .Related .RelatedUnclaimed}}
+    {{if or .ManagedFileCount .TorrentTarget .RelatedManaged .Related .RelatedUnmanaged}}
     <form data-removal-target="selection"
           data-action="change->removal#selectionChanged"
           method="get">
@@ -96,19 +96,19 @@
       </section>
       {{end}}
 
-      {{if and .RelatedUnclaimed (eq (printf "%s" .Plan.Kind) "unclaimed")}}
-      <section class="optional" data-unclaimed-scope>
+      {{if and .RelatedUnmanaged (eq (printf "%s" .Plan.Kind) "unmanaged")}}
+      <section class="optional" data-unmanaged-scope>
         <h3>Related unmanaged files</h3>
-        <label><input data-unclaimed-all type="checkbox"> Select all</label>
-        {{range .RelatedUnclaimed}}<div class="row"><label><input data-unclaimed-pick type="checkbox" name="unclaimed_path" value="{{.Path}}" {{if .Selected}}checked{{end}}> <strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}}</span></label></div>{{end}}
+        <label><input data-unmanaged-all type="checkbox"> Select all</label>
+        {{range .RelatedUnmanaged}}<div class="row"><label><input data-unmanaged-pick type="checkbox" name="unmanaged_path" value="{{.Path}}" {{if .Selected}}checked{{end}}> <strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}}</span></label></div>{{end}}
       </section>
       {{end}}
 
-      {{if and .RelatedUnclaimed (eq (printf "%s" .Plan.Kind) "torrent")}}
+      {{if and .RelatedUnmanaged (eq (printf "%s" .Plan.Kind) "torrent")}}
       <section class="optional">
         <h3>Preserved related library paths</h3>
         <p class="muted">These paths share physical files with the torrent. Removing the torrent does not remove them.</p>
-        {{range .RelatedUnclaimed}}<div class="row"><strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}} · preserved</span></div>{{end}}
+        {{range .RelatedUnmanaged}}<div class="row"><strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}} · preserved</span></div>{{end}}
       </section>
       {{end}}
     </form>
@@ -140,7 +140,7 @@
         {{else if eq (printf "%s" .Plan.Kind) "torrent"}}
           {{if .TorrentSelected}}<input data-generated-input type="hidden" name="target" value="1">{{end}}
         {{else}}
-          {{range .UnclaimedPaths}}<input data-generated-input type="hidden" name="path" value="{{.}}">{{end}}
+          {{range .UnmanagedPaths}}<input data-generated-input type="hidden" name="path" value="{{.}}">{{end}}
         {{end}}
       </div>
 

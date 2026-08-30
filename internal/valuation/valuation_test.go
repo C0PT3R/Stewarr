@@ -47,7 +47,7 @@ func TestNeverWatchedWeightIsApplied(t *testing.T) {
 	c.Valuation.Weights.NeverWatched = 25
 	items := []model.Media{{Title: "Unwatched"}}
 	ApplyMedia(items, c)
-	if items[0].Value != 25 || len(items[0].Reasons) == 0 || items[0].Reasons[0].Points != 25 {
+	if items[0].RetentionValue != 25 || len(items[0].RetentionValueReasons) == 0 || items[0].RetentionValueReasons[0].Points != 25 {
 		t.Fatalf("never-watched weight was ignored: %#v", items[0])
 	}
 }
@@ -72,8 +72,8 @@ func TestHistoricalTorrentsDoNotAddMediaValue(t *testing.T) {
 	}}
 	ApplyMedia(items, c)
 	// Only the single current leecher should count: 10 * log2(2) = 10.
-	if items[0].Value != 10 {
-		t.Fatalf("historical torrent activity must not inflate media value: got %.2f", items[0].Value)
+	if items[0].RetentionValue != 10 {
+		t.Fatalf("historical torrent activity must not inflate media value: got %.2f", items[0].RetentionValue)
 	}
 }
 
@@ -88,10 +88,10 @@ func TestCurrentTorrentMustBeHardlinkedToAddMediaValue(t *testing.T) {
 		},
 	}}
 	ApplyMedia(items, c)
-	if items[0].Value != 0 {
-		t.Fatalf("non-hardlinked activity must not add media value: got %.2f", items[0].Value)
+	if items[0].RetentionValue != 0 {
+		t.Fatalf("non-hardlinked activity must not add media value: got %.2f", items[0].RetentionValue)
 	}
-	for _, reason := range items[0].Reasons {
+	for _, reason := range items[0].RetentionValueReasons {
 		if reason.Label == "Associated torrent" {
 			t.Fatalf("non-hardlinked torrent produced a contribution: %#v", reason)
 		}
@@ -104,13 +104,13 @@ func TestHardlinkedTorrentContributionExplainsWhy(t *testing.T) {
 	items := []model.Media{{Title: "Test", Torrents: []model.Torrent{{AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, LeechersSwarm: 1}}}}
 	ApplyMedia(items, c)
 	found := false
-	for _, reason := range items[0].Reasons {
+	for _, reason := range items[0].RetentionValueReasons {
 		if reason.Label == "Associated torrent" && reason.Note != "" {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("missing hardlink-gated explanation: %#v", items[0].Reasons)
+		t.Fatalf("missing hardlink-gated explanation: %#v", items[0].RetentionValueReasons)
 	}
 }
 
@@ -124,10 +124,10 @@ func TestTorrentValueIsIndependentFromMediaAndStorage(t *testing.T) {
 		{Name: "quiet", SeedsSwarm: 1, ReclaimableBytes: 0, AssociationStatus: model.TorrentCurrent},
 	}
 	ApplyTorrents(items, c)
-	if items[0].Value <= items[1].Value {
+	if items[0].SwarmValue <= items[1].SwarmValue {
 		t.Fatalf("active swarm should have greater torrent value: %#v", items)
 	}
-	if len(items[0].ValueReasons) != 3 {
-		t.Fatalf("expected explainable torrent value reasons: %#v", items[0].ValueReasons)
+	if len(items[0].SwarmValueReasons) != 3 {
+		t.Fatalf("expected explainable torrent value reasons: %#v", items[0].SwarmValueReasons)
 	}
 }

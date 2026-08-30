@@ -17,7 +17,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	}
 	defer db.Close()
 
-	items := []model.Media{{Type: model.Movie, SourceID: 42, Title: "Warrior", SizeBytes: 1234, Value: 7.5}}
+	items := []model.Media{{Type: model.Movie, SourceID: 42, Title: "Warrior", SizeBytes: 1234, RetentionValue: 7.5}}
 	if err := db.SaveMedia(items); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].SourceID != 42 || got[0].Value != 7.5 {
+	if len(got) != 1 || got[0].SourceID != 42 || got[0].RetentionValue != 7.5 {
 		t.Fatalf("unexpected warriors: %#v", got)
 	}
 
@@ -73,7 +73,7 @@ func TestConcurrentWritesAreSerialized(t *testing.T) {
 					errs <- err
 					return
 				}
-				if err := db.SaveUnclaimedFiles([]model.UnclaimedFile{{Path: fmt.Sprintf("/data/%d.mkv", id)}}); err != nil {
+				if err := db.SaveUnmanagedFiles([]model.UnmanagedFile{{Path: fmt.Sprintf("/data/%d.mkv", id)}}); err != nil {
 					errs <- err
 					return
 				}
@@ -94,16 +94,16 @@ func TestPublishReconciliationRollsBackWholeGeneration(t *testing.T) {
 	}
 	defer db.Close()
 	oldFiles := []model.File{{Path: "/data/old.mkv", Exists: true}}
-	oldUnclaimed := []model.UnclaimedFile{{Path: "/data/old.mkv"}}
+	oldUnmanaged := []model.UnmanagedFile{{Path: "/data/old.mkv"}}
 	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Title: "Old"}}
 	oldTorrents := []model.Torrent{{Client: "qBittorrent", Hash: "old", Name: "Old"}}
-	if err := db.PublishReconciliation(1, oldFiles, nil, nil, oldUnclaimed, oldTorrents, oldMedia); err != nil {
+	if err := db.PublishReconciliation(1, oldFiles, nil, nil, oldUnmanaged, oldTorrents, oldMedia); err != nil {
 		t.Fatal(err)
 	}
 	db.beforeCommit = func() error { return fmt.Errorf("injected commit failure") }
 	err = db.PublishReconciliation(2,
 		[]model.File{{Path: "/data/new.mkv", Exists: true}}, nil, nil,
-		[]model.UnclaimedFile{{Path: "/data/new.mkv"}},
+		[]model.UnmanagedFile{{Path: "/data/new.mkv"}},
 		[]model.Torrent{{Client: "qBittorrent", Hash: "new", Name: "New"}},
 		[]model.Media{{Type: model.Movie, SourceID: 2, Title: "New"}},
 	)
@@ -115,7 +115,7 @@ func TestPublishReconciliationRollsBackWholeGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	unclaimed, _, err := db.LoadUnclaimedFiles()
+	unmanaged, _, err := db.LoadUnmanagedFiles()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +127,8 @@ func TestPublishReconciliationRollsBackWholeGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 1 || files[0].Path != "/data/old.mkv" || len(unclaimed) != 1 || unclaimed[0].Path != "/data/old.mkv" || len(media) != 1 || media[0].SourceID != 1 || len(torrents) != 1 || torrents[0].Hash != "old" {
-		t.Fatalf("mixed generation survived rollback: files=%#v unclaimed=%#v media=%#v torrents=%#v", files, unclaimed, media, torrents)
+	if len(files) != 1 || files[0].Path != "/data/old.mkv" || len(unmanaged) != 1 || unmanaged[0].Path != "/data/old.mkv" || len(media) != 1 || media[0].SourceID != 1 || len(torrents) != 1 || torrents[0].Hash != "old" {
+		t.Fatalf("mixed generation survived rollback: files=%#v unmanaged=%#v media=%#v torrents=%#v", files, unmanaged, media, torrents)
 	}
 }
 

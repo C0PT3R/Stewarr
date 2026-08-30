@@ -35,7 +35,7 @@ type Server struct {
 	profileTpl       *template.Template
 	torrentTpl       *template.Template
 	torrentDetailTpl *template.Template
-	unclaimedTpl     *template.Template
+	unmanagedTpl     *template.Template
 	tasksTpl         *template.Template
 	removalTpl       *template.Template
 	operationTpl     *template.Template
@@ -94,7 +94,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	unclaimedTemplate, err := parseUITemplate("unclaimed.html", templateFunctions)
+	unmanagedTemplate, err := parseUITemplate("unmanaged.html", templateFunctions)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unclaimedTpl: unclaimedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
+	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
 	if taskManager != nil {
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
@@ -140,19 +140,19 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/media/", server.media)
 	mux.HandleFunc("/torrents", server.torrents)
 	mux.HandleFunc("/torrents/", server.torrentDetail)
-	mux.HandleFunc("/downloads/unclaimed", server.unclaimedDownloads)
-	mux.HandleFunc("/downloads/unclaimed/scan", server.scanUnclaimedNow)
+	mux.HandleFunc("/downloads/unmanaged", server.unmanagedDownloads)
+	mux.HandleFunc("/downloads/unmanaged/scan", server.scanUnmanagedNow)
 	mux.HandleFunc("/history", server.history)
 	mux.HandleFunc("/tasks", server.tasksPage)
 	mux.HandleFunc("/tasks/run", server.runTask)
 	mux.HandleFunc("/removal/media", server.removalMedia)
 	mux.HandleFunc("/removal/torrent", server.removalTorrent)
-	mux.HandleFunc("/removal/unclaimed", server.removalUnclaimed)
+	mux.HandleFunc("/removal/unmanaged", server.removalUnmanaged)
 	mux.HandleFunc("/removal/execute", server.executeRemoval)
 	mux.HandleFunc("/api/media", server.apiMedia)
 	mux.HandleFunc("/api/dashboard", server.apiDashboard)
 	mux.HandleFunc("/api/torrents", server.apiTorrents)
-	mux.HandleFunc("/api/unclaimed", server.apiUnclaimed)
+	mux.HandleFunc("/api/unmanaged", server.apiUnmanaged)
 	mux.HandleFunc("/api/files", server.apiFiles)
 	mux.HandleFunc("/api/refresh", server.refresh)
 	mux.HandleFunc("/api/plan", server.plan)
@@ -305,11 +305,11 @@ type homeData struct {
 	Unassociated         int
 	ObsoleteReclaimable  int64
 	ObsoleteKnown        int
-	UnclaimedFiles       int
-	UnclaimedBytes       int64
-	UnclaimedReclaimable int64
-	UnclaimedAvailable   bool
-	UnclaimedError       string
+	UnmanagedFiles       int
+	UnmanagedBytes       int64
+	UnmanagedReclaimable int64
+	UnmanagedAvailable   bool
+	UnmanagedError       string
 	Services             []inventory.ServiceStatus
 	Stats                store.CleanupStats
 }
@@ -378,9 +378,9 @@ func (server *Server) dashboardSnapshot() homeData {
 			}
 		}
 	}
-	ufs, unclaimedUpdated, ue := server.inv.UnclaimedSnapshot()
-	ufs = projection.filterUnclaimed(ufs)
-	applyUnclaimedSummary(&d, ufs, unclaimedUpdated, ue)
+	ufs, unmanagedUpdated, ue := server.inv.UnmanagedSnapshot()
+	ufs = projection.filterUnmanaged(ufs)
+	applyUnmanagedSummary(&d, ufs, unmanagedUpdated, ue)
 	if db := server.inv.Store(); db != nil {
 		d.Stats, _ = db.CleanupStatistics()
 	}
@@ -389,9 +389,9 @@ func (server *Server) dashboardSnapshot() homeData {
 	return d
 }
 
-func applyUnclaimedSummary(d *homeData, files []model.UnclaimedFile, updated time.Time, scanErr error) {
+func applyUnmanagedSummary(d *homeData, files []model.UnmanagedFile, updated time.Time, scanErr error) {
 	if scanErr != nil {
-		d.UnclaimedError = scanErr.Error()
+		d.UnmanagedError = scanErr.Error()
 		return
 	}
 	if updated.IsZero() {
@@ -399,11 +399,11 @@ func applyUnclaimedSummary(d *homeData, files []model.UnclaimedFile, updated tim
 		// not an error and not an empty authoritative result.
 		return
 	}
-	d.UnclaimedAvailable = true
-	d.UnclaimedFiles = len(files)
+	d.UnmanagedAvailable = true
+	d.UnmanagedFiles = len(files)
 	for _, f := range files {
-		d.UnclaimedBytes += f.SizeBytes
-		d.UnclaimedReclaimable += f.ReclaimableBytes
+		d.UnmanagedBytes += f.SizeBytes
+		d.UnmanagedReclaimable += f.ReclaimableBytes
 	}
 }
 
@@ -656,9 +656,9 @@ func sortMediaItems(items []model.Media, key, order string) {
 		cmp := 0
 		switch key {
 		case "value":
-			if a.Value < b.Value {
+			if a.RetentionValue < b.RetentionValue {
 				cmp = -1
-			} else if a.Value > b.Value {
+			} else if a.RetentionValue > b.RetentionValue {
 				cmp = 1
 			}
 		case "title":
@@ -876,9 +876,9 @@ func sortTorrents(items []model.Torrent, key, order string) {
 		cmp := 0
 		switch key {
 		case "value":
-			if a.Value < b.Value {
+			if a.SwarmValue < b.SwarmValue {
 				cmp = -1
-			} else if a.Value > b.Value {
+			} else if a.SwarmValue > b.SwarmValue {
 				cmp = 1
 			}
 		case "status":
@@ -1129,8 +1129,8 @@ func (server *Server) torrents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-type unclaimedFileGroup struct {
-	Paths            []model.UnclaimedFile
+type unmanagedFileGroup struct {
+	Paths            []model.UnmanagedFile
 	FirstPath        string
 	SizeBytes        int64
 	ModifiedAt       time.Time
@@ -1143,8 +1143,8 @@ type unclaimedFileGroup struct {
 	MissingLinks     int
 }
 
-type unclaimedData struct {
-	Files                                     []unclaimedFileGroup
+type unmanagedData struct {
+	Files                                     []unmanagedFileGroup
 	Updated                                   time.Time
 	ScanErr                                   error
 	TotalItems, AllItems                      int
@@ -1157,13 +1157,13 @@ type unclaimedData struct {
 	SortURLs                                  map[string]string
 }
 
-func groupUnclaimedFiles(items []model.UnclaimedFile) []unclaimedFileGroup {
+func groupUnmanagedFiles(items []model.UnmanagedFile) []unmanagedFileGroup {
 	type groupKey struct {
 		device uint64
 		inode  uint64
 		path   string
 	}
-	groups := map[groupKey]*unclaimedFileGroup{}
+	groups := map[groupKey]*unmanagedFileGroup{}
 	order := make([]groupKey, 0, len(items))
 	for _, f := range items {
 		cp := filepath.Clean(f.Path)
@@ -1173,7 +1173,7 @@ func groupUnclaimedFiles(items []model.UnclaimedFile) []unclaimedFileGroup {
 		}
 		g := groups[key]
 		if g == nil {
-			g = &unclaimedFileGroup{SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.ReclaimableKnown}
+			g = &unmanagedFileGroup{SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.ReclaimableKnown}
 			groups[key] = g
 			order = append(order, key)
 		}
@@ -1187,7 +1187,7 @@ func groupUnclaimedFiles(items []model.UnclaimedFile) []unclaimedFileGroup {
 		f.Path = cp
 		g.Paths = append(g.Paths, f)
 	}
-	out := make([]unclaimedFileGroup, 0, len(order))
+	out := make([]unmanagedFileGroup, 0, len(order))
 	for _, key := range order {
 		g := groups[key]
 		sort.Slice(g.Paths, func(i, j int) bool { return strings.ToLower(g.Paths[i].Path) < strings.ToLower(g.Paths[j].Path) })
@@ -1209,14 +1209,14 @@ func groupUnclaimedFiles(items []model.UnclaimedFile) []unclaimedFileGroup {
 	return out
 }
 
-func validUnclaimedSort(v string) bool {
+func validUnmanagedSort(v string) bool {
 	switch v {
 	case "path", "size", "reclaimable", "links", "modified":
 		return true
 	}
 	return false
 }
-func sortUnclaimed(items []unclaimedFileGroup, key, order string) {
+func sortUnmanaged(items []unmanagedFileGroup, key, order string) {
 	dir := 1
 	if order == "desc" {
 		dir = -1
@@ -1259,7 +1259,7 @@ func sortUnclaimed(items []unclaimedFileGroup, key, order string) {
 	})
 }
 
-func (server *Server) scanUnclaimedNow(w http.ResponseWriter, r *http.Request) {
+func (server *Server) scanUnmanagedNow(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -1268,7 +1268,7 @@ func (server *Server) scanUnclaimedNow(w http.ResponseWriter, r *http.Request) {
 	if server.tasks != nil {
 		err = server.tasks.Run(r.Context(), "files")
 	} else {
-		err = server.inv.ScanUnclaimed(r.Context())
+		err = server.inv.ScanUnmanaged(r.Context())
 	}
 	if r.Header.Get("X-Connarr-Scan") == "1" {
 		w.Header().Set("Content-Type", "application/json")
@@ -1287,17 +1287,17 @@ func (server *Server) scanUnclaimedNow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/downloads/unclaimed", http.StatusSeeOther)
+	http.Redirect(w, r, "/downloads/unmanaged", http.StatusSeeOther)
 }
 
-func (server *Server) unclaimedDownloads(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/downloads/unclaimed" {
+func (server *Server) unmanagedDownloads(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/downloads/unmanaged" {
 		http.NotFound(w, r)
 		return
 	}
-	raw, updated, scanErr := server.inv.UnclaimedSnapshot()
-	raw = server.pendingProjection().filterUnclaimed(raw)
-	all := groupUnclaimedFiles(raw)
+	raw, updated, scanErr := server.inv.UnmanagedSnapshot()
+	raw = server.pendingProjection().filterUnmanaged(raw)
+	all := groupUnmanagedFiles(raw)
 	allItems := len(all)
 	var totalBytes, reclaimableBytes, sharedBytes int64
 	for _, f := range all {
@@ -1307,7 +1307,7 @@ func (server *Server) unclaimedDownloads(w http.ResponseWriter, r *http.Request)
 	}
 	qtext := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 	if qtext != "" {
-		filtered := make([]unclaimedFileGroup, 0, len(all))
+		filtered := make([]unmanagedFileGroup, 0, len(all))
 		for _, f := range all {
 			match := false
 			for _, p := range f.Paths {
@@ -1328,14 +1328,14 @@ func (server *Server) unclaimedDownloads(w http.ResponseWriter, r *http.Request)
 		page = 1
 	}
 	sortKey := r.URL.Query().Get("sort")
-	if !validUnclaimedSort(sortKey) {
+	if !validUnmanagedSort(sortKey) {
 		sortKey = "reclaimable"
 	}
 	order := strings.ToLower(r.URL.Query().Get("order"))
 	if order != "asc" && order != "desc" {
 		order = "desc"
 	}
-	sortUnclaimed(all, sortKey, order)
+	sortUnmanaged(all, sortKey, order)
 	total := len(all)
 	pages := 1
 	if total > 0 {
@@ -1361,7 +1361,7 @@ func (server *Server) unclaimedDownloads(w http.ResponseWriter, r *http.Request)
 		if qtext != "" {
 			q.Set("q", qtext)
 		}
-		return "/downloads/unclaimed?" + q.Encode()
+		return "/downloads/unmanaged?" + q.Encode()
 	}
 	sortURLs := map[string]string{}
 	for _, k := range []string{"path", "size", "reclaimable", "links", "modified"} {
@@ -1386,14 +1386,14 @@ func (server *Server) unclaimedDownloads(w http.ResponseWriter, r *http.Request)
 	for pg := maxInt(1, page-2); pg <= minInt(pages, page+2); pg++ {
 		links = append(links, navLink{pg, mk(pg, pageSize, sortKey, order)})
 	}
-	d := unclaimedData{Files: all[from:to], Updated: updated, ScanErr: scanErr, TotalItems: total, AllItems: allItems, TotalBytes: totalBytes, ReclaimableBytes: reclaimableBytes, SharedBytes: sharedBytes, Page: page, PageSize: pageSize, TotalPages: pages, HasPrev: page > 1, HasNext: page < pages, PageLinks: links, SizeLinks: sizes, Sort: sortKey, Order: order, Query: r.URL.Query().Get("q"), SortURLs: sortURLs}
+	d := unmanagedData{Files: all[from:to], Updated: updated, ScanErr: scanErr, TotalItems: total, AllItems: allItems, TotalBytes: totalBytes, ReclaimableBytes: reclaimableBytes, SharedBytes: sharedBytes, Page: page, PageSize: pageSize, TotalPages: pages, HasPrev: page > 1, HasNext: page < pages, PageLinks: links, SizeLinks: sizes, Sort: sortKey, Order: order, Query: r.URL.Query().Get("q"), SortURLs: sortURLs}
 	if d.HasPrev {
 		d.PrevURL = mk(page-1, pageSize, sortKey, order)
 	}
 	if d.HasNext {
 		d.NextURL = mk(page+1, pageSize, sortKey, order)
 	}
-	if e := renderTemplate(w, server.unclaimedTpl, d); e != nil {
+	if e := renderTemplate(w, server.unmanagedTpl, d); e != nil {
 		log.Printf("[http] render unmanaged files: %v", e)
 	}
 }
@@ -1539,8 +1539,8 @@ func (server *Server) apiDashboard(response http.ResponseWriter, request *http.R
 func (server *Server) apiTorrents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"items": server.inv.TorrentSnapshot(), "refreshing": server.inv.IsRefreshing()})
 }
-func (server *Server) apiUnclaimed(w http.ResponseWriter, r *http.Request) {
-	x, u, e := server.inv.UnclaimedSnapshot()
+func (server *Server) apiUnmanaged(w http.ResponseWriter, r *http.Request) {
+	x, u, e := server.inv.UnmanagedSnapshot()
 	writeJSON(w, map[string]any{"items": x, "updated": u, "error": errString(e), "refreshing": server.inv.IsRefreshing()})
 }
 func (server *Server) apiFiles(w http.ResponseWriter, r *http.Request) {
@@ -1659,7 +1659,7 @@ type relatedRemovalTorrentGroup struct {
 	Torrents []relatedRemovalTorrent
 }
 
-type relatedUnclaimedFile struct {
+type relatedUnmanagedFile struct {
 	Path      string
 	Selected  bool
 	SizeBytes int64
@@ -1731,7 +1731,7 @@ type removalData struct {
 	RelatedTorrentCount   int
 	SelectedTorrentCount  int
 	PreservedTorrentCount int
-	RelatedUnclaimed      []relatedUnclaimedFile
+	RelatedUnmanaged      []relatedUnmanagedFile
 	ManagedGroups         []managedRemovalGroup
 	ManagedFileCount      int
 	ManagedAllSelected    bool
@@ -1752,8 +1752,8 @@ type removalData struct {
 	MediaType             string
 	MediaID               int
 	Hash                  string
-	UnclaimedPaths        []string
-	SelectedUnclaimed     []string
+	UnmanagedPaths        []string
+	SelectedUnmanaged     []string
 	SelectionModel        string
 	OperationToken        string
 }
@@ -1772,17 +1772,17 @@ func validateRemovalScope(form url.Values) error {
 	}
 	switch form.Get("kind") {
 	case "media":
-		if err := forbidden("unclaimed_path", "target", "path"); err != nil {
+		if err := forbidden("unmanaged_path", "target", "path"); err != nil {
 			return err
 		}
 	case "torrent":
-		if err := forbidden("managed_file", "unclaimed_path", "torrent", "path", "unmonitor_movies", "unmonitor_episodes", "exclude_movies", "exclude_series"); err != nil {
+		if err := forbidden("managed_file", "unmanaged_path", "torrent", "path", "unmonitor_movies", "unmonitor_episodes", "exclude_movies", "exclude_series"); err != nil {
 			return err
 		}
 		if form.Get("target") != "1" {
 			return fmt.Errorf("torrent removal requires the torrent target")
 		}
-	case "unclaimed":
+	case "unmanaged":
 		return fmt.Errorf("direct filesystem removal is disabled until the path belongs to an explicitly delegated Connarr cleanup root")
 	}
 	return nil
@@ -1811,7 +1811,7 @@ func groupRelatedTorrents(torrents []relatedRemovalTorrent) []relatedRemovalTorr
 	return groups
 }
 
-func selectedUnclaimedSet(values []string) map[string]bool {
+func selectedUnmanagedSet(values []string) map[string]bool {
 	m := map[string]bool{}
 	for _, p := range values {
 		p = filepath.Clean(strings.TrimSpace(p))
@@ -1822,7 +1822,7 @@ func selectedUnclaimedSet(values []string) map[string]bool {
 	return m
 }
 
-func physicalCandidates(allFiles []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef, initial map[string]removal.CandidateFile, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnclaimed map[string]bool) map[string]removal.CandidateFile {
+func physicalCandidates(allFiles []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef, initial map[string]removal.CandidateFile, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnmanaged map[string]bool) map[string]removal.CandidateFile {
 	normalized := map[string]removal.CandidateFile{}
 	for _, candidate := range initial {
 		mergeRemovalCandidate(normalized, candidate)
@@ -1851,8 +1851,8 @@ func physicalCandidates(allFiles []model.File, mediaRefs []model.MediaFileRef, t
 			candidate.Selected = selectedManaged[candidate.OwnerKey]
 		case removal.TorrentOwner:
 			candidate.Selected = selectedTorrents[strings.ToLower(candidate.OwnerKey)]
-		case removal.UnclaimedOwner:
-			candidate.Selected = selectedUnclaimed[filepath.Clean(candidate.Path)] || candidate.Selected
+		case removal.UnmanagedOwner:
+			candidate.Selected = selectedUnmanaged[filepath.Clean(candidate.Path)] || candidate.Selected
 		}
 		initial[key] = candidate
 	}
@@ -1873,7 +1873,7 @@ func physicalCandidates(allFiles []model.File, mediaRefs []model.MediaFileRef, t
 			mergeRemovalCandidate(initial, removal.CandidateFile{Path: p, Owner: removal.TorrentOwner, OwnerKey: h, Label: filepath.Base(p), Selected: selectedTorrents[h]})
 		}
 		if !owned {
-			mergeRemovalCandidate(initial, removal.CandidateFile{Path: p, Owner: removal.UnclaimedOwner, OwnerKey: p, Label: filepath.Base(p), Selected: selectedUnclaimed[p]})
+			mergeRemovalCandidate(initial, removal.CandidateFile{Path: p, Owner: removal.UnmanagedOwner, OwnerKey: p, Label: filepath.Base(p), Selected: selectedUnmanaged[p]})
 		}
 	}
 	return initial
@@ -1901,20 +1901,20 @@ func physicallyBackingTorrentHashes(files []model.File, mediaRefs []model.MediaF
 	return hashes
 }
 
-func relatedUnclaimedFromCandidates(cm map[string]removal.CandidateFile, files map[string]model.File) []relatedUnclaimedFile {
-	out := []relatedUnclaimedFile{}
+func relatedUnmanagedFromCandidates(cm map[string]removal.CandidateFile, files map[string]model.File) []relatedUnmanagedFile {
+	out := []relatedUnmanagedFile{}
 	for p, c := range cm {
-		if c.Owner != removal.UnclaimedOwner {
+		if c.Owner != removal.UnmanagedOwner {
 			continue
 		}
 		f := files[filepath.Clean(p)]
-		out = append(out, relatedUnclaimedFile{Path: p, Selected: c.Selected, SizeBytes: f.SizeBytes})
+		out = append(out, relatedUnmanagedFile{Path: p, Selected: c.Selected, SizeBytes: f.SizeBytes})
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
 	return out
 }
 
-func selectedUnclaimedPaths(xs []relatedUnclaimedFile) []string {
+func selectedUnmanagedPaths(xs []relatedUnmanagedFile) []string {
 	out := []string{}
 	for _, x := range xs {
 		if x.Selected {
@@ -2000,11 +2000,11 @@ func displayPath(path string, f model.File, owner removal.FileOwner, ownerName s
 			}
 		}
 	}
-	if owner == removal.UnclaimedOwner {
+	if owner == removal.UnmanagedOwner {
 		if best.IntegrationName != "" {
-			label += " · Unclaimed"
+			label += " · Unmanaged"
 		} else {
-			label = "Unclaimed"
+			label = "Unmanaged"
 		}
 	}
 	return removalDisplayPath{Label: label, Path: path, Text: p}
@@ -2488,7 +2488,7 @@ func exclusionOptions(refs []model.MediaFileRef, mediaItems []model.Media) (bool
 	return canExcludeMovies, canExcludeSeries, targets
 }
 
-func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, selectionExplicit bool, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnclaimed map[string]bool) (removalData, error) {
+func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, selectionExplicit bool, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
 	items, _, _ := server.inv.Snapshot()
 	mr, ok := mediaRefFor(items, kind, id)
 	if !ok {
@@ -2588,7 +2588,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, select
 			mergeRemovalCandidate(cm, removal.CandidateFile{Path: file.Path, Owner: removal.TorrentOwner, OwnerKey: hash, Label: torrent.Name, Selected: selected, Selectable: true})
 		}
 	}
-	cm = physicalCandidates(files, allMediaRefs, allTorrentRefs, cm, selectedManaged, selectedTorrents, selectedUnclaimed)
+	cm = physicalCandidates(files, allMediaRefs, allTorrentRefs, cm, selectedManaged, selectedTorrents, selectedUnmanaged)
 	related := []relatedRemovalTorrent{}
 	contextTorrents := []relatedRemovalTorrent{}
 	for _, context := range contextByHash {
@@ -2597,10 +2597,10 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, select
 			related = append(related, context)
 		}
 	}
-	relatedUnclaimed := relatedUnclaimedFromCandidates(cm, byPath)
-	selectedUF := selectedUnclaimedPaths(relatedUnclaimed)
+	relatedUnmanaged := relatedUnmanagedFromCandidates(cm, byPath)
+	selectedUF := selectedUnmanagedPaths(relatedUnmanaged)
 	if len(selectedUF) > 0 {
-		if err := server.inv.VerifyUnclaimed(selectedUF); err != nil {
+		if err := server.inv.VerifyUnmanaged(selectedUF); err != nil {
 			return removalData{}, err
 		}
 	}
@@ -2653,7 +2653,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, select
 		PotentialBytes: potential, Related: related, RelatedGroups: groupRelatedTorrents(contextTorrents),
 		RelatedTorrentCount: len(contextTorrents), SelectedTorrentCount: selectedTorrentCount,
 		PreservedTorrentCount: len(contextTorrents) - selectedTorrentCount,
-		RelatedUnclaimed:      relatedUnclaimed, SelectedUnclaimed: selectedUF, ManagedGroups: groups,
+		RelatedUnmanaged:      relatedUnmanaged, SelectedUnmanaged: selectedUF, ManagedGroups: groups,
 		ManagedFileCount: len(refs), ManagedAllSelected: allSel, ManagedSomeSelected: some,
 		SelectedManaged: selectedRefs, CanUnmonitorMovies: moviesOpt, CanUnmonitorEpisodes: episodesOpt,
 		CanExcludeMovies: canExcludeMovies, CanExcludeSeries: canExcludeSeries, ExclusionMedia: exclusionMedia,
@@ -2664,7 +2664,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, select
 	}, nil
 }
 
-func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, selectedManaged map[string]bool, selectedUnclaimed map[string]bool) (removalData, error) {
+func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, selectedManaged map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
 	h := strings.ToLower(strings.TrimSpace(hash))
 	var found *model.Torrent
 	for _, t := range server.inv.TorrentSnapshot() {
@@ -2693,7 +2693,7 @@ func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, 
 		mergeRemovalCandidate(cm, removal.CandidateFile{Path: r.Path, Owner: removal.MediaOwner, OwnerKey: managedFileKey(r), Selected: sel})
 	}
 	selectedTorrents := map[string]bool{h: targetSelected}
-	cm = physicalCandidates(files, mrefs, trefs, cm, selectedManaged, selectedTorrents, selectedUnclaimed)
+	cm = physicalCandidates(files, mrefs, trefs, cm, selectedManaged, selectedTorrents, selectedUnmanaged)
 	items, _, _ := server.inv.Snapshot()
 	mediaMap := map[string]model.MediaRef{}
 	for _, m := range items {
@@ -2749,10 +2749,10 @@ func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, 
 	}
 	potential := removal.Build(removal.TorrentObject, h, found.Name, server.inv.Config().Removal.DryRun, all).SelectedPathBytes
 	selectedRefs := selectedManagedRefs(proven, selectedManaged)
-	relatedUnclaimed := relatedUnclaimedFromCandidates(cm, byPath)
-	selectedUF := selectedUnclaimedPaths(relatedUnclaimed)
+	relatedUnmanaged := relatedUnmanagedFromCandidates(cm, byPath)
+	selectedUF := selectedUnmanagedPaths(relatedUnmanaged)
 	if len(selectedUF) > 0 {
-		if err := server.inv.VerifyUnclaimed(selectedUF); err != nil {
+		if err := server.inv.VerifyUnmanaged(selectedUF); err != nil {
 			return removalData{}, err
 		}
 	}
@@ -2766,7 +2766,7 @@ func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, 
 	return removalData{
 		Plan: p, FileGroups: groupRemovalFiles(p, files), TorrentTarget: true,
 		TorrentSelected: targetSelected, SelectedActions: actions, PotentialBytes: potential,
-		RelatedManaged: related, RelatedUnclaimed: relatedUnclaimed, SelectedUnclaimed: selectedUF,
+		RelatedManaged: related, RelatedUnmanaged: relatedUnmanaged, SelectedUnmanaged: selectedUF,
 		SelectedManaged: selectedRefs, CanUnmonitorMovies: moviesOpt, CanUnmonitorEpisodes: episodesOpt,
 		CanExcludeMovies: canExcludeMovies, CanExcludeSeries: canExcludeSeries, ExclusionMedia: exclusionMedia,
 		SelectedFileCount: selectedFileCount, SelectedLogicalBytes: selectedLogicalBytes,
@@ -2774,12 +2774,12 @@ func (server *Server) buildTorrentRemovalPlan(hash string, targetSelected bool, 
 	}, nil
 }
 
-func (server *Server) buildUnclaimedRemovalPlan(paths []string, selectedTorrents map[string]bool) (removalData, error) {
+func (server *Server) buildUnmanagedRemovalPlan(paths []string, selectedTorrents map[string]bool) (removalData, error) {
 	files, mrefs, trefs, _, ferr := server.inv.FileSnapshot()
 	if ferr != nil {
 		return removalData{}, ferr
 	}
-	current, _, err := server.inv.UnclaimedSnapshot()
+	current, _, err := server.inv.UnmanagedSnapshot()
 	if err != nil {
 		return removalData{}, err
 	}
@@ -2793,20 +2793,20 @@ func (server *Server) buildUnclaimedRemovalPlan(paths []string, selectedTorrents
 	for _, p := range paths {
 		p = filepath.Clean(p)
 		if !known[p] {
-			return removalData{}, fmt.Errorf("file is no longer unclaimed: %s", p)
+			return removalData{}, fmt.Errorf("file is no longer unmanaged: %s", p)
 		}
 		clean = append(clean, p)
 		selectedUF[p] = true
-		mergeRemovalCandidate(cm, removal.CandidateFile{Path: p, Owner: removal.UnclaimedOwner, OwnerKey: p, Label: p, Selected: true})
+		mergeRemovalCandidate(cm, removal.CandidateFile{Path: p, Owner: removal.UnmanagedOwner, OwnerKey: p, Label: p, Selected: true})
 	}
 	if len(clean) == 0 {
-		return removalData{}, fmt.Errorf("no unclaimed files selected")
+		return removalData{}, fmt.Errorf("no unmanaged files selected")
 	}
-	if err := server.inv.VerifyUnclaimed(clean); err != nil {
+	if err := server.inv.VerifyUnmanaged(clean); err != nil {
 		return removalData{}, err
 	}
 	// Physical identity is authoritative for discovering sibling paths. This is
-	// what lets an Unclaimed hardlink expose the torrent that owns another path.
+	// what lets an Unmanaged hardlink expose the torrent that owns another path.
 	cm = physicalCandidates(files, mrefs, trefs, cm, map[string]bool{}, selectedTorrents, selectedUF)
 	// A torrent removal is an owner-level action over the whole torrent. Once a
 	// physically related torrent is identified, include all of its paths so both
@@ -2825,12 +2825,12 @@ func (server *Server) buildUnclaimedRemovalPlan(paths []string, selectedTorrents
 	}
 	cm = physicalCandidates(files, mrefs, trefs, cm, map[string]bool{}, selectedTorrents, selectedUF)
 	torrents := relatedTorrentList(cm, server.inv.TorrentSnapshot(), "")
-	p := removal.Build(removal.UnclaimedObject, "unclaimed", fmt.Sprintf("%d unclaimed file(s)", len(clean)), server.inv.Config().Removal.DryRun, candidateSlice(cm))
+	p := removal.Build(removal.UnmanagedObject, "unmanaged", fmt.Sprintf("%d unmanaged file(s)", len(clean)), server.inv.Config().Removal.DryRun, candidateSlice(cm))
 	all := candidateSlice(cm)
 	for i := range all {
 		all[i].Selected = true
 	}
-	potential := removal.Build(removal.UnclaimedObject, "unclaimed", p.RequestedLabel, server.inv.Config().Removal.DryRun, all).SelectedPathBytes
+	potential := removal.Build(removal.UnmanagedObject, "unmanaged", p.RequestedLabel, server.inv.Config().Removal.DryRun, all).SelectedPathBytes
 	actions := len(clean)
 	for _, t := range torrents {
 		if t.Selected {
@@ -2839,7 +2839,7 @@ func (server *Server) buildUnclaimedRemovalPlan(paths []string, selectedTorrents
 	}
 	return removalData{
 		Plan: p, FileGroups: groupRemovalFiles(p, files), PotentialBytes: potential,
-		BackURL: "/downloads/unclaimed", UnclaimedPaths: clean, Related: torrents,
+		BackURL: "/downloads/unmanaged", UnmanagedPaths: clean, Related: torrents,
 		RelatedGroups: groupRelatedTorrents(torrents), SelectedActions: actions,
 	}, nil
 }
@@ -2888,7 +2888,7 @@ func (server *Server) removalMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := model.MediaType(strings.TrimSpace(r.URL.Query().Get("type")))
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
-	d, err := server.buildMediaRemovalPlan(kind, id, r.URL.Query().Get("selection") == "1", selectedManagedSet(r.URL.Query()["managed_file"]), selectedTorrentSet(r), selectedUnclaimedSet(r.URL.Query()["unclaimed_path"]))
+	d, err := server.buildMediaRemovalPlan(kind, id, r.URL.Query().Get("selection") == "1", selectedManagedSet(r.URL.Query()["managed_file"]), selectedTorrentSet(r), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -2900,14 +2900,14 @@ func (server *Server) removalTorrent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", 405)
 		return
 	}
-	d, err := server.buildTorrentRemovalPlan(r.URL.Query().Get("hash"), targetSelection(r), selectedManagedSet(r.URL.Query()["managed_file"]), selectedUnclaimedSet(r.URL.Query()["unclaimed_path"]))
+	d, err := server.buildTorrentRemovalPlan(r.URL.Query().Get("hash"), targetSelection(r), selectedManagedSet(r.URL.Query()["managed_file"]), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
 	}
 	server.renderRemoval(w, d)
 }
-func (server *Server) removalUnclaimed(w http.ResponseWriter, r *http.Request) {
+func (server *Server) removalUnmanaged(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Direct filesystem removal is disabled: these files are Unmanaged, not Connarr-owned.", http.StatusForbidden)
 }
 
@@ -3023,22 +3023,22 @@ func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
 			}
 		}
 		return removalAdmission{}, fmt.Errorf("torrent not found")
-	case "unclaimed":
+	case "unmanaged":
 		paths := form["path"]
 		if len(paths) == 0 {
-			return removalAdmission{}, fmt.Errorf("no unclaimed files selected")
+			return removalAdmission{}, fmt.Errorf("no unmanaged files selected")
 		}
 		known := map[string]bool{}
-		files, _, _ := server.inv.UnclaimedSnapshot()
+		files, _, _ := server.inv.UnmanagedSnapshot()
 		for _, file := range files {
 			known[filepath.Clean(file.Path)] = true
 		}
 		for _, path := range paths {
 			if !known[filepath.Clean(path)] {
-				return removalAdmission{}, fmt.Errorf("file is no longer unclaimed: %s", path)
+				return removalAdmission{}, fmt.Errorf("file is no longer unmanaged: %s", path)
 			}
 		}
-		return removalAdmission{Kind: removal.UnclaimedObject, Key: "unclaimed", Label: fmt.Sprintf("%d unclaimed file(s)", len(paths)), DryRun: dryRun}, nil
+		return removalAdmission{Kind: removal.UnmanagedObject, Key: "unmanaged", Label: fmt.Sprintf("%d unmanaged file(s)", len(paths)), DryRun: dryRun}, nil
 	default:
 		return removalAdmission{}, fmt.Errorf("unknown removal kind")
 	}
@@ -3102,8 +3102,8 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		d, err = server.buildMediaRemovalPlan(mt, id, true, selectedManagedSet(r.Form["managed_file"]), mapFromValues(r.Form["torrent"]), map[string]bool{})
 	case "torrent":
 		d, err = server.buildTorrentRemovalPlan(r.FormValue("hash"), true, map[string]bool{}, map[string]bool{})
-	case "unclaimed":
-		d, err = server.buildUnclaimedRemovalPlan(r.Form["path"], map[string]bool{})
+	case "unmanaged":
+		d, err = server.buildUnmanagedRemovalPlan(r.Form["path"], map[string]bool{})
 	default:
 		err = fmt.Errorf("unknown removal kind")
 	}
@@ -3182,7 +3182,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 				}
 			}
 			if !ownerFailed {
-				rr, ee := server.unlinkVerified(ctx, selectedUnclaimedStates(d.Plan, d.SelectedUnclaimed))
+				rr, ee := server.unlinkVerified(ctx, selectedUnmanagedStates(d.Plan, d.SelectedUnmanaged))
 				for _, result := range rr {
 					recordResult(result)
 				}
@@ -3201,9 +3201,9 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 					recordResult("torrent removed by qBittorrent")
 				}
 			}
-		case "unclaimed":
+		case "unmanaged":
 			// Owner-backed actions run before direct filesystem unlinking. If an
-			// owner action fails, the unclaimed sibling is still preserved rather
+			// owner action fails, the unmanaged sibling is still preserved rather
 			// than being removed first and leaving a surprising partial result.
 			ownerFailed := false
 			for _, rt := range d.Related {
@@ -3220,7 +3220,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 				}
 			}
 			if !ownerFailed {
-				rr, ee := server.unlinkVerified(ctx, selectedUnclaimedStates(d.Plan, d.UnclaimedPaths))
+				rr, ee := server.unlinkVerified(ctx, selectedUnmanagedStates(d.Plan, d.UnmanagedPaths))
 				for _, result := range rr {
 					recordResult(result)
 				}

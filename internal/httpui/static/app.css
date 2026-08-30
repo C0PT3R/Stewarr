@@ -851,7 +851,7 @@ td:has(> a > strong) > a {
 .storage-bar .segment.claim:nth-of-type(4n + 4) {
   background: #e8a86e;
 }
-.storage-bar .segment.unclaimed {
+.storage-bar .segment.unmanaged {
   background: var(--warn);
 }
 .storage-bar .segment.other {
@@ -905,7 +905,7 @@ td:has(> a > strong) > a {
 .storage-legend li.claim:nth-of-type(4n + 4) .swatch {
   background: #e8a86e;
 }
-.storage-legend li.unclaimed .swatch {
+.storage-legend li.unmanaged .swatch {
   background: var(--warn);
 }
 .storage-legend li.other .swatch {

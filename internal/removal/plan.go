@@ -13,7 +13,7 @@ type ObjectKind string
 const (
 	MediaObject     ObjectKind = "media"
 	TorrentObject   ObjectKind = "torrent"
-	UnclaimedObject ObjectKind = "unclaimed"
+	UnmanagedObject ObjectKind = "unmanaged"
 )
 
 type FileOwner string
@@ -21,7 +21,7 @@ type FileOwner string
 const (
 	MediaOwner     FileOwner = "media"
 	TorrentOwner   FileOwner = "torrent"
-	UnclaimedOwner FileOwner = "unclaimed"
+	UnmanagedOwner FileOwner = "unmanaged"
 )
 
 type CandidateFile struct {
@@ -176,7 +176,7 @@ func Build(kind ObjectKind, key, label string, dryRun bool, candidates []Candida
 	}
 
 	if missingHardlinks {
-		plan.Warnings = append(plan.Warnings, "One or more hardlinks could not be located. Removing the selected paths may not free their space and may leave unclaimed files.")
+		plan.Warnings = append(plan.Warnings, "One or more hardlinks could not be located. Removing the selected paths may not free their space and may leave unmanaged files.")
 	}
 
 	for device, bytes := range bytesRemovedByDevice {

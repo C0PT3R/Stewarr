@@ -44,9 +44,9 @@ type Service struct {
 	mu                       sync.RWMutex
 	items                    []model.Media
 	torrents                 []model.Torrent
-	unclaimed                []model.UnclaimedFile
-	unclaimedUpdated         time.Time
-	unclaimedErr             error
+	unmanaged                []model.UnmanagedFile
+	unmanagedUpdated         time.Time
+	unmanagedErr             error
 	files                    []model.File
 	mediaFileRefs            []model.MediaFileRef
 	torrentFileRefs          []model.TorrentFileRef
@@ -102,8 +102,8 @@ func New(configuration config.Config, database *store.Store) *Service {
 		} else {
 			log.Printf("[inventory] load cached torrents: %v", err)
 		}
-		if files, updated, err := database.LoadUnclaimedFiles(); err == nil {
-			service.unclaimed, service.unclaimedUpdated = files, updated
+		if files, updated, err := database.LoadUnmanagedFiles(); err == nil {
+			service.unmanaged, service.unmanagedUpdated = files, updated
 		} else {
 			log.Printf("[inventory] load cached unmanaged files: %v", err)
 		}
@@ -892,7 +892,7 @@ func enrichmentReliable(state string) bool {
 	return state == "reliable" || state == "not configured"
 }
 
-func (service *Service) ScanUnclaimed(ctx context.Context) error { return service.ReconcileFiles(ctx) }
+func (service *Service) ScanUnmanaged(ctx context.Context) error { return service.ReconcileFiles(ctx) }
 
 func (service *Service) setFilesError(err error) error {
 	service.mu.Lock()
@@ -1302,7 +1302,7 @@ func cloneMedia(in []model.Media) []model.Media {
 		out[i].Tags = append([]string(nil), in[i].Tags...)
 		out[i].DownloadIDs = append([]string(nil), in[i].DownloadIDs...)
 		out[i].Torrents = cloneTorrents(in[i].Torrents)
-		out[i].Reasons = append([]model.Reason(nil), in[i].Reasons...)
+		out[i].RetentionValueReasons = append([]model.Reason(nil), in[i].RetentionValueReasons...)
 	}
 	return out
 }
@@ -1311,7 +1311,7 @@ func cloneTorrents(in []model.Torrent) []model.Torrent {
 	out := make([]model.Torrent, len(in))
 	for i := range in {
 		out[i] = in[i]
-		out[i].ValueReasons = append([]model.Reason(nil), in[i].ValueReasons...)
+		out[i].SwarmValueReasons = append([]model.Reason(nil), in[i].SwarmValueReasons...)
 		out[i].MediaItems = append([]model.MediaRef(nil), in[i].MediaItems...)
 		out[i].FormerMediaItems = append([]model.MediaRef(nil), in[i].FormerMediaItems...)
 		out[i].HardlinkKnownMediaItems = append([]model.MediaRef(nil), in[i].HardlinkKnownMediaItems...)
@@ -1365,8 +1365,8 @@ func (service *Service) TorrentDetail(hash string) (model.Torrent, error) {
 		return indexed, err
 	}
 	// Preserve Connarr-owned interpretations and expensive reconciliation facts.
-	live.Value = indexed.Value
-	live.ValueReasons = indexed.ValueReasons
+	live.SwarmValue = indexed.SwarmValue
+	live.SwarmValueReasons = indexed.SwarmValueReasons
 	live.AssociationStatus = indexed.AssociationStatus
 	live.AssociationReason = indexed.AssociationReason
 	live.MediaItems = indexed.MediaItems
@@ -1406,12 +1406,12 @@ func (service *Service) Changes() <-chan struct{} {
 }
 func (service *Service) Config() config.Config { return service.cfg }
 
-func (service *Service) UnclaimedSnapshot() ([]model.UnclaimedFile, time.Time, error) {
+func (service *Service) UnmanagedSnapshot() ([]model.UnmanagedFile, time.Time, error) {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
-	out := make([]model.UnclaimedFile, len(service.unclaimed))
-	copy(out, service.unclaimed)
-	return out, service.unclaimedUpdated, service.unclaimedErr
+	out := make([]model.UnmanagedFile, len(service.unmanaged))
+	copy(out, service.unmanaged)
+	return out, service.unmanagedUpdated, service.unmanagedErr
 }
 
 // RemoveManagedFile delegates removal of one managed file to the application
@@ -1460,15 +1460,15 @@ func (service *Service) AddSeriesImportListExclusion(ctx context.Context, mediaI
 	return service.son.WithContext(ctx).AddImportListExclusion(mediaItem.Title, mediaItem.TVDBID)
 }
 
-// VerifyUnclaimed fails closed before direct filesystem removal. It refreshes
+// VerifyUnmanaged fails closed before direct filesystem removal. It refreshes
 // qBittorrent's authoritative file ownership and also rejects paths currently
 // indexed as managed Media files. This is intentionally heavier than routine
 // browsing because direct OS removal must never rely on stale absence alone.
-func (service *Service) VerifyUnclaimed(paths []string) error {
-	return service.VerifyUnclaimedContext(context.Background(), paths)
+func (service *Service) VerifyUnmanaged(paths []string) error {
+	return service.VerifyUnmanagedContext(context.Background(), paths)
 }
 
-func (service *Service) VerifyUnclaimedContext(ctx context.Context, paths []string) error {
+func (service *Service) VerifyUnmanagedContext(ctx context.Context, paths []string) error {
 	wanted := map[string]bool{}
 	for _, p := range paths {
 		wanted[filepath.Clean(p)] = true
@@ -1480,7 +1480,7 @@ func (service *Service) VerifyUnclaimedContext(ctx context.Context, paths []stri
 	rad := service.rad.WithContext(ctx)
 	son := service.son.WithContext(ctx)
 	wg.Add(3)
-	go func() { defer wg.Done(); qbittorrentErr = qb.VerifyPathsUnclaimed(paths) }()
+	go func() { defer wg.Done(); qbittorrentErr = qb.VerifyPathsUnmanaged(paths) }()
 	go func() {
 		defer wg.Done()
 		if service.cfg.Radarr.URL != "" {

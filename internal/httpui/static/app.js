@@ -230,16 +230,16 @@
         this.navigateList(listLink.href);
 		return;
       }
-	  const scan = event.target.closest("[data-unclaimed-scan]");
+	  const scan = event.target.closest("[data-unmanaged-scan]");
 	  if (scan) {
 		event.preventDefault();
-		this.scanUnclaimed(scan);
+		this.scanUnmanaged(scan);
 		return;
 	  }
-	  const all = event.target.closest("#unclaimedAll");
+	  const all = event.target.closest("#unmanagedAll");
 	  if (all) {
-		document.querySelectorAll(".unclaimedPick").forEach(input => { input.checked = all.checked; });
-		this.syncUnclaimedSelection();
+		document.querySelectorAll(".unmanagedPick").forEach(input => { input.checked = all.checked; });
+		this.syncUnmanagedSelection();
 	  }
     }
 
@@ -251,8 +251,8 @@
     }
 
     filterChange(event) {
-	  if (event.target.matches(".unclaimedPick")) {
-		this.syncUnclaimedSelection();
+	  if (event.target.matches(".unmanagedPick")) {
+		this.syncUnmanagedSelection();
 		return;
 	  }
       const form = event.target.closest("form[data-auto-filter]");
@@ -285,33 +285,33 @@
 	  }
 	}
 
-	syncUnclaimedSelection() {
-	  const picks = [...document.querySelectorAll(".unclaimedPick")];
+	syncUnmanagedSelection() {
+	  const picks = [...document.querySelectorAll(".unmanagedPick")];
 	  for (const pick of picks) {
-		document.querySelectorAll(`.unclaimedGroupPath[data-unclaimed-group="${CSS.escape(pick.dataset.unclaimedGroup)}"]`).forEach(input => { input.disabled = !pick.checked; });
+		document.querySelectorAll(`.unmanagedGroupPath[data-unmanaged-group="${CSS.escape(pick.dataset.unmanagedGroup)}"]`).forEach(input => { input.disabled = !pick.checked; });
 	  }
 	  const selected = picks.filter(input => input.checked).length;
-	  const all = document.getElementById("unclaimedAll");
+	  const all = document.getElementById("unmanagedAll");
 	  if (all) {
 		all.checked = picks.length > 0 && selected === picks.length;
 		all.indeterminate = selected > 0 && selected < picks.length;
 	  }
-	  const button = document.getElementById("unclaimedRemoveButton");
+	  const button = document.getElementById("unmanagedRemoveButton");
 	  if (button) button.disabled = selected === 0;
 	}
 
-	async scanUnclaimed(button) {
+	async scanUnmanaged(button) {
 	  const old = button.textContent;
 	  button.disabled = true;
 	  button.textContent = "Scanning…";
 	  try {
-		const response = await fetch("/downloads/unclaimed/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
+		const response = await fetch("/downloads/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
 		const result = await response.json();
 		if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
 		this.refreshFragments(true);
-		announce("Unclaimed file scan completed.");
+		announce("Unmanaged file scan completed.");
 	  } catch (error) {
-		announce(`Unclaimed scan failed: ${error.message}`);
+		announce(`Unmanaged scan failed: ${error.message}`);
 	  } finally {
 		button.disabled = false;
 		button.textContent = old;
@@ -450,9 +450,9 @@
       } else if (checkbox.matches("[data-select-all]")) {
         scope = checkbox.closest("[data-linked-scope]");
         selector = "[data-linked-pick]";
-      } else if (checkbox.matches("[data-unclaimed-all]")) {
-        scope = checkbox.closest("[data-unclaimed-scope]");
-        selector = "[data-unclaimed-pick]";
+      } else if (checkbox.matches("[data-unmanaged-all]")) {
+        scope = checkbox.closest("[data-unmanaged-scope]");
+        selector = "[data-unmanaged-pick]";
       }
       if (scope && selector) {
         scope.querySelectorAll(selector).forEach(input => {
@@ -506,7 +506,7 @@
       this.element.querySelectorAll("[data-managed-group]").forEach(scope => setState(scope.querySelector("[data-managed-group-all]"), [...scope.querySelectorAll("[data-managed-pick]")]));
       this.element.querySelectorAll("[data-managed-scope]").forEach(scope => setState(scope.querySelector("[data-managed-all]"), [...scope.querySelectorAll("[data-managed-pick]")]));
       this.element.querySelectorAll("[data-linked-scope]").forEach(scope => setState(scope.querySelector("[data-select-all]"), [...scope.querySelectorAll("[data-linked-pick]")]));
-      this.element.querySelectorAll("[data-unclaimed-scope]").forEach(scope => setState(scope.querySelector("[data-unclaimed-all]"), [...scope.querySelectorAll("[data-unclaimed-pick]")]));
+      this.element.querySelectorAll("[data-unmanaged-scope]").forEach(scope => setState(scope.querySelector("[data-unmanaged-all]"), [...scope.querySelectorAll("[data-unmanaged-pick]")]));
     }
 
     selectedActionKeys() {

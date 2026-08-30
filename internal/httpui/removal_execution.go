@@ -9,14 +9,14 @@ import (
 	"connarr/internal/removal"
 )
 
-func selectedUnclaimedStates(plan removal.RemovalPlan, paths []string) []removal.FileState {
+func selectedUnmanagedStates(plan removal.RemovalPlan, paths []string) []removal.FileState {
 	wanted := map[string]bool{}
 	for _, p := range paths {
 		wanted[filepath.Clean(p)] = true
 	}
 	out := []removal.FileState{}
 	for _, f := range plan.Files {
-		if f.Owner == removal.UnclaimedOwner && f.Selected && wanted[filepath.Clean(f.Path)] {
+		if f.Owner == removal.UnmanagedOwner && f.Selected && wanted[filepath.Clean(f.Path)] {
 			out = append(out, f)
 		}
 	}
@@ -30,7 +30,7 @@ func (server *Server) unlinkVerified(ctx context.Context, expected []removal.Fil
 	results, errs := []string{}, []string{}
 	for _, state := range expected {
 		p := filepath.Clean(state.Path)
-		if err := server.inv.VerifyUnclaimedContext(ctx, []string{p}); err != nil {
+		if err := server.inv.VerifyUnmanagedContext(ctx, []string{p}); err != nil {
 			errs = append(errs, p+": final ownership verification failed: "+err.Error())
 			continue
 		}

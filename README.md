@@ -8,7 +8,7 @@
 
 > **Your media stack, together.**
 
-Connarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
+Connarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Retention Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
 
 Connarr does not try to replace the applications it integrates with. Integrations provide facts; Connarr provides context across them.
 
@@ -20,7 +20,7 @@ There is no configured global storage path. Connarr derives its known
 storage devices from the roots each integration already discovers on its
 own, grouping roots that resolve to the same physical device. Home shows one
 usage graphic per device, broken down by which integration's files occupy
-it, with Unclaimed and unattributed real usage kept as separate, honestly
+it, with Unmanaged and unattributed real usage kept as separate, honestly
 labeled segments rather than forced to match; Target/Critical reclamation
 thresholds apply independently to every device.
 
@@ -37,7 +37,7 @@ when reconciled device/inode identity proves that it physically backs current
 managed media. Superseded is retained as historical context only when no
 current relationship exists; Unassociated means neither source establishes a
 current relationship. Strict distinct-path hardlink proof remains required for
-torrent health to affect Media Value.
+torrent health to affect media Retention Value.
 
 Media removal again uses the compact Movie/Season/Episode hierarchy. It lists
 each Current or Superseded torrent exactly once: physically backing Current
@@ -50,7 +50,7 @@ content scrolls.
 ## Navigation
 
 - **Home** — storage state, Library/Torrent summaries, service health, storage capabilities and lifetime cleanup statistics.
-- **Library** — searchable, filterable, sortable, server-paginated Radarr/Sonarr media ranked by Value.
+- **Library** — searchable, filterable, sortable, server-paginated Radarr/Sonarr media ranked by Retention Value.
 - **Torrents** — searchable, filterable, sortable, server-paginated qBittorrent inventory with provenance and reclaimable-space information.
 - **Unmanaged files** — observational inventory of paths that no current integration claims; not directly removable.
 - **Tasks** — background maintenance tasks, their schedules/status, and **Run now** controls.
@@ -120,7 +120,7 @@ Connarr currently exposes independent maintenance tasks:
 - **Seerr enrichment** — runs every **hour** for request facts.
 - **File reconciliation** — runs every **12 hours** and indexes authoritative file ownership and filesystem identity.
 
-The Unclaimed-files **Scan** action invokes the same File reconciliation task; it does not bypass scheduler exclusivity.
+The Unmanaged-files **Scan** action invokes the same File reconciliation task; it does not bypass scheduler exclusivity.
 
 Post-removal consistency uses the durable mutation scope only when every
 required invariant remains exact. It otherwise promotes itself to a full scan
@@ -147,15 +147,15 @@ scheduled or manual execution may satisfy a step. Jellyfin and Seerr enrichment
 remain outside this workflow, and automatic planning stays inhibited until it
 succeeds.
 
-## Media Value
+## Retention Value
 
-Media Value is a retention value for Library media. Higher means more valuable to retain when storage becomes scarce. Current inputs include rating, watch activity, library age, request state, popularity, favorites/keep tags and torrent activity. Torrent activity contributes only when the torrent is both **Current** for that media and its files are physically proven to be hardlinked to the media files.
+Retention Value is a retention score for Library media. Higher means more valuable to retain when storage becomes scarce. Current inputs include rating, watch activity, library age, request state, popularity, favorites/keep tags and torrent activity. Torrent activity contributes only when the torrent is both **Current** for that media and its files are physically proven to be hardlinked to the media files.
 
-Value is deliberately separate from storage size. Storage planning can later consider actual reclaimable bytes independently of value.
+Retention Value is deliberately separate from storage size. Storage planning can later consider actual reclaimable bytes independently of Retention Value.
 
-### Torrent Value
+### Swarm Value
 
-Torrents have an independent Value based on current swarm facts. The initial explainable model uses logarithmic swarm seeds, swarm leechers and live upload rate. It deliberately does not inherit Media Value or storage cost: those are separate dimensions. Torrent Value is shown and sortable now, but it does not yet drive cleanup decisions.
+Torrents have an independent Swarm Value based on current swarm facts. The initial explainable model uses logarithmic swarm seeds, swarm leechers and live upload rate. It deliberately does not inherit media Retention Value or storage cost: those are separate dimensions. Swarm Value is shown and sortable now, but it does not yet drive cleanup decisions.
 
 ## Torrent provenance
 
@@ -184,7 +184,7 @@ File reconciliation records only path, size, existence, modification time, devic
 
 ## Unmanaged file inventory
 
-Connarr can discover regular files under reconciled storage roots that no current integration claims. The legacy `/downloads/unclaimed` route remains for compatibility, but the product state is **Unmanaged**.
+Connarr can discover regular files under reconciled storage roots that no current integration claims. This state is **Unmanaged**, not a third ownership category: a file is either managed by an integration or it isn't.
 
 The scan fails closed: it must successfully retrieve the authoritative owner inventories before absence is reported. If an owner inventory fails, previous successful results are retained and the scan is marked unavailable. Even a complete absence of claims does not grant Connarr ownership.
 
@@ -193,7 +193,7 @@ Hardlinks are grouped by device+inode to explain physical storage potential. No 
 Browse results at:
 
 ```text
-/downloads/unclaimed
+/downloads/unmanaged
 ```
 
 ## Search, filtering, sorting and pagination
@@ -262,7 +262,7 @@ The bind-mounted `config` directory should already exist on the host and be writ
 
 See [`config.example.json`](config.example.json).
 
-Integrations use named instance records in `integrations[]`. Each instance has a stable internal identity derived independently of its display name, so a future rename does not redefine ownership. `Unclaimed` is reserved as a synthetic owner label. Legacy singleton `radarr`, `sonarr`, `jellyfin`, `seerr`, and `qbittorrent` configuration blocks are still accepted and migrated in memory.
+Integrations use named instance records in `integrations[]`. Each instance has a stable internal identity derived independently of its display name, so a future rename does not redefine ownership. `Unmanaged` is reserved as a synthetic owner label. Legacy singleton `radarr`, `sonarr`, `jellyfin`, `seerr`, and `qbittorrent` configuration blocks are still accepted and migrated in memory.
 
 Only integration types with a defined adapter are accepted. Current adapters
 discover every storage root they require from their authoritative APIs, so
@@ -317,7 +317,7 @@ Connarr keeps routine inventory refreshes and its durable SQLite model deliberat
 ## 0.1.11 media relationship/UI corrections
 
 - Media detail pages receive torrent relationships bidirectionally from both current and historical provenance. Superseded and formerly related torrents therefore appear on the media they previously backed.
-- Historical torrents are visible context only for media Value; torrent activity contributes only from current, physically hardlinked torrents.
+- Historical torrents are visible context only for media Retention Value; torrent activity contributes only from current, physically hardlinked torrents.
 - The Torrents table shows historical media for superseded or formerly related torrents instead of an unexplained dash when provenance is known.
 - The media detail page was compacted into a denser profile layout with summary panels followed by full-width Files and Torrents sections.
 
@@ -338,3 +338,5 @@ Media detail pages group torrent relationships into current, superseded, and una
 Manual removal now operates on owner-backed managed files rather than deleting Radarr/Sonarr Media objects. Movies normally collapse to one managed-file action; series can be selected by season/episode-file groups. Torrent-originated plans only expose managed-file actions when Connarr can prove the file correspondence.
 
 Manual managed-file removal can optionally unmonitor affected Radarr movies or Sonarr episodes; monitoring is otherwise left unchanged.
+
+Because removal deletes files through Radarr/Sonarr's own file-delete API rather than deleting the Movie/Series record, an emptied series or movie folder is left on disk until Radarr/Sonarr cleans it up themselves. Enable **Settings → Media Management → Delete empty folders** in Radarr/Sonarr so they remove now-empty folders as part of that same file-delete call; otherwise Jellyfin (or any other library scanner) keeps indexing the leftover empty folder.

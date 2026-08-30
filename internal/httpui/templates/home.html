@@ -23,7 +23,7 @@
             {{if .Storage.Available}}
               <div class="storage-bar">
                 {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Integration}}: {{humanU .Bytes}}"></span>{{end}}
-                {{if gt .Storage.UnclaimedBytes 0}}<span class="segment unclaimed" style="width:{{widthPct .Storage.UnclaimedBytes .Storage.TotalBytes}}%" title="Unclaimed: {{humanU .Storage.UnclaimedBytes}}"></span>{{end}}
+                {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
                 {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
                 <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
                 <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
@@ -31,7 +31,7 @@
               </div>
               <ul class="storage-legend">
                 {{range .Storage.Claimed}}<li class="claim"><span class="swatch"></span>{{.Integration}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</li>{{end}}
-                {{if gt .Storage.UnclaimedBytes 0}}<li class="unclaimed"><span class="swatch"></span>Unclaimed · {{humanU .Storage.UnclaimedBytes}} · {{widthPct .Storage.UnclaimedBytes .Storage.TotalBytes}}%</li>{{end}}
+                {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%</li>{{end}}
                 {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
                 <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
               </ul>
@@ -48,7 +48,7 @@
           </div>
           {{end}}
         {{end}}
-        {{if .UnclaimedAvailable}}<p><a href="/downloads/unclaimed">Unmanaged files →</a></p>{{end}}
+        {{if .UnmanagedAvailable}}<p><a href="/downloads/unmanaged">Unmanaged files →</a></p>{{end}}
       </section>
       <section class="card">
         <h2>Library</h2>
@@ -70,7 +70,7 @@
           {{if gt .ObsoleteKnown 0}}<span>Known reclaimable</span><b data-dashboard-field="obsoleteReclaimable">{{human .ObsoleteReclaimable}}</b>{{end}}
         </div>
         <p><a href="/torrents">Browse Torrents →</a></p>
-        {{if .UnclaimedError}}<p class="warn">Unclaimed scan unavailable: {{.UnclaimedError}}</p>{{end}}
+        {{if .UnmanagedError}}<p class="warn">Unmanaged scan unavailable: {{.UnmanagedError}}</p>{{end}}
       </section>
       <section class="card">
         <h2>Lifetime statistics</h2>

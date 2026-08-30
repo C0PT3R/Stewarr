@@ -64,8 +64,8 @@ func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T)
 	if len(device.Claimed) != 1 || device.Claimed[0].Integration != "Movies" || device.Claimed[0].Bytes != uint64(len("managed content")) {
 		t.Fatalf("expected the hardlinked file counted once under its media owner, got %#v", device.Claimed)
 	}
-	if device.UnclaimedBytes != uint64(len("leftover data!!")) {
-		t.Fatalf("unclaimed=%d, want %d", device.UnclaimedBytes, len("leftover data!!"))
+	if device.UnmanagedBytes != uint64(len("leftover data!!")) {
+		t.Fatalf("unmanaged=%d, want %d", device.UnmanagedBytes, len("leftover data!!"))
 	}
 
 	byDevice := service.MediaByDevice([]model.Media{{Type: model.Movie, SourceID: 1}, {Type: model.Movie, SourceID: 2}})

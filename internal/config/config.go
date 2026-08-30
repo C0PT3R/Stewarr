@@ -32,10 +32,6 @@ type ValuationConfig struct {
 	RequestValueBonus  float64             `json:"request_value_bonus"`
 	FavoriteValueBonus float64             `json:"favorite_value_bonus"`
 	KeepTagValueBonus  float64             `json:"keep_tag_value_bonus"`
-	// Pre-0.1.13 aliases, accepted only for config migration.
-	RequestStrengthBonus  float64 `json:"request_strength_bonus"`
-	FavoriteStrengthBonus float64 `json:"favorite_strength_bonus"`
-	KeepTagStrengthBonus  float64 `json:"keep_tag_strength_bonus"`
 }
 
 type RemovalConfig struct {
@@ -87,13 +83,16 @@ type Config struct {
 		Listen          string `json:"listen"`
 		RefreshInterval string `json:"refresh_interval"`
 	} `json:"server"`
-	Integrations []Integration      `json:"integrations"`
-	Radarr       Service            `json:"radarr"`
-	Sonarr       Service            `json:"sonarr"`
-	Jellyfin     Service            `json:"jellyfin"`
-	Seerr        Service            `json:"seerr"`
-	QBittorrent  QBittorrentService `json:"qbittorrent"`
-	Storage      struct {
+	Integrations []Integration `json:"integrations"`
+	// Radarr, Sonarr, Jellyfin, Seerr and QBittorrent are not config keys; they
+	// are populated below from Integrations for the current single-adapter-per-
+	// type runtime.
+	Radarr      Service            `json:"-"`
+	Sonarr      Service            `json:"-"`
+	Jellyfin    Service            `json:"-"`
+	Seerr       Service            `json:"-"`
+	QBittorrent QBittorrentService `json:"-"`
+	Storage     struct {
 		TargetUsagePercent   float64 `json:"target_usage_percent"`
 		CriticalUsagePercent float64 `json:"critical_usage_percent"`
 	} `json:"storage"`
@@ -103,7 +102,6 @@ type Config struct {
 		KeepTags          []string `json:"keep_tags"`
 	} `json:"protection"`
 	Valuation       ValuationConfig `json:"valuation"`
-	LegacyScoring   ValuationConfig `json:"scoring"`
 	Removal         RemovalConfig   `json:"removal"`
 	RefreshInterval time.Duration   `json:"-"`
 	RequestGrace    time.Duration   `json:"-"`
@@ -122,13 +120,6 @@ type QBittorrentService struct {
 	APIKey   string `json:"api_key"`
 }
 
-func firstNonEmpty(value, fallback string) string {
-	if strings.TrimSpace(value) != "" {
-		return value
-	}
-	return fallback
-}
-
 func Load(path string) (Config, error) {
 	var configuration Config
 	configuration.Removal.DryRun = true
@@ -143,31 +134,8 @@ func Load(path string) (Config, error) {
 		Valuation struct {
 			TorrentWeights *json.RawMessage `json:"torrent_weights"`
 		} `json:"valuation"`
-		Scoring struct {
-			TorrentWeights *json.RawMessage `json:"torrent_weights"`
-		} `json:"scoring"`
 	}
 	_ = json.Unmarshal(fileContents, &present)
-	// Migrate the legacy one-service-per-type shape in memory. New configs should
-	// use integrations[]. The stable internal ID deliberately excludes Name so
-	// renaming an integration does not sever persisted ownership.
-	if len(configuration.Integrations) == 0 {
-		if configuration.Radarr.URL != "" {
-			configuration.Integrations = append(configuration.Integrations, Integration{Type: "radarr", Name: "Movies", URL: configuration.Radarr.URL, APIKey: configuration.Radarr.APIKey})
-		}
-		if configuration.Sonarr.URL != "" {
-			configuration.Integrations = append(configuration.Integrations, Integration{Type: "sonarr", Name: "Series", URL: configuration.Sonarr.URL, APIKey: configuration.Sonarr.APIKey})
-		}
-		if configuration.Jellyfin.URL != "" {
-			configuration.Integrations = append(configuration.Integrations, Integration{Type: "jellyfin", Name: "Jellyfin", URL: configuration.Jellyfin.URL, APIKey: configuration.Jellyfin.APIKey})
-		}
-		if configuration.Seerr.URL != "" {
-			configuration.Integrations = append(configuration.Integrations, Integration{Type: "seerr", Name: "Seerr", URL: configuration.Seerr.URL, APIKey: configuration.Seerr.APIKey})
-		}
-		if configuration.QBittorrent.URL != "" {
-			configuration.Integrations = append(configuration.Integrations, Integration{Type: "qbittorrent", Name: firstNonEmpty(configuration.QBittorrent.Name, "Downloader"), URL: configuration.QBittorrent.URL, APIKey: configuration.QBittorrent.APIKey, Username: configuration.QBittorrent.Username, Password: configuration.QBittorrent.Password})
-		}
-	}
 	seenNames := map[string]bool{}
 	typeCounts := map[string]int{}
 	for integrationIndex := range configuration.Integrations {
@@ -183,7 +151,7 @@ func Load(path string) (Config, error) {
 			return configuration, fmt.Errorf("integrations[%d].name is required", integrationIndex)
 		}
 		nameKey := strings.ToLower(integration.Name)
-		if nameKey == "unclaimed" {
+		if nameKey == "unmanaged" {
 			return configuration, fmt.Errorf("integration name %q is reserved", integration.Name)
 		}
 		if seenNames[nameKey] {
@@ -194,6 +162,8 @@ func Load(path string) (Config, error) {
 		if endpoint == "" {
 			endpoint = integration.RootPath
 		}
+		// The stable internal ID deliberately excludes Name so renaming an
+		// integration does not sever persisted ownership.
 		integration.ID = integrationID(integration.Type, endpoint)
 		typeCounts[integration.Type]++
 		switch integration.Type {
@@ -211,14 +181,14 @@ func Load(path string) (Config, error) {
 	// The config/domain now has stable integration instances, but the current
 	// runtime still has one adapter slot per integration type. Fail closed rather
 	// than silently ignoring a second owner and falsely classifying its files as
-	// Unclaimed. This guard can be removed when adapter fan-out is completed.
+	// Unmanaged. This guard can be removed when adapter fan-out is completed.
 	for integrationType, count := range typeCounts {
 		if count > 1 {
 			return configuration, fmt.Errorf("multiple %s integration instances are not supported by this runtime yet", integrationType)
 		}
 	}
-	// Populate legacy fields for code paths that are intentionally still
-	// single-instance while the integration-instance migration proceeds.
+	// Populate the single-adapter-per-type fields the current runtime still
+	// reads directly, derived from Integrations (the only source of truth).
 	if integration, ok := configuration.FirstIntegration("radarr"); ok {
 		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
 	}
@@ -233,19 +203,6 @@ func Load(path string) (Config, error) {
 	}
 	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
 		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
-	}
-	// Accept pre-Value configs without keeping the old terminology in the domain model.
-	if configuration.Valuation.Weights == (ValueWeights{}) && configuration.Valuation.RequestValueBonus == 0 && configuration.Valuation.FavoriteValueBonus == 0 && configuration.Valuation.KeepTagValueBonus == 0 {
-		configuration.Valuation = configuration.LegacyScoring
-	}
-	if configuration.Valuation.RequestValueBonus == 0 {
-		configuration.Valuation.RequestValueBonus = configuration.Valuation.RequestStrengthBonus
-	}
-	if configuration.Valuation.FavoriteValueBonus == 0 {
-		configuration.Valuation.FavoriteValueBonus = configuration.Valuation.FavoriteStrengthBonus
-	}
-	if configuration.Valuation.KeepTagValueBonus == 0 {
-		configuration.Valuation.KeepTagValueBonus = configuration.Valuation.KeepTagStrengthBonus
 	}
 	if configuration.Server.Listen == "" {
 		configuration.Server.Listen = ":8088"
@@ -270,17 +227,10 @@ func Load(path string) (Config, error) {
 	if configuration.RequestGrace < 0 {
 		return configuration, fmt.Errorf("protection.seerr_request_grace must not be negative")
 	}
-	switch {
-	case present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights == nil:
+	if present.Valuation.TorrentWeights == nil {
 		configuration.Valuation.TorrentWeights.Seeds = 1
 		configuration.Valuation.TorrentWeights.Leechers = 5
 		configuration.Valuation.TorrentWeights.UploadRate = 5
-	case present.Valuation.TorrentWeights == nil && present.Scoring.TorrentWeights != nil:
-		// The wholesale Valuation = LegacyScoring migration above only fires when
-		// every Valuation field is unset; a config mixing a legacy scoring block
-		// with other new-style valuation fields still needs its torrent weights
-		// carried over individually.
-		configuration.Valuation.TorrentWeights = configuration.LegacyScoring.TorrentWeights
 	}
 	if configuration.Storage.TargetUsagePercent <= 0 {
 		configuration.Storage.TargetUsagePercent = 90

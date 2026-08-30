@@ -26,7 +26,7 @@ func TestRemovalAuditIsCompleteLineBasedAndSecretFree(t *testing.T) {
 			Kind: removal.TorrentObject, RequestedKey: "abc", RequestedLabel: "Release", ReclaimableBytes: 0,
 			Files: []removal.FileState{
 				{Path: "/data/downloads/Release/file.mkv", Owner: removal.TorrentOwner, OwnerKey: "abc", Selected: true, Exists: true, SizeBytes: 100, IdentityKnown: true, Device: 56, Inode: 9, Links: 2},
-				{Path: "/data/Films/Movie/file.mkv", Owner: removal.UnclaimedOwner, OwnerKey: "/data/Films/Movie/file.mkv", Exists: true, SizeBytes: 100, IdentityKnown: true, Device: 56, Inode: 9, Links: 2},
+				{Path: "/data/Films/Movie/file.mkv", Owner: removal.UnmanagedOwner, OwnerKey: "/data/Films/Movie/file.mkv", Exists: true, SizeBytes: 100, IdentityKnown: true, Device: 56, Inode: 9, Links: 2},
 			},
 		},
 		TorrentSelected: true, Hash: "abc", SelectedActions: 1,
@@ -42,7 +42,7 @@ func TestRemovalAuditIsCompleteLineBasedAndSecretFree(t *testing.T) {
 		"[removal] [operation=12] plan",
 		"action planned owner=qbittorrent",
 		`state=selected owner=torrent`,
-		`state=preserved owner=unclaimed`,
+		`state=preserved owner=unmanaged`,
 		`device=56 inode=9 links=2`,
 		`result="torrent removed by qBittorrent"`,
 		`error="example failure"`,

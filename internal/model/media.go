@@ -49,8 +49,8 @@ type MediaRef struct {
 }
 
 type Torrent struct {
-	Value             float64    `json:"value"`
-	ValueReasons      []Reason   `json:"valueReasons,omitempty"`
+	SwarmValue        float64    `json:"swarmValue"`
+	SwarmValueReasons []Reason   `json:"swarmValueReasons,omitempty"`
 	AssociationStatus string     `json:"torrentStatus,omitempty"`
 	AssociationReason string     `json:"associationReason,omitempty"`
 	MediaItems        []MediaRef `json:"media,omitempty"`
@@ -164,7 +164,7 @@ type TorrentFileRef struct {
 	Path            string `json:"path"`
 }
 
-type UnclaimedFile struct {
+type UnmanagedFile struct {
 	Path             string           `json:"path"`
 	SizeBytes        int64            `json:"sizeBytes"`
 	ModifiedAt       time.Time        `json:"modifiedAt"`
@@ -205,10 +205,10 @@ type Media struct {
 	DownloadIDs []string  `json:"downloadIds,omitempty"`
 	Torrents    []Torrent `json:"torrents,omitempty"`
 
-	Protected        bool     `json:"protected"`
-	ProtectionReason string   `json:"protectionReason,omitempty"`
-	ReclaimableKnown bool     `json:"reclaimableKnown,omitempty"`
-	ReclaimableBytes int64    `json:"reclaimableBytes,omitempty"`
-	Value            float64  `json:"value"`
-	Reasons          []Reason `json:"reasons"`
+	Protected             bool     `json:"protected"`
+	ProtectionReason      string   `json:"protectionReason,omitempty"`
+	ReclaimableKnown      bool     `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes      int64    `json:"reclaimableBytes,omitempty"`
+	RetentionValue        float64  `json:"retentionValue"`
+	RetentionValueReasons []Reason `json:"retentionValueReasons"`
 }

@@ -36,7 +36,7 @@ func TestBuildCountsHardlinkedFileSizeOnce(t *testing.T) {
 	if err := os.Link(primaryPath, hardlinkPath); err != nil {
 		t.Fatal(err)
 	}
-	plan := Build(UnclaimedObject, "x", "x", true, []CandidateFile{{Path: primaryPath, Selected: true, Owner: UnclaimedOwner}, {Path: hardlinkPath, Selected: true, Owner: UnclaimedOwner}})
+	plan := Build(UnmanagedObject, "x", "x", true, []CandidateFile{{Path: primaryPath, Selected: true, Owner: UnmanagedOwner}, {Path: hardlinkPath, Selected: true, Owner: UnmanagedOwner}})
 	if plan.SelectedPathBytes != 1234 {
 		t.Fatalf("selected bytes = %d, want 1234", plan.SelectedPathBytes)
 	}
@@ -54,7 +54,7 @@ func TestBuildDoesNotCountPartiallyRemovedHardlinkedFile(t *testing.T) {
 	}
 	plan := Build(TorrentObject, "x", "x", true, []CandidateFile{
 		{Path: primaryPath, Selected: true, Owner: TorrentOwner},
-		{Path: hardlinkPath, Selected: false, Owner: UnclaimedOwner},
+		{Path: hardlinkPath, Selected: false, Owner: UnmanagedOwner},
 	})
 	if plan.SelectedPathBytes != 0 {
 		t.Fatalf("selected bytes = %d, want 0 while another hardlink survives", plan.SelectedPathBytes)
@@ -77,7 +77,7 @@ func TestBuildCountsIndependentSelectedFileBesidePartialHardlink(t *testing.T) {
 	}
 	plan := Build(TorrentObject, "x", "x", true, []CandidateFile{
 		{Path: primaryPath, Selected: true, Owner: TorrentOwner},
-		{Path: hardlinkPath, Selected: false, Owner: UnclaimedOwner},
+		{Path: hardlinkPath, Selected: false, Owner: UnmanagedOwner},
 		{Path: nfo, Selected: true, Owner: TorrentOwner},
 	})
 	if plan.SelectedPathBytes != 184 {

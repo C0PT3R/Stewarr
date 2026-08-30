@@ -308,7 +308,7 @@ func (service *Service) ReconcileFilesAfterMutation(ctx context.Context) error {
 }
 
 // reconcileFiles performs one atomic generation: roots -> physical filesystem
-// inventory -> integration claims -> Claimed/Unclaimed projection. Nothing is
+// inventory -> integration claims -> Claimed/Unmanaged projection. Nothing is
 // published unless every phase succeeds.
 func (service *Service) reconcileFiles(ctx context.Context) error {
 	defer service.publishChange()
@@ -454,18 +454,18 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 			}
 		}
 	}
-	unclaimedFiles := []model.UnclaimedFile{}
+	unmanagedFiles := []model.UnmanagedFile{}
 	for _, f := range files {
 		if claimed[f.Path] {
 			continue
 		}
-		u := model.UnclaimedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.IdentityKnown, StorageContexts: append([]model.StorageContext(nil), f.StorageContexts...)}
+		u := model.UnmanagedFile{Path: f.Path, SizeBytes: f.SizeBytes, ModifiedAt: f.ModifiedAt, Device: f.Device, Inode: f.Inode, Links: f.Links, ReclaimableKnown: f.IdentityKnown, StorageContexts: append([]model.StorageContext(nil), f.StorageContexts...)}
 		if f.IdentityKnown && f.Links <= 1 {
 			u.ReclaimableBytes = f.SizeBytes
 		} else if f.IdentityKnown {
 			u.SharedBytes = f.SizeBytes
 		}
-		unclaimedFiles = append(unclaimedFiles, u)
+		unmanagedFiles = append(unmanagedFiles, u)
 	}
 	service.mu.RLock()
 	generationCurrent := service.generation == generation
@@ -493,7 +493,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		// Keep the generation check and its complete durable publication under the
 		// Service lock. Inventory cannot advance generation between validation and
 		// commit, and SQLite receives either every projection or none of them.
-		if e := service.db.PublishReconciliation(generation, files, mediaRefs, torrentRefs, unclaimedFiles, tc, mc); e != nil {
+		if e := service.db.PublishReconciliation(generation, files, mediaRefs, torrentRefs, unmanagedFiles, tc, mc); e != nil {
 			err := fmt.Errorf("persist reconciled generation: %w", e)
 			service.filesErr = err
 			service.reliability.FileModel = "stale"
@@ -508,9 +508,9 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.storageRoots = collapseStorageRoots(roots)
 	service.filesUpdated = now
 	service.filesErr = nil
-	service.unclaimed = unclaimedFiles
-	service.unclaimedUpdated = now
-	service.unclaimedErr = nil
+	service.unmanaged = unmanagedFiles
+	service.unmanagedUpdated = now
+	service.unmanagedErr = nil
 	service.reliability.FileModel = "reliable"
 	service.fileGeneration = generation
 	service.torrents = tc

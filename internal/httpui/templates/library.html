@@ -45,7 +45,7 @@
         <thead>
           <tr>
             <th><a href="{{index .SortURLs "title"}}">Media</a></th>
-            <th><a href="{{index .SortURLs "value"}}">Value</a></th>
+            <th><a href="{{index .SortURLs "value"}}">Retention Value</a></th>
             <th><a href="{{index .SortURLs "type"}}">Type</a></th>
             <th><a href="{{index .SortURLs "rating"}}">Rating</a></th>
             <th><a href="{{index .SortURLs "votes"}}">Votes</a></th>
@@ -63,7 +63,7 @@
             <td>
               <a data-list-item-link href="/library/{{$m.Type}}/{{$m.SourceID}}">{{$m.Title}} {{if $m.Year}}({{$m.Year}}){{end}}</a>
             </td>
-            <td class=value>{{printf "%.1f" $m.Value}}</td>
+            <td class=value>{{printf "%.1f" $m.RetentionValue}}</td>
             <td>{{$m.Type}}</td>
             <td>{{if gt $m.Rating 0.0}}{{printf "%.1f" $m.Rating}}{{else}}—{{end}}</td>
             <td>{{$m.VoteCount}}</td>

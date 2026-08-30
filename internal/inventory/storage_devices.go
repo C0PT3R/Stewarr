@@ -26,7 +26,7 @@ type StorageDevice struct {
 	FreeBytes          uint64
 	UsedBytes          uint64
 	Claimed            []ClaimedSegment
-	UnclaimedBytes     uint64
+	UnmanagedBytes     uint64
 	OtherBytes         uint64
 }
 
@@ -155,7 +155,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 	}
 
 	claimedByDevice := make(map[uint64]map[string]uint64, len(groups))
-	unclaimedByDevice := make(map[uint64]uint64, len(groups))
+	unmanagedByDevice := make(map[uint64]uint64, len(groups))
 	for device := range groups {
 		claimedByDevice[device] = map[string]uint64{}
 	}
@@ -179,7 +179,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 		if owner != "" {
 			claimedByDevice[entry.device][owner] += uint64(entry.size)
 		} else {
-			unclaimedByDevice[entry.device] += uint64(entry.size)
+			unmanagedByDevice[entry.device] += uint64(entry.size)
 		}
 	}
 
@@ -190,7 +190,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 		result := StorageDevice{
 			RootLabels: sortedKeys(group.rootLabels), RepresentativePath: group.representative,
 			Available: capabilities.Visible, Error: capabilities.Error, Filesystem: capabilities.Filesystem,
-			TotalBytes: capabilities.TotalBytes, FreeBytes: capabilities.FreeBytes, UnclaimedBytes: unclaimedByDevice[device],
+			TotalBytes: capabilities.TotalBytes, FreeBytes: capabilities.FreeBytes, UnmanagedBytes: unmanagedByDevice[device],
 		}
 		var claimedNames []string
 		for name := range claimedByDevice[device] {
@@ -205,7 +205,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 		}
 		if result.Available && result.TotalBytes > 0 {
 			result.UsedBytes = result.TotalBytes - result.FreeBytes
-			accounted := claimedTotal + result.UnclaimedBytes
+			accounted := claimedTotal + result.UnmanagedBytes
 			if result.UsedBytes > accounted {
 				result.OtherBytes = result.UsedBytes - accounted
 			}

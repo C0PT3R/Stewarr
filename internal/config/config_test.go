@@ -108,9 +108,9 @@ func TestLoadNamedIntegrations(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsReservedUnclaimedIntegrationName(t *testing.T) {
+func TestLoadRejectsReservedUnmanagedIntegrationName(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.json")
-	body := `{"integrations":[{"type":"radarr","name":"uNcLaImEd","url":"http://radarr"}],"storage":{"target_usage_percent":90,"critical_usage_percent":95}}`
+	body := `{"integrations":[{"type":"radarr","name":"uNmAnAgEd","url":"http://radarr"}],"storage":{"target_usage_percent":90,"critical_usage_percent":95}}`
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

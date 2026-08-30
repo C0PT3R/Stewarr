@@ -21,7 +21,7 @@ The unified model is the product. Cleanup is one application of that model.
 
 Inventory generations distinguish authoritative base facts from enrichment. Radarr, Sonarr and qBittorrent establish their own mutation ownership. Jellyfin contributes playback/favourite facts and Seerr contributes request facts without joining Connarr's filesystem namespace. Cached or partially enriched generations may be displayed, but they are explicitly valuation-unreliable and cannot produce automatic cleanup candidates. A failed integration disables only capabilities depending on it and never expands another integration's authority.
 
-File topology is generation-bound. A reconciliation result is discarded if the authoritative base inventory changes before it is published. Its Files, claims, Unclaimed projection, Media and Torrents are committed atomically as one durable generation; readers cannot enter a replacement transaction halfway through. Direct filesystem removal has a stronger boundary still: at the final unlink boundary, after owner-backed actions finish, Connarr discovers the live torrent set and refreshes current Radarr/Sonarr file claims rather than treating cached absence as proof.
+File topology is generation-bound. A reconciliation result is discarded if the authoritative base inventory changes before it is published. Its Files, claims, Unmanaged projection, Media and Torrents are committed atomically as one durable generation; readers cannot enter a replacement transaction halfway through. Direct filesystem removal has a stronger boundary still: at the final unlink boundary, after owner-backed actions finish, Connarr discovers the live torrent set and refreshes current Radarr/Sonarr file claims rather than treating cached absence as proof.
 
 ## Core facts and interpretations
 
@@ -36,25 +36,25 @@ Do not blur those layers. A future change in interpretation should not require r
 ### Media
 A logical Library item managed today by Radarr or Sonarr. Future adapters may add albums, books and other content types.
 
-### Media Value
-A Library-media retention value. Higher means a stronger claim to remain. Value is not storage size and should not be treated as a deletion eligibility flag.
+### Retention Value
+A Library-media retention score. Higher means a stronger claim to remain. Retention Value is not storage size and should not be treated as a deletion eligibility flag.
 
-Protection is an eligibility fact, not a very large Value. Keep tags, configured Jellyfin favorites and recent Seerr requests are absolute protection states and are excluded from automatic candidates regardless of storage pressure.
+Protection is an eligibility fact, not a very large Retention Value. Keep tags, configured Jellyfin favorites and recent Seerr requests are absolute protection states and are excluded from automatic candidates regardless of storage pressure.
 
 ### Torrent
-A download/share representation managed by a torrent client. Torrent retention value is conceptually separate from Library Value.
+A download/share representation managed by a torrent client. Torrent Swarm Value is conceptually separate from media Retention Value.
 
-### Torrent Value
-An independent, explainable retention value derived from current swarm facts. It is not inherited from Media Value and does not include storage cost.
+### Swarm Value
+An independent, explainable retention score derived from current swarm facts. It is not inherited from media Retention Value and does not include storage cost.
 
 ### Provenance
 Historical relationships between downloads/torrents and managed media. Preserve history even after a release is replaced or its media disappears; former association is historical context, not a current torrent state.
 
 ### Storage claim
-A representation occupies bytes on a storage pool. Library and torrent representations can be independent copies, hardlinks to one inode, reflinks/shared extents, remote data or unknown relationships.
+A representation occupies bytes on a storage device. Library and torrent representations can be independent copies, hardlinks to one inode, reflinks/shared extents, remote data or unknown relationships.
 
-### Storage pool
-Target/pressure ultimately belongs to a storage device/pool, not globally to the application. There is no configured storage path: known devices are derived from the storage roots each integration already discovers on its own, and roots resolving to the same physical device are grouped into one pool.
+### Storage device
+Target/pressure ultimately belongs to a storage device, not globally to the application. There is no configured storage path: known devices are derived from the storage roots each integration already discovers on its own, and roots resolving to the same physical device are grouped into one device entry.
 
 ## Reclaimability
 
@@ -77,7 +77,7 @@ The old `Orphaned` state is normalized to `Unassociated`; the former media
 identity remains in History. Current relationship state and historical
 provenance are separate axes.
 
-## Unclaimed download data
+## Unmanaged download data
 
 A separate storage class: files in download roots that no configured torrent client claims.
 
@@ -151,7 +151,7 @@ SQLite is durable state at:
 
 The path is deliberately not configurable. Connarr migrates the legacy Togetharr or Spartarr database filename when appropriate, preferring the newer Togetharr state if both exist.
 
-SQLite stores cached media/torrent/unclaimed state, import provenance, synchronization cursors, cleanup history/statistics and future integration/task state. Logical inventory and reconciliation generations use atomic publication transactions. The shared connection is guarded for both reads and writes so a reader cannot observe a table between its DELETE and replacement INSERT phases.
+SQLite stores cached media/torrent/unmanaged state, import provenance, synchronization cursors, cleanup history/statistics and future integration/task state. Logical inventory and reconciliation generations use atomic publication transactions. The shared connection is guarded for both reads and writes so a reader cannot observe a table between its DELETE and replacement INSERT phases.
 
 ## Refresh architecture
 
@@ -182,7 +182,7 @@ Critical is independent of reclamation Target. It is reserved for a future
 emergency state such as alerting, stopping new downloads or temporarily
 inhibiting acquisition. It never gates ordinary reclamation planning.
 
-Targets should eventually be per storage pool.
+Targets should eventually be per storage device.
 
 ## Planner direction
 
@@ -190,19 +190,19 @@ The planner should minimize lost value while satisfying storage constraints. It 
 
 Possible reclamation sources include:
 
-- unclaimed download data;
+- unmanaged download data;
 - redundant/duplicated storage;
 - superseded torrent data;
 - unassociated torrent data with former provenance;
-- low-retention torrents;
+- low-Swarm-Value torrents;
 - lower-cost media representations/quality changes (future);
-- low-Value Library media.
+- low-Retention-Value Library media.
 
 These are not necessarily a rigid priority list. A valuable active superseded torrent may be worth retaining when capacity permits.
 
 The long-term optimization question is:
 
-> **Given current storage pressure, what set of safe actions returns each pressured storage pool to target with the least loss of total value?**
+> **Given current storage pressure, what set of safe actions returns each pressured storage device to target with the least loss of total value?**
 
 ## Integrations
 
@@ -220,7 +220,7 @@ contract.
 Root discovery does not by itself establish ownership. A future adapter that
 declares an exhaustive filesystem root must claim every regular File under it;
 its root must be disjoint from every other exhaustive root, and an incomplete
-claim inventory makes absence Unknown rather than Unclaimed.
+claim inventory makes absence Unknown rather than Unmanaged.
 
 Do not let core logic become hard-coded around Radarr/Sonarr/qBittorrent singleton assumptions.
 
@@ -244,7 +244,7 @@ A cleanup plan should answer:
 
 - Why is action required now?
 - How many bytes must be reclaimed?
-- Which storage pool is pressured?
+- Which storage device is pressured?
 - Which representations are proposed for removal/change?
 - Why are they the least valuable safe choices?
 - How many bytes are expected to be reclaimed?
@@ -261,7 +261,7 @@ Historical data should be captured from the first destructive release even if th
 - Prefer authoritative identifiers over fuzzy matching.
 - Preserve Unknown when evidence is incomplete.
 - Fail closed for ownership/reclaimability decisions.
-- Keep deletion disabled until classification/reclaim calculations are trustworthy.
+- Keep deletion disabled until classification/reclaim calculations are Reliable.
 - Never equate file/media size with reclaimed filesystem bytes without storage evidence.
 - Support capabilities conditionally rather than pretending every filesystem/topology behaves the same way.
 
@@ -293,7 +293,7 @@ Space consequences are calculated from the physical graph. A physical file is fr
 
 ## Relationship projection
 
-Torrent/media relationships are bidirectional at the Connarr model boundary. Authoritative current import provenance and proven device/inode physical backing independently establish Current `MediaItems`; either source is sufficient and neither may demote the other. Historical `FormerMediaItems` establish Superseded context only in the absence of a current relationship. Torrent health contributes to a media's Value only when the relationship is Current and reconciled device/inode identity proves distinct torrent and media paths are hardlinks. Current copied imports, missing files, and unknown topology contribute nothing.
+Torrent/media relationships are bidirectional at the Connarr model boundary. Authoritative current import provenance and proven device/inode physical backing independently establish Current `MediaItems`; either source is sufficient and neither may demote the other. Historical `FormerMediaItems` establish Superseded context only in the absence of a current relationship. Torrent health contributes to a media's Retention Value only when the relationship is Current and reconciled device/inode identity proves distinct torrent and media paths are hardlinks. Current copied imports, missing files, and unknown topology contribute nothing.
 
 
 ## Removal architecture
@@ -347,7 +347,7 @@ Removal planning remains a domain boundary. A Media can open a RemovalPlan whene
 
 ## Removal action model
 
-Removal is built from concrete owner-backed resources. `Media` is logical context and a selection grouping; it is not deleted by Connarr. Managed-file actions reference `MediaFileRef` records carrying the owning integration and owner file ID. Radarr actions delete MovieFiles; Sonarr actions delete EpisodeFiles. Torrent and Unclaimed File actions remain separate primitives.
+Removal is built from concrete owner-backed resources. `Media` is logical context and a selection grouping; it is not deleted by Connarr. Managed-file actions reference `MediaFileRef` records carrying the owning integration and owner file ID. Radarr actions delete MovieFiles; Sonarr actions delete EpisodeFiles. Torrent and Unmanaged File actions remain separate primitives.
 
 ## Code readability
 

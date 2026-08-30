@@ -46,7 +46,7 @@ internal/httpui/templates/removal.html
 internal/httpui/templates/tasks.html
 internal/httpui/templates/torrent.html
 internal/httpui/templates/torrents.html
-internal/httpui/templates/unclaimed.html
+internal/httpui/templates/unmanaged.html
 internal/integrations/jellyfin/client.go
 internal/integrations/jellyfin/client_test.go
 internal/integrations/qbittorrent/client.go

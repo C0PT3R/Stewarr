@@ -76,7 +76,7 @@ func Open(path string) (*Store, error) {
 		`CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS warriors (kind TEXT NOT NULL, source_id INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(kind,source_id));`,
 		`CREATE TABLE IF NOT EXISTS portals (client TEXT NOT NULL, hash TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client,hash));`,
-		`CREATE TABLE IF NOT EXISTS unclaimed_files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
+		`CREATE TABLE IF NOT EXISTS unmanaged_files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(kind,source_id,source,source_file_id));`,
 		`CREATE INDEX IF NOT EXISTS idx_media_files_media ON media_files(kind,source_id);`,
@@ -343,8 +343,8 @@ func (s *Store) LoadMedia() ([]model.Media, time.Time, error) {
 		out = append(out, m)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Value != out[j].Value {
-			return out[i].Value < out[j].Value
+		if out[i].RetentionValue != out[j].RetentionValue {
+			return out[i].RetentionValue < out[j].RetentionValue
 		}
 		return out[i].SizeBytes > out[j].SizeBytes
 	})
@@ -646,17 +646,17 @@ func (s *Store) RecordCleanupRun(r CleanupRun) (int64, error) {
 	return int64(C.sqlite3_last_insert_rowid(s.db)), nil
 }
 
-func (s *Store) SaveUnclaimedFiles(items []model.UnclaimedFile) error {
+func (s *Store) SaveUnmanagedFiles(items []model.UnmanagedFile) error {
 	s.accessMu.Lock()
 	defer s.accessMu.Unlock()
-	return s.withWriteTx(func() error { return s.saveUnclaimedFiles(items) })
+	return s.withWriteTx(func() error { return s.saveUnmanagedFiles(items) })
 }
 
-func (s *Store) saveUnclaimedFiles(items []model.UnclaimedFile) error {
-	if err := s.exec("DELETE FROM unclaimed_files"); err != nil {
+func (s *Store) saveUnmanagedFiles(items []model.UnmanagedFile) error {
+	if err := s.exec("DELETE FROM unmanaged_files"); err != nil {
 		return err
 	}
-	st, e := s.prepare(`INSERT INTO unclaimed_files(path,payload,updated_at) VALUES(?,?,?)`)
+	st, e := s.prepare(`INSERT INTO unmanaged_files(path,payload,updated_at) VALUES(?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -676,18 +676,18 @@ func (s *Store) saveUnclaimedFiles(items []model.UnclaimedFile) error {
 			return e
 		}
 	}
-	return s.setMeta("unclaimed.updated_at", now)
+	return s.setMeta("unmanaged.updated_at", now)
 }
 
-func (s *Store) LoadUnclaimedFiles() ([]model.UnclaimedFile, time.Time, error) {
+func (s *Store) LoadUnmanagedFiles() ([]model.UnmanagedFile, time.Time, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT payload FROM unclaimed_files`)
+	st, e := s.prepare(`SELECT payload FROM unmanaged_files`)
 	if e != nil {
 		return nil, time.Time{}, e
 	}
 	defer C.sqlite3_finalize(st)
-	var out []model.UnclaimedFile
+	var out []model.UnmanagedFile
 	for {
 		rc := C.sqlite3_step(st)
 		if rc == C.SQLITE_DONE {
@@ -696,14 +696,14 @@ func (s *Store) LoadUnclaimedFiles() ([]model.UnclaimedFile, time.Time, error) {
 		if rc != C.SQLITE_ROW {
 			return nil, time.Time{}, s.err(rc)
 		}
-		var f model.UnclaimedFile
+		var f model.UnmanagedFile
 		if e := json.Unmarshal([]byte(colText(st, 0)), &f); e != nil {
 			return nil, time.Time{}, e
 		}
 		out = append(out, f)
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
-	ts, _ := s.meta("unclaimed.updated_at")
+	ts, _ := s.meta("unmanaged.updated_at")
 	t, _ := time.Parse(time.RFC3339Nano, ts)
 	return out, t, nil
 }
@@ -802,16 +802,16 @@ func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 
 // PublishReconciliation commits every projection derived by one filesystem
 // generation together. A crash or error therefore leaves the previous complete
-// generation intact instead of mixing new topology with old Unclaimed, Media,
+// generation intact instead of mixing new topology with old Unmanaged, Media,
 // or Torrent rows.
-func (s *Store) PublishReconciliation(generation uint64, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef, unclaimed []model.UnclaimedFile, torrents []model.Torrent, media []model.Media) error {
+func (s *Store) PublishReconciliation(generation uint64, files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef, unmanaged []model.UnmanagedFile, torrents []model.Torrent, media []model.Media) error {
 	s.accessMu.Lock()
 	defer s.accessMu.Unlock()
 	return s.withWriteTx(func() error {
 		if err := s.replaceFiles(files, mediaRefs, torrentRefs); err != nil {
 			return err
 		}
-		if err := s.saveUnclaimedFiles(unclaimed); err != nil {
+		if err := s.saveUnmanagedFiles(unmanaged); err != nil {
 			return err
 		}
 		if err := s.saveTorrents(torrents); err != nil {
@@ -835,7 +835,7 @@ type ReconciliationDelta struct {
 	MediaOwners          []MediaIdentity
 	MediaRefs            []model.MediaFileRef
 	RemovedTorrentHashes []string
-	Unclaimed            []model.UnclaimedFile
+	Unmanaged            []model.UnmanagedFile
 	Torrents             []model.Torrent
 	Media                []model.Media
 	Generation           uint64
@@ -855,13 +855,13 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 			return err
 		}
 		defer C.sqlite3_finalize(deletePath)
-		deleteUnclaimed, err := s.prepare(`DELETE FROM unclaimed_files WHERE path=?`)
+		deleteUnmanaged, err := s.prepare(`DELETE FROM unmanaged_files WHERE path=?`)
 		if err != nil {
 			return err
 		}
-		defer C.sqlite3_finalize(deleteUnclaimed)
+		defer C.sqlite3_finalize(deleteUnmanaged)
 		for _, path := range delta.Paths {
-			for _, statement := range []*C.sqlite3_stmt{deletePath, deleteUnclaimed} {
+			for _, statement := range []*C.sqlite3_stmt{deletePath, deleteUnmanaged} {
 				C.sqlite3_reset(statement)
 				C.sqlite3_clear_bindings(statement)
 				bindText(statement, 1, filepath.Clean(path))
@@ -889,22 +889,22 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 				return err
 			}
 		}
-		insertUnclaimed, err := s.prepare(`INSERT INTO unclaimed_files(path,payload,updated_at) VALUES(?,?,?)`)
+		insertUnmanaged, err := s.prepare(`INSERT INTO unmanaged_files(path,payload,updated_at) VALUES(?,?,?)`)
 		if err != nil {
 			return err
 		}
-		defer C.sqlite3_finalize(insertUnclaimed)
-		for _, file := range delta.Unclaimed {
+		defer C.sqlite3_finalize(insertUnmanaged)
+		for _, file := range delta.Unmanaged {
 			payload, err := json.Marshal(file)
 			if err != nil {
 				return err
 			}
-			C.sqlite3_reset(insertUnclaimed)
-			C.sqlite3_clear_bindings(insertUnclaimed)
-			bindText(insertUnclaimed, 1, filepath.Clean(file.Path))
-			bindText(insertUnclaimed, 2, string(payload))
-			bindText(insertUnclaimed, 3, now)
-			if err := stepDone(s, insertUnclaimed); err != nil {
+			C.sqlite3_reset(insertUnmanaged)
+			C.sqlite3_clear_bindings(insertUnmanaged)
+			bindText(insertUnmanaged, 1, filepath.Clean(file.Path))
+			bindText(insertUnmanaged, 2, string(payload))
+			bindText(insertUnmanaged, 3, now)
+			if err := stepDone(s, insertUnmanaged); err != nil {
 				return err
 			}
 		}
@@ -990,7 +990,7 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 		if err := s.setMeta("files.updated_at", now); err != nil {
 			return err
 		}
-		if err := s.setMeta("unclaimed.updated_at", now); err != nil {
+		if err := s.setMeta("unmanaged.updated_at", now); err != nil {
 			return err
 		}
 		if err := s.setMeta("generation.files", strconv.FormatUint(delta.Generation, 10)); err != nil {

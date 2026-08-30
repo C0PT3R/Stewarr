@@ -58,9 +58,9 @@ func prepareRemovalData(data *removalData) error {
 	}
 	data.OperationToken = token
 
-	primaryUnclaimed := make(map[string]bool, len(data.UnclaimedPaths))
-	for _, path := range data.UnclaimedPaths {
-		primaryUnclaimed[filepath.Clean(path)] = true
+	primaryUnmanaged := make(map[string]bool, len(data.UnmanagedPaths))
+	for _, path := range data.UnmanagedPaths {
+		primaryUnmanaged[filepath.Clean(path)] = true
 	}
 	statuses := make(map[string]string, len(data.Related))
 	for _, relatedTorrent := range data.Related {
@@ -93,11 +93,11 @@ func prepareRemovalData(data *removalData) error {
 				fact.ActionName, fact.ActionValue = "torrent", file.OwnerKey
 				fact.Selectable = file.Selectable
 			}
-		case removal.UnclaimedOwner:
-			if data.Plan.Kind == removal.UnclaimedObject && primaryUnclaimed[filepath.Clean(file.Path)] {
+		case removal.UnmanagedOwner:
+			if data.Plan.Kind == removal.UnmanagedObject && primaryUnmanaged[filepath.Clean(file.Path)] {
 				fact.ActionName, fact.ActionValue, fact.Always = "path", file.Path, true
 			} else {
-				fact.ActionName, fact.ActionValue = "unclaimed_path", file.Path
+				fact.ActionName, fact.ActionValue = "unmanaged_path", file.Path
 			}
 		}
 		selection.Files = append(selection.Files, fact)

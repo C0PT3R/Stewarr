@@ -266,14 +266,14 @@ func (server *Server) uiStatus(response http.ResponseWriter, request *http.Reque
 type pendingProjection struct {
 	Media        map[string]operationNotice
 	Torrents     map[string]operationNotice
-	Unclaimed    map[string]operationNotice
+	Unmanaged    map[string]operationNotice
 	ManagedFiles map[string]operationNotice
 	PendingCount int
 	Notices      []operationNotice
 }
 
 func emptyPendingProjection() pendingProjection {
-	return pendingProjection{Media: map[string]operationNotice{}, Torrents: map[string]operationNotice{}, Unclaimed: map[string]operationNotice{}, ManagedFiles: map[string]operationNotice{}}
+	return pendingProjection{Media: map[string]operationNotice{}, Torrents: map[string]operationNotice{}, Unmanaged: map[string]operationNotice{}, ManagedFiles: map[string]operationNotice{}}
 }
 
 func (server *Server) pendingProjection() pendingProjection {
@@ -317,8 +317,8 @@ func (server *Server) pendingProjection() pendingProjection {
 			for _, torrentHash := range form["torrent"] {
 				projection.Torrents[strings.ToLower(strings.TrimSpace(torrentHash))] = notice
 			}
-			for _, path := range append(append([]string(nil), form["path"]...), form["unclaimed_path"]...) {
-				projection.Unclaimed[filepath.Clean(path)] = notice
+			for _, path := range append(append([]string(nil), form["path"]...), form["unmanaged_path"]...) {
+				projection.Unmanaged[filepath.Clean(path)] = notice
 			}
 			for _, managedKey := range form["managed_file"] {
 				key := strings.ToLower(strings.TrimSpace(managedKey))
@@ -371,10 +371,10 @@ func (projection pendingProjection) filterTorrents(items []model.Torrent) []mode
 	return filtered
 }
 
-func (projection pendingProjection) filterUnclaimed(items []model.UnclaimedFile) []model.UnclaimedFile {
-	filtered := make([]model.UnclaimedFile, 0, len(items))
+func (projection pendingProjection) filterUnmanaged(items []model.UnmanagedFile) []model.UnmanagedFile {
+	filtered := make([]model.UnmanagedFile, 0, len(items))
 	for _, item := range items {
-		if _, pending := projection.Unclaimed[filepath.Clean(item.Path)]; !pending {
+		if _, pending := projection.Unmanaged[filepath.Clean(item.Path)]; !pending {
 			filtered = append(filtered, item)
 		}
 	}

@@ -21,7 +21,7 @@ func TestHomeTemplateRendersStorageDevices(t *testing.T) {
 					RootLabels: []string{"downloads", "movies"}, RepresentativePath: "/data/movies", Filesystem: "ext2/ext3/ext4",
 					Available: true, TotalBytes: 1000, FreeBytes: 400, UsedBytes: 600,
 					Claimed:        []inventory.ClaimedSegment{{Integration: "Movies", Bytes: 500}},
-					UnclaimedBytes: 50, OtherBytes: 50,
+					UnmanagedBytes: 50, OtherBytes: 50,
 				},
 				Plan: cleanup.Plan{Available: true, UsagePercent: 60, TargetUsagePercent: 90, Message: "No cleanup: 60.00% used (target 90.0%)"},
 			},

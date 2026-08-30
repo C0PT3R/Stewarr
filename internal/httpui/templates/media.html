@@ -16,16 +16,16 @@
           <div class=muted>{{.Media.Type}}</div>
         </div>
         <div>
-          <div class=value>{{printf "%.1f" .Media.Value}}</div>
-          <div class=muted style="text-align:right">Value</div>
+          <div class=value>{{printf "%.1f" .Media.RetentionValue}}</div>
+          <div class=muted style="text-align:right">Retention Value</div>
         </div>
         <button class=trash title="{{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}Remove{{else}}Nothing to remove{{end}}" {{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}data-removal-url="/removal/media?type={{.Media.Type}}&id={{.Media.SourceID}}"{{else}}disabled{{end}}>🗑</button>
       </div>
       <div class=summary>
         <section class=panel>
-          <h2>Value breakdown</h2>
+          <h2>Retention Value breakdown</h2>
           <table class=reasons>
-            {{if .Media.Reasons}}{{range .Media.Reasons}}
+            {{if .Media.RetentionValueReasons}}{{range .Media.RetentionValueReasons}}
             <tr>
               <td>
                 <strong>{{.Label}}</strong><br><span class=muted>{{.Value}}</span>{{if .Note}}<br><small class="reason-note muted">{{.Note}}</small>{{end}}
@@ -34,7 +34,7 @@
             </tr>
             {{end}}{{else}}
             <tr>
-              <td class=muted>No Value contributions.</td>
+              <td class=muted>No Retention Value contributions.</td>
             </tr>
             {{end}}
           </table>
