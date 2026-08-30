@@ -78,8 +78,6 @@ internal/tasks/clock.go
 internal/tasks/manager.go
 internal/tasks/manager_test.go
 internal/tasks/types.go
-internal/unclaimed/scan.go
-internal/unclaimed/scan_test.go
 internal/valuation/valuation.go
 internal/valuation/valuation_test.go
 tests/ui/reactivity.mjs
