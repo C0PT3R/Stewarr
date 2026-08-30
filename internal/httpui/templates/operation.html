@@ -1,36 +1,45 @@
 <!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{.Label}} · {{appName}}</title>
-  {{head}}
-</head>
-<body data-controller="shell revisions">
-  {{chrome .Active}}
-  <main id="{{.FragmentID}}" class="operation-state" data-reactive-fragment data-live-policy="immediate">
-    <section class="card operation-card">
-      <span class="status operation-status">{{.Notice.Status}}</span>
-      <h1>{{.Label}}</h1>
-      {{if eq .Notice.Status "queued"}}
-        <p>Removal is queued. Connarr owns this operation now; closing this page will not interrupt it.</p>
-      {{else if eq .Notice.Status "started"}}
-        <p>Removal is in progress. Connarr will reconcile inventory and storage when it completes.</p>
-	  {{else if eq .Notice.Status "success"}}
-		<p>Removal completed successfully. Connarr has reconciled this view with the operation result.</p>
-	  {{else if eq .Notice.Status "dry_run"}}
-		<p>The removal simulation completed. No owner or filesystem changes were made.</p>
-	  {{else if eq .Notice.Status "partial"}}
-		<p class="warn">Removal completed only partially. Review the result before taking another action.</p>
-	  {{else if eq .Notice.Status "failed"}}
-		<p class="bad">Removal failed. No successful removal is hidden from this view.</p>
-      {{else}}
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{.Label}} · {{appName}}</title>
+    {{head}}
+  </head>
+  <body data-controller="shell revisions">
+    {{chrome .Active}}
+    <main id="{{.FragmentID}}" class="operation-state" data-reactive-fragment data-live-policy="immediate">
+      <section class="card operation-card">
+        <span class="status operation-status">{{.Notice.Status}}</span>
+        <h1>{{.Label}}</h1>
+        {{if eq .Notice.Status "queued"}}
+        <p>
+          Removal is queued. Connarr owns this operation now; closing this page will not interrupt it.
+        </p>
+        {{else if eq .Notice.Status "started"}}
+        <p>
+          Removal is in progress. Connarr will reconcile inventory and storage when it completes.
+        </p>
+        {{else if eq .Notice.Status "success"}}
+        <p>
+          Removal completed successfully. Connarr has reconciled this view with the operation result.
+        </p>
+        {{else if eq .Notice.Status "dry_run"}}
+        <p>The removal simulation completed. No owner or filesystem changes were made.</p>
+        {{else if eq .Notice.Status "partial"}}
+        <p class="warn">
+          Removal completed only partially. Review the result before taking another action.
+        </p>
+        {{else if eq .Notice.Status "failed"}}
+        <p class="bad">Removal failed. No successful removal is hidden from this view.</p>
+        {{else}}
         <p>This removal needs attention while Connarr restores a consistent view.</p>
-      {{end}}
-      {{if .Notice.Message}}<p class="bad">{{.Notice.Message}}</p>{{end}}
-      <p><a href="/history#operation-{{.Notice.ID}}">View operation in History →</a></p>
-      <p><a href="{{.BackURL}}">Back to {{.BackLabel}} →</a></p>
-    </section>
-  </main>
-</body>
+        {{end}} {{if .Notice.Message}}
+        <p class="bad">{{.Notice.Message}}</p>
+        {{end}}
+        <p><a href="/history#operation-{{.Notice.ID}}">View operation in History →</a></p>
+        <p><a href="{{.BackURL}}">Back to {{.BackLabel}} →</a></p>
+      </section>
+    </main>
+  </body>
 </html>

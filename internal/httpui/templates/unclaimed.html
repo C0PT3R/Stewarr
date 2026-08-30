@@ -1,15 +1,74 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Unmanaged files · {{appName}}</title>{{head}}</head>
-<body data-controller="shell revisions">{{chrome ""}}
-<h1 class="page-title">Unmanaged files</h1>
-<p class="muted">No current integration claims these paths. That absence is not ownership, so Connarr cannot remove them directly.</p>
-{{if .ScanErr}}<p class="warn">Scan unavailable: {{.ScanErr}}</p>{{end}}
-<div id="unclaimed-summary" class="summary-line" data-reactive-fragment data-live-policy="immediate"><b>{{.AllItems}}</b> files · <b>{{human .TotalBytes}}</b>{{if gt .ReclaimableBytes 0}} · <b>{{human .ReclaimableBytes}}</b> physically reclaimable if an authorized owner removes every link{{end}}{{if gt .SharedBytes 0}} · {{human .SharedBytes}} shared through hardlinks{{end}}</div>
-<div class="toolbar"><form class="filters" data-auto-filter method="get" action="/downloads/unclaimed"><label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/downloads/unclaimed">Clear</a>{{else}}<a data-filter-clear hidden href="/downloads/unclaimed">Clear</a>{{end}}</form><button class="scan" type="button" data-unclaimed-scan>Refresh inventory</button></div>
-<div id="unclaimed-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
-<div class="result-count muted"><b>{{.TotalItems}}</b>{{if ne .TotalItems .AllItems}} of {{.AllItems}}{{end}} files</div>
-<div class="pager">{{if .HasPrev}}<a href="{{.PrevURL}}">← Previous</a>{{else}}<span class="disabled">← Previous</span>{{end}}<span>Page {{.Page}} of {{.TotalPages}}</span>{{range .PageLinks}}{{if eq .Value $.Page}}<span class="current">{{.Value}}</span>{{else}}<a href="{{.URL}}">{{.Value}}</a>{{end}}{{end}}{{if .HasNext}}<a href="{{.NextURL}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}<div class="pagesize">Per page: {{range .SizeLinks}}<a class="{{if eq .Value $.PageSize}}active{{end}}" href="{{.URL}}">{{.Value}}</a>{{end}}</div></div>
-<table><thead><tr><th><a href="{{index .SortURLs "path"}}">Path</a></th><th><a href="{{index .SortURLs "size"}}">Size</a></th><th><a href="{{index .SortURLs "reclaimable"}}">Physical potential</a></th><th><a href="{{index .SortURLs "links"}}">Links</a></th><th><a href="{{index .SortURLs "modified"}}">Modified</a></th></tr></thead>
-<tbody>{{range .Files}}<tr><td>{{range .Paths}}<div class="mono path" title="{{.Path}}">{{shortPath .Path}}</div>{{end}}</td><td>{{human .SizeBytes}}</td><td>{{if .ReclaimableKnown}}{{human .ReclaimableBytes}}{{else}}—{{end}}</td><td>{{if gt (len .Paths) 1}}hardlinked · {{len .Paths}} paths to the same physical file{{else if gt .Links 1}}hardlinked{{else}}—{{end}}{{if gt .MissingLinks 0}} · {{.MissingLinks}} hardlink{{if gt .MissingLinks 1}}s{{end}} outside known topology{{end}}</td><td>{{fmtUpdated .ModifiedAt}}</td></tr>{{else}}<tr><td colspan="5" class="muted">No unmanaged files found.</td></tr>{{end}}</tbody></table>
-<div class="pager">{{if .HasPrev}}<a href="{{.PrevURL}}">← Previous</a>{{else}}<span class="disabled">← Previous</span>{{end}}<span>Page {{.Page}} of {{.TotalPages}}</span>{{if .HasNext}}<a href="{{.NextURL}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}</div>
-</div></body></html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Unmanaged files · {{appName}}</title>
+    {{head}}
+  </head>
+  <body data-controller="shell revisions">
+    {{chrome ""}}
+    <h1 class="page-title">Unmanaged files</h1>
+    <p class="muted">
+      No current integration claims these paths. That absence is not ownership, so Connarr cannot remove them directly.
+    </p>
+    {{if .ScanErr}}
+    <p class="warn">Scan unavailable: {{.ScanErr}}</p>
+    {{end}}
+    <div id="unclaimed-summary" class="summary-line" data-reactive-fragment data-live-policy="immediate">
+      <b>{{.AllItems}}</b> files · <b>{{human .TotalBytes}}</b>{{if gt .ReclaimableBytes 0}} · <b>{{human .ReclaimableBytes}}</b> physically reclaimable if an authorized owner removes every link{{end}}{{if gt .SharedBytes 0}} · {{human .SharedBytes}} shared through hardlinks{{end}}
+    </div>
+    <div class="toolbar">
+      <form class="filters" data-auto-filter method="get" action="/downloads/unclaimed">
+        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/downloads/unclaimed">Clear</a>{{else}}<a data-filter-clear hidden href="/downloads/unclaimed">Clear</a>{{end}}
+      </form>
+      <button class="scan" type="button" data-unclaimed-scan>Refresh inventory</button>
+    </div>
+    <div id="unclaimed-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
+      <div class="result-count muted">
+        <b>{{.TotalItems}}</b>{{if ne .TotalItems .AllItems}} of {{.AllItems}}{{end}} files
+      </div>
+      <div class="pager">
+        {{if .HasPrev}}<a href="{{.PrevURL}}">← Previous</a>{{else}}<span class="disabled">← Previous</span>{{end}}<span>Page {{.Page}} of {{.TotalPages}}</span>{{range .PageLinks}}{{if eq .Value $.Page}}<span class="current">{{.Value}}</span>{{else}}<a href="{{.URL}}">{{.Value}}</a>{{end}}{{end}}{{if .HasNext}}<a href="{{.NextURL}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
+        <div class="pagesize">
+          Per page: {{range .SizeLinks}}<a class="{{if eq .Value $.PageSize}}active{{end}}" href="{{.URL}}">{{.Value}}</a>{{end}}
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th><a href="{{index .SortURLs "path"}}">Path</a></th>
+            <th><a href="{{index .SortURLs "size"}}">Size</a></th>
+            <th><a href="{{index .SortURLs "reclaimable"}}">Physical potential</a></th>
+            <th><a href="{{index .SortURLs "links"}}">Links</a></th>
+            <th><a href="{{index .SortURLs "modified"}}">Modified</a></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Files}}
+          <tr>
+            <td>
+              {{range .Paths}}
+              <div class="mono path" title="{{.Path}}">{{shortPath .Path}}</div>
+              {{end}}
+            </td>
+            <td>{{human .SizeBytes}}</td>
+            <td>{{if .ReclaimableKnown}}{{human .ReclaimableBytes}}{{else}}—{{end}}</td>
+            <td>
+              {{if gt (len .Paths) 1}}hardlinked · {{len .Paths}} paths to the same physical file{{else if gt .Links 1}}hardlinked{{else}}—{{end}}{{if gt .MissingLinks 0}} · {{.MissingLinks}} hardlink{{if gt .MissingLinks 1}}s{{end}} outside known topology{{end}}
+            </td>
+            <td>{{fmtUpdated .ModifiedAt}}</td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="5" class="muted">No unmanaged files found.</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      <div class="pager">
+        {{if .HasPrev}}<a href="{{.PrevURL}}">← Previous</a>{{else}}<span class="disabled">← Previous</span>{{end}}<span>Page {{.Page}} of {{.TotalPages}}</span>{{if .HasNext}}<a href="{{.NextURL}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
+      </div>
+    </div>
+  </body>
+</html>

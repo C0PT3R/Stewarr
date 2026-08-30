@@ -234,7 +234,7 @@
         }
         return;
       }
-      const listLink = event.target.closest("[data-filter-results] a[href]");
+      const listLink = event.target.closest("[data-filter-results] a[href]:not([data-list-item-link])");
       if (listLink && listLink.origin === location.origin) {
         event.preventDefault();
         this.navigateList(listLink.href);

@@ -1,1 +1,128 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Torrent.Name}} · Torrent · {{appName}}</title>{{head}}</head><body data-controller="shell revisions">{{chrome "torrents"}}<main id="torrent-detail" data-reactive-fragment data-live-policy="immediate"><div style="display:flex;align-items:center;gap:12px"><h1 class=page-title style="flex:1">{{.Torrent.Name}}</h1><button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}">🗑</button></div><div style="margin:0 24px">{{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}</div>{{if .DetailErr}}<p class=warn>Some torrent details are unavailable.</p>{{end}}<p><span class=status>{{.Torrent.AssociationStatus}}</span> · {{.Torrent.Client}} · {{.Torrent.State}} · {{pct .Torrent.Progress}}</p><div class=card><strong>Value · {{printf "%.1f" .Torrent.Value}}</strong>{{if .Torrent.ValueReasons}}<div class=kv style="margin-top:10px">{{range .Torrent.ValueReasons}}<div>{{.Label}}</div><div>{{.Value}} · {{printf "%+.1f" .Points}}</div>{{end}}</div>{{else}}<p class=muted>No current swarm-value signals.</p>{{end}}</div>{{if or .Torrent.ReclaimableKnown .Torrent.StorageError}}<div class=card><strong>Storage</strong><div class=kv style="margin-top:10px"><div>Reclaimable</div><div>{{if .Torrent.ReclaimableKnown}}{{human .Torrent.ReclaimableBytes}}{{else}}Unknown{{end}}</div>{{if and .Torrent.ReclaimableKnown (gt .Torrent.SharedBytes 0)}}<div>Hardlinked</div><div>{{human .Torrent.SharedBytes}}</div>{{end}}{{if .Torrent.StorageError}}<div>Status</div><div class=bad>Storage information unavailable</div>{{end}}</div></div>{{end}}{{if .Torrent.MediaItems}}<div class=card><strong>Current media{{if gt (len .Torrent.MediaItems) 1}} items{{end}}</strong><br>{{range .Torrent.MediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}</div>{{else if .Torrent.FormerMediaItems}}<div class=card><strong>Historical media relationship</strong><br>{{range .Torrent.FormerMediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}{{if .Torrent.SupersededByHash}}<span class=muted>Superseded by torrent hash <span class=mono>{{.Torrent.SupersededByHash}}</span></span>{{end}}</div>{{end}}{{if .FilesErr}}<div class=card><strong>Files</strong><p class=warn>Files unavailable: {{.FilesErr}}</p></div>{{else if not .FilesUpdated.IsZero}}<div class=card><strong>Files {{if .FileCount}}({{.FileCount}}){{end}}</strong>{{range .Files}}<div style="padding:8px 0;border-top:1px solid #333"><div class=mono title="{{.File.Path}}">{{shortPath .File.Path}}</div>{{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}<div class=mono title="{{.Path}}">{{shortPath .Path}}</div>{{end}}{{end}}<span class=muted>{{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}</span></div>{{else}}<p class=muted>No files.</p>{{end}}{{if gt .FileCount (len .Files)}}<p class=muted>Showing first {{len .Files}} of {{.FileCount}} files.</p>{{end}}<p class=muted>{{if .RemoveTorrent.Known}}Removing this torrent frees <strong>{{human .RemoveTorrent.ReclaimableBytes}}</strong>.{{end}}</p><p class=muted></p></div>{{end}}<details class=card><summary>More details</summary><div class=kv style="margin-top:12px"><div>Hash</div><div class=mono>{{.Torrent.Hash}}</div>{{if .Torrent.Tracker}}<div>Tracker</div><div class=mono>{{.Torrent.Tracker}}</div>{{end}}{{if .Torrent.Category}}<div>Category</div><div>{{.Torrent.Category}}</div>{{end}}{{if .Torrent.Tags}}<div>Tags</div><div>{{.Torrent.Tags}}</div>{{end}}<div>Ratio</div><div>{{printf "%.2f" .Torrent.Ratio}}</div><div>Seeds</div><div>{{.Torrent.SeedsSwarm}}</div><div>Leechers</div><div>{{.Torrent.LeechersSwarm}}</div><div>Upload</div><div>{{rate .Torrent.UploadSpeed}}</div><div>Download</div><div>{{rate .Torrent.DownloadSpeed}}</div><div>Added</div><div>{{unixTime .Torrent.AddedOn}}</div><div>Last activity</div><div>{{unixTime .Torrent.LastActivity}}</div>{{if .Torrent.SavePath}}<div>Save path</div><div class=mono>{{.Torrent.SavePath}}</div>{{end}}{{if .Torrent.ContentPath}}<div>Content path</div><div class=mono>{{.Torrent.ContentPath}}</div>{{end}}</div></details><p class=muted></p></main></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{.Torrent.Name}} · Torrent · {{appName}}</title>
+    {{head}}
+  </head>
+  <body data-controller="shell revisions">
+    {{chrome "torrents"}}
+    <main id="torrent-detail" data-reactive-fragment data-live-policy="immediate">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class=page-title style="flex:1">{{.Torrent.Name}}</h1>
+        <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}">🗑</button>
+      </div>
+      <div style="margin:0 24px">
+        {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
+      </div>
+      {{if .DetailErr}}
+      <p class=warn>Some torrent details are unavailable.</p>
+      {{end}}
+      <p>
+        <span class=status>{{.Torrent.AssociationStatus}}</span> · {{.Torrent.Client}} · {{.Torrent.State}} · {{pct .Torrent.Progress}}
+      </p>
+      <div class=card>
+        <strong>Value · {{printf "%.1f" .Torrent.Value}}</strong>{{if .Torrent.ValueReasons}}
+        <div class=kv style="margin-top:10px">
+          {{range .Torrent.ValueReasons}}
+          <div>{{.Label}}</div>
+          <div>{{.Value}} · {{printf "%+.1f" .Points}}</div>
+          {{end}}
+        </div>
+        {{else}}
+        <p class=muted>No current swarm-value signals.</p>
+        {{end}}
+      </div>
+      {{if or .Torrent.ReclaimableKnown .Torrent.StorageError}}
+      <div class=card>
+        <strong>Storage</strong>
+        <div class=kv style="margin-top:10px">
+          <div>Reclaimable</div>
+          <div>
+            {{if .Torrent.ReclaimableKnown}}{{human .Torrent.ReclaimableBytes}}{{else}}Unknown{{end}}
+          </div>
+          {{if and .Torrent.ReclaimableKnown (gt .Torrent.SharedBytes 0)}}
+          <div>Hardlinked</div>
+          <div>{{human .Torrent.SharedBytes}}</div>
+          {{end}}{{if .Torrent.StorageError}}
+          <div>Status</div>
+          <div class=bad>Storage information unavailable</div>
+          {{end}}
+        </div>
+      </div>
+      {{end}}{{if .Torrent.MediaItems}}
+      <div class=card>
+        <strong>Current media{{if gt (len .Torrent.MediaItems) 1}} items{{end}}</strong><br>{{range .Torrent.MediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}
+      </div>
+      {{else if .Torrent.FormerMediaItems}}
+      <div class=card>
+        <strong>Historical media relationship</strong><br>{{range .Torrent.FormerMediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}{{if .Torrent.SupersededByHash}}<span class=muted>Superseded by torrent hash <span class=mono>{{.Torrent.SupersededByHash}}</span></span>{{end}}
+      </div>
+      {{end}}{{if .FilesErr}}
+      <div class=card>
+        <strong>Files</strong>
+        <p class=warn>Files unavailable: {{.FilesErr}}</p>
+      </div>
+      {{else if not .FilesUpdated.IsZero}}
+      <div class=card>
+        <strong>Files {{if .FileCount}}({{.FileCount}}){{end}}</strong>{{range .Files}}
+        <div style="padding:8px 0;border-top:1px solid #333">
+          <div class=mono title="{{.File.Path}}">{{shortPath .File.Path}}</div>
+          {{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}
+          <div class=mono title="{{.Path}}">{{shortPath .Path}}</div>
+          {{end}}{{end}}<span class=muted>{{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}</span>
+        </div>
+        {{else}}
+        <p class=muted>No files.</p>
+        {{end}}{{if gt .FileCount (len .Files)}}
+        <p class=muted>Showing first {{len .Files}} of {{.FileCount}} files.</p>
+        {{end}}
+        <p class=muted>
+          {{if .RemoveTorrent.Known}}Removing this torrent frees <strong>{{human .RemoveTorrent.ReclaimableBytes}}</strong>.{{end}}
+        </p>
+        <p class=muted></p>
+      </div>
+      {{end}}
+      <details class=card>
+        <summary>More details</summary>
+        <div class=kv style="margin-top:12px">
+          <div>Hash</div>
+          <div class=mono>{{.Torrent.Hash}}</div>
+          {{if .Torrent.Tracker}}
+          <div>Tracker</div>
+          <div class=mono>{{.Torrent.Tracker}}</div>
+          {{end}}{{if .Torrent.Category}}
+          <div>Category</div>
+          <div>{{.Torrent.Category}}</div>
+          {{end}}{{if .Torrent.Tags}}
+          <div>Tags</div>
+          <div>{{.Torrent.Tags}}</div>
+          {{end}}
+          <div>Ratio</div>
+          <div>{{printf "%.2f" .Torrent.Ratio}}</div>
+          <div>Seeds</div>
+          <div>{{.Torrent.SeedsSwarm}}</div>
+          <div>Leechers</div>
+          <div>{{.Torrent.LeechersSwarm}}</div>
+          <div>Upload</div>
+          <div>{{rate .Torrent.UploadSpeed}}</div>
+          <div>Download</div>
+          <div>{{rate .Torrent.DownloadSpeed}}</div>
+          <div>Added</div>
+          <div>{{unixTime .Torrent.AddedOn}}</div>
+          <div>Last activity</div>
+          <div>{{unixTime .Torrent.LastActivity}}</div>
+          {{if .Torrent.SavePath}}
+          <div>Save path</div>
+          <div class=mono>{{.Torrent.SavePath}}</div>
+          {{end}}{{if .Torrent.ContentPath}}
+          <div>Content path</div>
+          <div class=mono>{{.Torrent.ContentPath}}</div>
+          {{end}}
+        </div>
+      </details>
+      <p class=muted></p>
+    </main>
+  </body>
+</html>

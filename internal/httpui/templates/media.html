@@ -1,1 +1,162 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.Media.Title}} · {{appName}}</title>{{head}}</head><body data-controller="shell revisions">{{chrome "library"}}<div id="media-detail" class=page data-reactive-fragment data-live-policy="immediate">{{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}<div class=hero><div><h1>{{.Media.Title}} {{if .Media.Year}}({{.Media.Year}}){{end}}</h1><div class=muted>{{.Media.Type}}</div></div><div><div class=value>{{printf "%.1f" .Media.Value}}</div><div class=muted style="text-align:right">Value</div></div><button class=trash title="{{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}Remove{{else}}Nothing to remove{{end}}" {{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}data-removal-url="/removal/media?type={{.Media.Type}}&id={{.Media.SourceID}}"{{else}}disabled{{end}}>🗑</button></div><div class=summary><section class=panel><h2>Value breakdown</h2><table class=reasons>{{if .Media.Reasons}}{{range .Media.Reasons}}<tr><td><strong>{{.Label}}</strong><br><span class=muted>{{.Value}}</span>{{if .Note}}<br><small class="reason-note muted">{{.Note}}</small>{{end}}</td><td class=positive>{{printf "%+.1f" .Points}}</td></tr>{{end}}{{else}}<tr><td class=muted>No Value contributions.</td></tr>{{end}}</table></section><section class=panel><h2>Media</h2><div class=kv><div>Size</div><div>{{human .Media.SizeBytes}}</div><div>Path</div><div class=mono>{{.Media.Path}}</div><div>Added</div><div>{{if .Media.AddedAt.IsZero}}Unknown{{else}}{{.Media.AddedAt.Local.Format "2006-01-02"}}{{end}}</div><div>Rating</div><div>{{if gt .Media.Rating 0.0}}{{printf "%.1f" .Media.Rating}} / 10{{else}}—{{end}}</div><div>Votes</div><div>{{.Media.VoteCount}}</div><div>Requested</div><div>{{if .Media.Requested}}yes{{else}}no{{end}}</div><div>Favorite</div><div>{{if .Media.Favorite}}yes{{else}}no{{end}}</div></div></section><section class=panel><h2>Activity & IDs</h2><div class=kv><div>Views</div><div>{{.Media.Views}}</div><div>Unique viewers</div><div>{{.Media.UniqueViewers}}</div><div>Last watched</div><div>{{fmtTime .Media.LastWatched}}</div><div>TMDB</div><div>{{if .Media.TMDBID}}{{.Media.TMDBID}}{{else}}—{{end}}</div><div>TVDB</div><div>{{if .Media.TVDBID}}{{.Media.TVDBID}}{{else}}—{{end}}</div><div>IMDB</div><div>{{if .Media.IMDBID}}{{.Media.IMDBID}}{{else}}—{{end}}</div></div></section></div><section class=section><div class=section-head><h2>Files</h2><span class=count>{{.FileCount}}</span></div>{{if .FilesErr}}<p class=warn>Files unavailable: {{.FilesErr}}</p>{{else if .FilesUpdated.IsZero}}<p class=muted>No file information yet.</p>{{else if not .Files}}<p class=muted>No files.</p>{{else}}{{range .Files}}<div class=row><div><div class="row-title mono" title="{{.File.Path}}">{{shortPath .File.Path}}</div>{{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}<div class="row-title mono" title="{{.Path}}">{{shortPath .Path}}</div>{{end}}{{end}}<div class=row-meta>{{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}</div></div></div>{{end}}{{if gt .FileCount (len .Files)}}<p class=muted>Showing first {{len .Files}} of {{.FileCount}} files.</p>{{end}}<div class=row-meta style="margin-top:10px">{{if .RemoveMedia.Known}}Removing media frees <strong>{{human .RemoveMedia.ReclaimableBytes}}</strong>{{end}}{{if .RemoveWithCurrent.Known}} · Removing media and current torrents frees <strong>{{human .RemoveWithCurrent.ReclaimableBytes}}</strong>{{end}}</div><div class=row-meta></div>{{end}}</section><section class=section><div class=section-head><h2>Torrents</h2></div>{{if .Current}}<h3 class=group-title>Current <span class=count>({{len .Current}})</span></h3>{{range .Current}}<div class=row><div><div class=row-title>{{.Name}}</div><div class=row-meta>{{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers · {{rate .UploadSpeed}} up</div></div><a class=row-action href="/torrents/{{.Hash}}">View →</a></div>{{end}}{{end}}{{if .Superseded}}<h3 class=group-title>Superseded <span class=count>({{len .Superseded}})</span></h3>{{range .Superseded}}<div class=row><div><div class=row-title>{{.Name}}</div><div class=row-meta>{{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers{{if .ReclaimableKnown}} · {{human .ReclaimableBytes}} reclaimable{{end}}</div></div><a class=row-action href="/torrents/{{.Hash}}">View →</a></div>{{end}}{{end}}{{if .Unassociated}}<h3 class=group-title>Unassociated <span class=count>({{len .Unassociated}})</span></h3>{{range .Unassociated}}<div class=row><div><div class=row-title>{{.Name}}</div><div class=row-meta>{{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers{{if .ReclaimableKnown}} · {{human .ReclaimableBytes}} reclaimable{{end}}</div></div><a class=row-action href="/torrents/{{.Hash}}">View →</a></div>{{end}}{{end}}{{if and (not .Current) (not .Superseded) (not .Unassociated)}}<p class=muted>No torrents.</p>{{end}}</section><div class=footer></div></div></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>{{.Media.Title}} · {{appName}}</title>
+    {{head}}
+  </head>
+  <body data-controller="shell revisions">
+    {{chrome "library"}}
+    <div id="media-detail" class=page data-reactive-fragment data-live-policy="immediate">
+      {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
+      <div class=hero>
+        <div>
+          <h1>{{.Media.Title}} {{if .Media.Year}}({{.Media.Year}}){{end}}</h1>
+          <div class=muted>{{.Media.Type}}</div>
+        </div>
+        <div>
+          <div class=value>{{printf "%.1f" .Media.Value}}</div>
+          <div class=muted style="text-align:right">Value</div>
+        </div>
+        <button class=trash title="{{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}Remove{{else}}Nothing to remove{{end}}" {{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}data-removal-url="/removal/media?type={{.Media.Type}}&id={{.Media.SourceID}}"{{else}}disabled{{end}}>🗑</button>
+      </div>
+      <div class=summary>
+        <section class=panel>
+          <h2>Value breakdown</h2>
+          <table class=reasons>
+            {{if .Media.Reasons}}{{range .Media.Reasons}}
+            <tr>
+              <td>
+                <strong>{{.Label}}</strong><br><span class=muted>{{.Value}}</span>{{if .Note}}<br><small class="reason-note muted">{{.Note}}</small>{{end}}
+              </td>
+              <td class=positive>{{printf "%+.1f" .Points}}</td>
+            </tr>
+            {{end}}{{else}}
+            <tr>
+              <td class=muted>No Value contributions.</td>
+            </tr>
+            {{end}}
+          </table>
+        </section>
+        <section class=panel>
+          <h2>Media</h2>
+          <div class=kv>
+            <div>Size</div>
+            <div>{{human .Media.SizeBytes}}</div>
+            <div>Path</div>
+            <div class=mono>{{.Media.Path}}</div>
+            <div>Added</div>
+            <div>
+              {{if .Media.AddedAt.IsZero}}Unknown{{else}}{{.Media.AddedAt.Local.Format "2006-01-02"}}{{end}}
+            </div>
+            <div>Rating</div>
+            <div>
+              {{if gt .Media.Rating 0.0}}{{printf "%.1f" .Media.Rating}} / 10{{else}}—{{end}}
+            </div>
+            <div>Votes</div>
+            <div>{{.Media.VoteCount}}</div>
+            <div>Requested</div>
+            <div>{{if .Media.Requested}}yes{{else}}no{{end}}</div>
+            <div>Favorite</div>
+            <div>{{if .Media.Favorite}}yes{{else}}no{{end}}</div>
+          </div>
+        </section>
+        <section class=panel>
+          <h2>Activity & IDs</h2>
+          <div class=kv>
+            <div>Views</div>
+            <div>{{.Media.Views}}</div>
+            <div>Unique viewers</div>
+            <div>{{.Media.UniqueViewers}}</div>
+            <div>Last watched</div>
+            <div>{{fmtTime .Media.LastWatched}}</div>
+            <div>TMDB</div>
+            <div>{{if .Media.TMDBID}}{{.Media.TMDBID}}{{else}}—{{end}}</div>
+            <div>TVDB</div>
+            <div>{{if .Media.TVDBID}}{{.Media.TVDBID}}{{else}}—{{end}}</div>
+            <div>IMDB</div>
+            <div>{{if .Media.IMDBID}}{{.Media.IMDBID}}{{else}}—{{end}}</div>
+          </div>
+        </section>
+      </div>
+      <section class=section>
+        <div class=section-head>
+          <h2>Files</h2>
+          <span class=count>{{.FileCount}}</span>
+        </div>
+        {{if .FilesErr}}
+        <p class=warn>Files unavailable: {{.FilesErr}}</p>
+        {{else if .FilesUpdated.IsZero}}
+        <p class=muted>No file information yet.</p>
+        {{else if not .Files}}
+        <p class=muted>No files.</p>
+        {{else}}{{range .Files}}
+        <div class=row>
+          <div>
+            <div class="row-title mono" title="{{.File.Path}}">{{shortPath .File.Path}}</div>
+            {{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}
+            <div class="row-title mono" title="{{.Path}}">{{shortPath .Path}}</div>
+            {{end}}{{end}}
+            <div class=row-meta>
+              {{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}
+            </div>
+          </div>
+        </div>
+        {{end}}{{if gt .FileCount (len .Files)}}
+        <p class=muted>Showing first {{len .Files}} of {{.FileCount}} files.</p>
+        {{end}}
+        <div class=row-meta style="margin-top:10px">
+          {{if .RemoveMedia.Known}}Removing media frees <strong>{{human .RemoveMedia.ReclaimableBytes}}</strong>{{end}}{{if .RemoveWithCurrent.Known}} · Removing media and current torrents frees <strong>{{human .RemoveWithCurrent.ReclaimableBytes}}</strong>{{end}}
+        </div>
+        <div class=row-meta></div>
+        {{end}}
+      </section>
+      <section class=section>
+        <div class=section-head>
+          <h2>Torrents</h2>
+        </div>
+        {{if .Current}}
+        <h3 class=group-title>Current <span class=count>({{len .Current}})</span></h3>
+        {{range .Current}}
+        <div class=row>
+          <div>
+            <div class=row-title>{{.Name}}</div>
+            <div class=row-meta>
+              {{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers · {{rate .UploadSpeed}} up
+            </div>
+          </div>
+          <a class=row-action href="/torrents/{{.Hash}}">View →</a>
+        </div>
+        {{end}}{{end}}{{if .Superseded}}
+        <h3 class=group-title>Superseded <span class=count>({{len .Superseded}})</span></h3>
+        {{range .Superseded}}
+        <div class=row>
+          <div>
+            <div class=row-title>{{.Name}}</div>
+            <div class=row-meta>
+              {{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers{{if .ReclaimableKnown}} · {{human .ReclaimableBytes}} reclaimable{{end}}
+            </div>
+          </div>
+          <a class=row-action href="/torrents/{{.Hash}}">View →</a>
+        </div>
+        {{end}}{{end}}{{if .Unassociated}}
+        <h3 class=group-title>Unassociated <span class=count>({{len .Unassociated}})</span></h3>
+        {{range .Unassociated}}
+        <div class=row>
+          <div>
+            <div class=row-title>{{.Name}}</div>
+            <div class=row-meta>
+              {{human .SizeBytes}} · ratio {{printf "%.2f" .Ratio}} · {{.SeedsSwarm}} seeds · {{.LeechersSwarm}} leechers{{if .ReclaimableKnown}} · {{human .ReclaimableBytes}} reclaimable{{end}}
+            </div>
+          </div>
+          <a class=row-action href="/torrents/{{.Hash}}">View →</a>
+        </div>
+        {{end}}{{end}}{{if and (not .Current) (not .Superseded) (not .Unassociated)}}
+        <p class=muted>No torrents.</p>
+        {{end}}
+      </section>
+      <div class=footer></div>
+    </div>
+  </body>
+</html>
