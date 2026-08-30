@@ -828,10 +828,11 @@ td:has(> a > strong) > a {
   border-top: 0;
 }
 .storage-bar {
+  position: relative;
   display: flex;
-  height: 14px;
-  margin: 8px 0;
-  border-radius: 7px;
+  height: 30px;
+  margin: 10px 0 6px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--surface-soft);
 }
@@ -858,6 +859,61 @@ td:has(> a > strong) > a {
 }
 .storage-bar .segment.free {
   background: transparent;
+}
+.storage-bar .threshold {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-1px);
+}
+.storage-bar .threshold.target {
+  background: rgba(255, 255, 255, 0.55);
+}
+.storage-bar .threshold.critical {
+  background: var(--bad);
+}
+.storage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.storage-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.storage-legend .swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+.storage-legend li.claim:nth-of-type(4n + 1) .swatch {
+  background: var(--accent);
+}
+.storage-legend li.claim:nth-of-type(4n + 2) .swatch {
+  background: #9bd28f;
+}
+.storage-legend li.claim:nth-of-type(4n + 3) .swatch {
+  background: #c6a0e8;
+}
+.storage-legend li.claim:nth-of-type(4n + 4) .swatch {
+  background: #e8a86e;
+}
+.storage-legend li.unclaimed .swatch {
+  background: var(--warn);
+}
+.storage-legend li.other .swatch {
+  background: var(--faint);
+}
+.storage-legend li.free .swatch {
+  background: transparent;
+  border: 1px solid var(--border-soft);
 }
 
 body {

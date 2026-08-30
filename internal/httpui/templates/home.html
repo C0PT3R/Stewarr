@@ -26,8 +26,16 @@
                 {{if gt .Storage.UnclaimedBytes 0}}<span class="segment unclaimed" style="width:{{widthPct .Storage.UnclaimedBytes .Storage.TotalBytes}}%" title="Unclaimed: {{humanU .Storage.UnclaimedBytes}}"></span>{{end}}
                 {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
                 <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
+                <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
+                <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
               </div>
-              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%)</div>
+              <ul class="storage-legend">
+                {{range .Storage.Claimed}}<li class="claim"><span class="swatch"></span>{{.Integration}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</li>{{end}}
+                {{if gt .Storage.UnclaimedBytes 0}}<li class="unclaimed"><span class="swatch"></span>Unclaimed · {{humanU .Storage.UnclaimedBytes}} · {{widthPct .Storage.UnclaimedBytes .Storage.TotalBytes}}%</li>{{end}}
+                {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
+                <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
+              </ul>
+              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</div>
               {{if gt .Plan.NeedBytes 0}}
                 <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Selected}} media currently selected · {{humanU .Plan.SelectedBytes}} planned.</p>
               {{else}}
