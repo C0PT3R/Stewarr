@@ -515,6 +515,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.unmanagedErr = nil
 	service.reliability.FileModel = "reliable"
 	service.fileGeneration = generation
+	service.fileTopologyVersion++
 	service.torrents = tc
 	service.items = mc
 	service.mu.Unlock()

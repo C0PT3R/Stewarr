@@ -63,6 +63,8 @@ internal/integrations/sonarr/client_test.go
 internal/integrations/sonarr/history.go
 internal/inventory/reconcile.go
 internal/inventory/reconcile_test.go
+internal/inventory/reconcile_delta.go
+internal/inventory/reconcile_delta_test.go
 internal/inventory/reconcile_targeted.go
 internal/inventory/reconcile_targeted_test.go
 internal/inventory/reconciliation_scope.go

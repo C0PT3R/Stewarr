@@ -40,29 +40,36 @@ type Reliability struct {
 }
 
 type Service struct {
-	cfg                      config.Config
-	mu                       sync.RWMutex
-	items                    []model.Media
-	torrents                 []model.Torrent
-	unmanaged                []model.UnmanagedFile
-	unmanagedUpdated         time.Time
-	unmanagedErr             error
-	files                    []model.File
-	mediaFileRefs            []model.MediaFileRef
-	torrentFileRefs          []model.TorrentFileRef
-	storageRoots             []storageRoot
-	filesUpdated             time.Time
-	filesErr                 error
-	updated                  time.Time
-	lastErr                  error
-	refreshing               bool
-	reliability              Reliability
-	baseReady                chan struct{}
-	baseReadyOnce            sync.Once
-	stageTimings             map[string]time.Duration
-	validatedBaseAt          time.Time
-	generation               uint64
-	fileGeneration           uint64
+	cfg              config.Config
+	mu               sync.RWMutex
+	items            []model.Media
+	torrents         []model.Torrent
+	unmanaged        []model.UnmanagedFile
+	unmanagedUpdated time.Time
+	unmanagedErr     error
+	files            []model.File
+	mediaFileRefs    []model.MediaFileRef
+	torrentFileRefs  []model.TorrentFileRef
+	storageRoots     []storageRoot
+	filesUpdated     time.Time
+	filesErr         error
+	updated          time.Time
+	lastErr          error
+	refreshing       bool
+	reliability      Reliability
+	baseReady        chan struct{}
+	baseReadyOnce    sync.Once
+	stageTimings     map[string]time.Duration
+	validatedBaseAt  time.Time
+	generation       uint64
+	fileGeneration   uint64
+	// fileTopologyVersion increments every time files/mediaFileRefs/
+	// torrentFileRefs/unmanaged is published, by whichever of the three
+	// writers (full reconcileFiles, reconcileTargeted, or Refresh's inline
+	// delta reconciliation) does it. A writer that read the old topology
+	// before doing its own I/O checks this hasn't moved before publishing,
+	// so a concurrent writer's work is never silently clobbered.
+	fileTopologyVersion      uint64
 	baseFingerprint          [32]byte
 	hasBaseFingerprint       bool
 	enrichmentFingerprint    [32]byte
@@ -561,12 +568,46 @@ func (service *Service) Refresh(ctx context.Context) error {
 	})
 	fingerprint := inventoryFingerprint(all, baseTorrents)
 	enrichmentFingerprint := mediaEnrichmentFingerprint(all)
+
+	service.mu.RLock()
+	baseDrift := !service.hasBaseFingerprint || fingerprint != service.baseFingerprint
+	hasFileModel := !service.filesUpdated.IsZero()
+	oldTorrents := append([]model.Torrent(nil), service.torrents...)
+	startTopologyVersion := service.fileTopologyVersion
+	service.mu.RUnlock()
+
+	// Ordinary content activity (a new import, a torrent completing and
+	// moving out of its incomplete directory, a file's size settling) changes
+	// the base-catalog fingerprint just as a removal would. Rather than mark
+	// the file topology stale and wait for the next full reconciliation (up
+	// to 12h away), reconcile exactly what changed inline, before publishing,
+	// so file topology never has to pass through "stale" for this — only a
+	// genuine reconciliation error still falls back to that.
+	var topology *deltaFileTopology
+	if baseDrift && hasFileModel {
+		delta := computeInventoryDelta(previousMedia, all, oldTorrents, baseTorrents)
+		if !delta.empty() {
+			if result, err := service.reconcileInventoryDelta(ctx, delta, previousMedia, all, oldTorrents, baseTorrents); err != nil {
+				log.Printf("[inventory] inline file topology reconciliation failed, file topology will report stale until the next full reconciliation: %v", err)
+			} else {
+				topology = &result
+			}
+		}
+	}
+
 	service.mu.Lock()
+	if topology != nil && service.fileTopologyVersion != startTopologyVersion {
+		// A concurrent files reconciliation (full or targeted) published in
+		// the time it took to compute this delta. Discard it rather than
+		// publish file-topology facts derived from a base state that is no
+		// longer current; the concurrent publish's own facts stand instead.
+		topology = nil
+	}
 	if !service.hasBaseFingerprint || fingerprint != service.baseFingerprint {
 		service.generation++
 		service.baseFingerprint = fingerprint
 		service.hasBaseFingerprint = true
-		if !service.filesUpdated.IsZero() {
+		if !service.filesUpdated.IsZero() && topology == nil {
 			service.reliability.FileModel = "stale"
 		}
 	}
@@ -577,6 +618,28 @@ func (service *Service) Refresh(ctx context.Context) error {
 		service.reliability.Seerr = enrichmentInitialState(service.cfg.Seerr.URL != "")
 		service.reliability.Valuation = service.cfg.Jellyfin.URL == "" && service.cfg.Seerr.URL == ""
 		service.reliability.Message = "Media inventory changed; enrichment must complete before automatic removal planning."
+	}
+	if topology != nil {
+		if service.db != nil {
+			if e := service.db.PublishReconciliationDelta(store.ReconciliationDelta{
+				Paths: topology.affectedPaths, Files: topology.files, MediaOwners: topology.mediaOwners, MediaRefs: topology.mediaRefs,
+				RemovedTorrentHashes: topology.removedTorrentHashes, TorrentRefs: topology.torrentRefsToInsert, Unmanaged: topology.unmanaged,
+				Torrents: append([]model.Torrent(nil), baseTorrents...), Media: cloneMedia(all), Generation: service.generation,
+			}); e != nil {
+				log.Printf("[inventory] persist inline file topology reconciliation: %v; file topology will report stale until the next full reconciliation", e)
+				service.reliability.FileModel = "stale"
+				topology = nil
+			}
+		}
+		if topology != nil {
+			service.files, service.mediaFileRefs, service.torrentFileRefs = topology.files, topology.mediaRefs, topology.torrentRefs
+			now := time.Now()
+			service.unmanaged, service.unmanagedUpdated, service.unmanagedErr = topology.unmanaged, now, nil
+			service.filesUpdated, service.filesErr = now, nil
+			service.reliability.FileModel = "reliable"
+			service.fileGeneration = service.generation
+			service.fileTopologyVersion++
+		}
 	}
 	service.items = cloneMedia(all)
 	service.torrents = append([]model.Torrent(nil), baseTorrents...)

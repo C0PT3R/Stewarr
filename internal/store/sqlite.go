@@ -843,11 +843,19 @@ type MediaIdentity struct {
 }
 
 type ReconciliationDelta struct {
-	Paths                []string
-	Files                []model.File
-	MediaOwners          []MediaIdentity
-	MediaRefs            []model.MediaFileRef
+	Paths []string
+	Files []model.File
+	// MediaOwners are fully re-published: every existing row for that owner is
+	// deleted before MediaRefs is inserted. Omit an owner here (rather than
+	// including it with no matching MediaRefs) to leave its rows untouched.
+	MediaOwners []MediaIdentity
+	MediaRefs   []model.MediaFileRef
+	// RemovedTorrentHashes are fully re-published the same way: every existing
+	// torrent_files row for that hash is deleted, then TorrentRefs is
+	// inserted. A hash present here with no matching TorrentRefs is removed
+	// outright rather than replaced.
 	RemovedTorrentHashes []string
+	TorrentRefs          []model.TorrentFileRef
 	Unmanaged            []model.UnmanagedFile
 	Torrents             []model.Torrent
 	Media                []model.Media
@@ -991,6 +999,24 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 			C.sqlite3_clear_bindings(deleteTorrent)
 			bindText(deleteTorrent, 1, strings.ToLower(strings.TrimSpace(hash)))
 			if err := stepDone(s, deleteTorrent); err != nil {
+				return err
+			}
+		}
+		insertTorrentFile, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,integration_id,integration_name) VALUES(?,?,?,?,?,?)`)
+		if err != nil {
+			return err
+		}
+		defer C.sqlite3_finalize(insertTorrentFile)
+		for _, ref := range delta.TorrentRefs {
+			C.sqlite3_reset(insertTorrentFile)
+			C.sqlite3_clear_bindings(insertTorrentFile)
+			bindText(insertTorrentFile, 1, ref.Client)
+			bindText(insertTorrentFile, 2, strings.ToLower(ref.Hash))
+			bindInt(insertTorrentFile, 3, int64(ref.FileIndex))
+			bindText(insertTorrentFile, 4, filepath.Clean(ref.Path))
+			bindText(insertTorrentFile, 5, ref.IntegrationID)
+			bindText(insertTorrentFile, 6, ref.IntegrationName)
+			if err := stepDone(s, insertTorrentFile); err != nil {
 				return err
 			}
 		}

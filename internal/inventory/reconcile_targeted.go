@@ -229,6 +229,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	service.unmanaged, service.unmanagedUpdated, service.unmanagedErr = unmanaged, now, nil
 	service.reliability.FileModel = "reliable"
 	service.fileGeneration = generation
+	service.fileTopologyVersion++
 	service.torrents, service.items = tc, mc
 	// Keep the base-inventory fingerprint in sync with the state this targeted
 	// reconciliation just published. RefreshAfterMutation deliberately skips a
