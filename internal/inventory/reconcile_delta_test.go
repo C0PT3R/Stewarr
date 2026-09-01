@@ -116,6 +116,105 @@ func TestReconcileInventoryDeltaAddsNewMovieWithoutFullScan(t *testing.T) {
 	}
 }
 
+// TestReconcileInventoryDeltaPublishDoesNotCollideWithUntouchedRows guards
+// against a real regression: PublishReconciliationDelta deletes rows only for
+// the keys named in Paths/MediaOwners/RemovedTorrentHashes, then inserts
+// exactly what's passed in Files/MediaRefs/Unmanaged/TorrentRefs. Passing the
+// full in-memory topology (rather than just the newly reconciled subset) for
+// any of those re-inserts every already-published, untouched row and hits
+// files.path's UNIQUE constraint — which is exactly what happened in
+// production the first time this shipped.
+func TestReconcileInventoryDeltaPublishDoesNotCollideWithUntouchedRows(t *testing.T) {
+	root := t.TempDir()
+	untouchedMoviePath := filepath.Join(root, "Untouched Movie (2020)")
+	if err := os.MkdirAll(untouchedMoviePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	untouchedFilePath := filepath.Join(untouchedMoviePath, "movie.mkv")
+	if err := os.WriteFile(untouchedFilePath, []byte("untouched"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	newMoviePath := filepath.Join(root, "New Movie (2026)")
+	if err := os.MkdirAll(newMoviePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newFilePath := filepath.Join(newMoviePath, "movie.mkv")
+	if err := os.WriteFile(newFilePath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode([]radarr.FileRecord{{ID: 99, MovieID: 2, Relative: "movie.mkv", Size: 3}})
+	}))
+	defer radarrSrv.Close()
+
+	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	untouchedFiles, err := walkRoots([]string{untouchedMoviePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	untouchedRefs := []model.MediaFileRef{{MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 1, Path: untouchedFilePath}}
+	if err := database.PublishReconciliation(1, untouchedFiles, untouchedRefs, nil, nil, nil,
+		[]model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath}}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{Radarr: config.Service{URL: radarrSrv.URL, APIKey: "key"}}, database)
+	service.mu.Lock()
+	service.generation = 1
+	service.filesUpdated = time.Now()
+	service.files, service.mediaFileRefs = untouchedFiles, untouchedRefs
+	service.mu.Unlock()
+
+	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath}}
+	newMedia := []model.Media{
+		{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath},
+		{Type: model.Movie, SourceID: 2, Path: newMoviePath},
+	}
+	delta := computeInventoryDelta(oldMedia, newMedia, nil, nil)
+	if len(delta.newOwners) != 1 || delta.newOwners[0].ID != 2 {
+		t.Fatalf("expected exactly the new movie in the delta, got %#v", delta)
+	}
+	result, err := service.reconcileInventoryDelta(context.Background(), delta, oldMedia, newMedia, nil, nil)
+	if err != nil {
+		t.Fatalf("inline delta reconciliation failed: %v", err)
+	}
+	if err := database.PublishReconciliationDelta(store.ReconciliationDelta{
+		Paths: result.affectedPaths, Files: result.filesToInsert, MediaOwners: result.mediaOwners, MediaRefs: result.mediaRefsToInsert,
+		RemovedTorrentHashes: result.removedTorrentHashes, TorrentRefs: result.torrentRefsToInsert, Unmanaged: result.unmanagedToInsert,
+		Torrents: nil, Media: newMedia, Generation: 2,
+	}); err != nil {
+		t.Fatalf("publishing the delta must not collide with the untouched movie's already-published row: %v", err)
+	}
+	gotFiles, gotMediaRefs, _, _, err := database.LoadFiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundUntouched, foundNew := false, false
+	for _, f := range gotFiles {
+		if f.Path == filepath.Clean(untouchedFilePath) {
+			foundUntouched = true
+		}
+		if f.Path == filepath.Clean(newFilePath) {
+			foundNew = true
+		}
+	}
+	if !foundUntouched {
+		t.Fatalf("untouched movie's file row must survive the delta publish, got files=%#v", gotFiles)
+	}
+	if !foundNew {
+		t.Fatalf("new movie's file row must be added by the delta publish, got files=%#v", gotFiles)
+	}
+	if len(gotMediaRefs) != 2 {
+		t.Fatalf("expected both the untouched and new movie's refs to be present, got %#v", gotMediaRefs)
+	}
+}
+
 func TestReconcileInventoryDeltaHandlesTorrentSavePathMoveAndRemoval(t *testing.T) {
 	root := t.TempDir()
 	movedTorrentDir := filepath.Join(root, "complete")

@@ -116,8 +116,15 @@ type deltaFileTopology struct {
 	torrentRefs []model.TorrentFileRef
 	unmanaged   []model.UnmanagedFile
 
+	// The DB delta API deletes rows for exactly the keys named below, then
+	// inserts exactly these rows — never the full in-memory slices above.
+	// Passing the full slices would try to re-insert every untouched row
+	// still present in the database and violate its path/owner uniqueness.
 	affectedPaths        []string
+	filesToInsert        []model.File
 	mediaOwners          []store.MediaIdentity
+	mediaRefsToInsert    []model.MediaFileRef
+	unmanagedToInsert    []model.UnmanagedFile
 	torrentRefsToInsert  []model.TorrentFileRef
 	removedTorrentHashes []string
 }
@@ -340,6 +347,12 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	torrentRefs = append(torrentRefs, replacementTorrentRefs...)
 
 	unmanaged := projectUnmanaged(files, mediaRefs, torrentRefs)
+	unmanagedToInsert := make([]model.UnmanagedFile, 0, len(scopedFiles))
+	for _, file := range unmanaged {
+		if affectedPaths[filepath.Clean(file.Path)] {
+			unmanagedToInsert = append(unmanagedToInsert, file)
+		}
+	}
 
 	mediaOwners := make([]store.MediaIdentity, 0, len(replacedOwners)+len(delta.removedOwners))
 	for _, owner := range replacedOwners {
@@ -352,7 +365,8 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 
 	result = deltaFileTopology{
 		files: files, mediaRefs: mediaRefs, torrentRefs: torrentRefs, unmanaged: unmanaged,
-		affectedPaths: mapKeys(affectedPaths), mediaOwners: mediaOwners,
+		affectedPaths: mapKeys(affectedPaths), filesToInsert: scopedFiles,
+		mediaOwners: mediaOwners, mediaRefsToInsert: replacementMediaRefs, unmanagedToInsert: unmanagedToInsert,
 		torrentRefsToInsert: replacementTorrentRefs, removedTorrentHashes: removedTorrentHashesForDB,
 	}
 	return result, nil

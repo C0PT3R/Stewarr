@@ -56,9 +56,9 @@
         <thead>
           <tr>
             <th><a href="{{index .SortURLs "status"}}">Status</a></th>
+            <th><a href="{{index .SortURLs "value"}}">Swarm Value</a></th>
             <th><a href="{{index .SortURLs "name"}}">Torrent</a></th>
             <th><a href="{{index .SortURLs "media"}}">Media</a></th>
-            <th><a href="{{index .SortURLs "value"}}">Swarm Value</a></th>
             <th><a href="{{index .SortURLs "state"}}">State</a></th>
             <th><a href="{{index .SortURLs "size"}}">Size</a></th>
             <th><a href="{{index .SortURLs "reclaimable"}}">Reclaimable</a></th>
@@ -76,13 +76,13 @@
             <td>
               <span class="status {{if eq .AssociationStatus "CURRENT"}}current-status{{else if eq .AssociationStatus "SUPERSEDED"}}superseded{{else}}unassociated{{end}}">{{.AssociationStatus}}</span>
             </td>
+            <td><strong>{{printf "%.1f" .SwarmValue}}</strong></td>
             <td>
               <a data-list-item-link href="/torrents/{{.Hash}}"><strong>{{.Name}}</strong></a>
             </td>
             <td>
               {{if .MediaItems}}{{range $i,$m:=.MediaItems}}{{if $i}}<br>{{end}}<a data-list-item-link href="/library/{{$m.Type}}/{{$m.SourceID}}">{{$m.Title}} {{if $m.Year}}({{$m.Year}}){{end}}</a>{{end}}{{else if .FormerMediaItems}}{{range $i,$m:=.FormerMediaItems}}{{if $i}}<br>{{end}}{{if .Title}}<a data-list-item-link href="/library/{{.Type}}/{{.SourceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}Former {{.Type}} {{.SourceID}}{{end}} <span class=muted>(historical)</span>{{end}}{{else}}—{{end}}
             </td>
-            <td><strong>{{printf "%.1f" .SwarmValue}}</strong></td>
             <td>{{.State}} · {{pct .Progress}}</td>
             <td>{{human .SizeBytes}}</td>
             <td>{{if .ReclaimableKnown}}{{human .ReclaimableBytes}}{{else}}—{{end}}</td>

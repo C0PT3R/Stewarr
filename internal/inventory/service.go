@@ -622,8 +622,8 @@ func (service *Service) Refresh(ctx context.Context) error {
 	if topology != nil {
 		if service.db != nil {
 			if e := service.db.PublishReconciliationDelta(store.ReconciliationDelta{
-				Paths: topology.affectedPaths, Files: topology.files, MediaOwners: topology.mediaOwners, MediaRefs: topology.mediaRefs,
-				RemovedTorrentHashes: topology.removedTorrentHashes, TorrentRefs: topology.torrentRefsToInsert, Unmanaged: topology.unmanaged,
+				Paths: topology.affectedPaths, Files: topology.filesToInsert, MediaOwners: topology.mediaOwners, MediaRefs: topology.mediaRefsToInsert,
+				RemovedTorrentHashes: topology.removedTorrentHashes, TorrentRefs: topology.torrentRefsToInsert, Unmanaged: topology.unmanagedToInsert,
 				Torrents: append([]model.Torrent(nil), baseTorrents...), Media: cloneMedia(all), Generation: service.generation,
 			}); e != nil {
 				log.Printf("[inventory] persist inline file topology reconciliation: %v; file topology will report stale until the next full reconciliation", e)
