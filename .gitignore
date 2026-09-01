@@ -2,3 +2,4 @@ config.json
 .env
 .DS_Store
 spartarr
+internal/httpui/static/src/node_modules

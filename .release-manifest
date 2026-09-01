@@ -10,6 +10,7 @@ cmd/connarr/main_test.go
 config.example.json
 docker-compose.yml
 go.mod
+go.sum
 internal/applog/daily.go
 internal/applog/daily_test.go
 internal/cleanup/plan.go
@@ -42,6 +43,17 @@ internal/httpui/server.go
 internal/httpui/server_test.go
 internal/httpui/static/app.css
 internal/httpui/static/app.js
+internal/httpui/static/src/app.ts
+internal/httpui/static/src/globals.d.ts
+internal/httpui/static/src/shared.ts
+internal/httpui/static/src/package.json
+internal/httpui/static/src/package-lock.json
+internal/httpui/static/src/tsconfig.json
+internal/httpui/static/src/controllers/dashboard.ts
+internal/httpui/static/src/controllers/removal.ts
+internal/httpui/static/src/controllers/revisions.ts
+internal/httpui/static/src/controllers/shell.ts
+internal/httpui/static/src/controllers/updates.ts
 internal/httpui/static/vendor/HTMX-LICENSE
 internal/httpui/static/vendor/STIMULUS-LICENSE
 internal/httpui/static/vendor/htmx-2.0.10.min.js
@@ -98,3 +110,4 @@ internal/tasks/types.go
 internal/valuation/valuation.go
 internal/valuation/valuation_test.go
 tests/ui/reactivity.mjs
+tools/buildassets/main.go
