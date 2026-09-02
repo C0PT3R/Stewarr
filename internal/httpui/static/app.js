@@ -32,10 +32,19 @@
       this.etag = "";
       this.pollTimer = null;
       this.events = null;
+      // A newly opened EventSource always immediately replays whatever revision
+      // is already current, so the connection's very first "revision" message
+      // merely restates what this page's HTML was just rendered with — not
+      // something that changed since. Without this flag that replay looked
+      // identical to a live change, so "Updates available" would appear on
+      // virtually every page load/refresh. Only messages after the first one
+      // reflect a change that actually happened after the page loaded.
+      this.syncedInitialRevision = false;
     }
     connect() {
       this.etag = "";
       this.pollTimer = null;
+      this.syncedInitialRevision = false;
       this.onVisible = () => {
         if (!document.hidden) this.refreshStatus({ kind: "visibility" });
       };
@@ -84,6 +93,11 @@
         this.etag = response.headers.get("ETag") || "";
         const status = await response.json();
         this.renderStatus(status);
+        const isPushInvalidation = invalidation.kind !== "poll" && invalidation.kind !== "visibility";
+        if (isPushInvalidation && !this.syncedInitialRevision) {
+          this.syncedInitialRevision = true;
+          return;
+        }
         const sourceKind = invalidation.kind === "poll" || invalidation.kind === "visibility" ? status.kind : invalidation.kind;
         dispatchRevision({ ...status, kind: sourceKind || status.kind });
       } catch (_) {
