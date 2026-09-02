@@ -135,6 +135,29 @@ func TestTorrentsByDeviceResolvesFromItsOwnFilesNotItsMedia(t *testing.T) {
 	// land in that device's own plan instead of leaking into its media's.
 }
 
+func TestIntegrationRootPathsGroupsByIntegrationNameAndDedupes(t *testing.T) {
+	service := New(config.Config{}, nil)
+	service.mu.Lock()
+	service.storageRoots = []storageRoot{
+		{Path: "/data/movies", Integration: config.Integration{ID: "radarr", Name: "Movies"}},
+		{Path: "/data/movies-4k", Integration: config.Integration{ID: "radarr", Name: "Movies"}},
+		{Path: "/data/movies", Integration: config.Integration{ID: "radarr", Name: "Movies"}}, // duplicate, must not double up
+		{Path: "/data/downloads", Integration: config.Integration{ID: "qbittorrent", Name: "Downloader"}},
+	}
+	service.mu.Unlock()
+
+	roots := service.IntegrationRootPaths()
+	if got := roots["Movies"]; len(got) != 2 || got[0] != "/data/movies" || got[1] != "/data/movies-4k" {
+		t.Fatalf("unexpected Movies roots: %#v", got)
+	}
+	if got := roots["Downloader"]; len(got) != 1 || got[0] != "/data/downloads" {
+		t.Fatalf("unexpected Downloader roots: %#v", got)
+	}
+	if len(roots) != 2 {
+		t.Fatalf("expected exactly 2 integrations, got %#v", roots)
+	}
+}
+
 func TestStorageDevicesEmptyWhenNoRootsKnown(t *testing.T) {
 	service := New(config.Config{}, nil)
 	if devices := service.StorageDevices(); devices != nil {

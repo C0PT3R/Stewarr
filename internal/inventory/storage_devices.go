@@ -301,6 +301,34 @@ func (service *Service) TorrentsByDevice(items []model.Torrent) map[string][]mod
 	return out
 }
 
+// IntegrationRootPaths returns, for each integration currently contributing a
+// storage root, the root path(s) the last file reconciliation
+// configured/discovered for it — keyed by the integration's display name so
+// the Storage/Services pages can show each integration's own paths alongside
+// its usage/connection status.
+func (service *Service) IntegrationRootPaths() map[string][]string {
+	service.mu.RLock()
+	roots := append([]storageRoot(nil), service.storageRoots...)
+	service.mu.RUnlock()
+
+	seen := map[string]map[string]bool{}
+	for _, root := range roots {
+		name := root.Integration.Name
+		if name == "" {
+			continue
+		}
+		if seen[name] == nil {
+			seen[name] = map[string]bool{}
+		}
+		seen[name][root.Path] = true
+	}
+	out := make(map[string][]string, len(seen))
+	for name, paths := range seen {
+		out[name] = sortedKeys(paths)
+	}
+	return out
+}
+
 func sortedKeys(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for k := range set {

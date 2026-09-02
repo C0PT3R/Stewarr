@@ -27,6 +27,8 @@ internal/httpui/middleware.go
 internal/httpui/page_history.go
 internal/httpui/page_home.go
 internal/httpui/page_library.go
+internal/httpui/page_services.go
+internal/httpui/page_storage.go
 internal/httpui/page_tasks.go
 internal/httpui/page_torrents.go
 internal/httpui/page_unmanaged.go
@@ -41,6 +43,8 @@ internal/httpui/scheduled_removal.go
 internal/httpui/scheduled_removal_test.go
 internal/httpui/server.go
 internal/httpui/server_test.go
+internal/httpui/services_test.go
+internal/httpui/storage_test.go
 internal/httpui/static/app.css
 internal/httpui/static/app.js
 internal/httpui/static/src/app.ts
@@ -62,6 +66,8 @@ internal/httpui/templates.go
 internal/httpui/templates/history.html
 internal/httpui/templates/home.html
 internal/httpui/templates/library.html
+internal/httpui/templates/services.html
+internal/httpui/templates/storage.html
 internal/httpui/templates/media.html
 internal/httpui/templates/operation.html
 internal/httpui/templates/removal.html

@@ -13,60 +13,37 @@
     {{if .LastErr}}<p class="bad">{{.LastErr}}</p>{{end}}
     <div class="grid">
       <section class="card" id="storage-devices" data-reactive-fragment data-live-policy="immediate">
-        <h2>Storage</h2>
+        <div class="card-head"><h2>Storage</h2><a class="card-link" href="/storage">View</a></div>
         {{if not .Devices}}
           <p class="muted">No storage devices are known yet; file reconciliation has not completed.</p>
         {{else}}
-          {{range $device := .Devices}}
+          {{range .Devices}}
           <div class="storage-device">
             <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
             {{if .Storage.Available}}
               <div class="storage-bar">
-                {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Integration}}: {{humanU .Bytes}}"></span>{{end}}
-                {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
-                {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
-                <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
-                <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
-                <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
+                <span class="segment used" style="width:{{widthPct .Storage.UsedBytes .Storage.TotalBytes}}%"></span>
+                <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%"></span>
               </div>
-              <ul class="storage-legend">
-                {{range .Storage.Claimed}}<li class="claim"><span class="swatch"></span>{{.Integration}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</li>{{end}}
-                {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%</li>{{end}}
-                {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
-                <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
-              </ul>
-              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</div>
-              {{if gt .Plan.NeedBytes 0}}
-                <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
-                {{if .Plan.Actions}}
-                <ul class="cleanup-actions">
-                  {{range .Plan.Actions}}<li>{{if eq .Kind "bundle"}}{{.Media.Title}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "media"}}{{.Media.Title}}{{else}}{{(index .Torrents 0).Name}}{{end}} · {{human .ReclaimableBytes}}</li>{{end}}
-                </ul>
-                {{end}}
-              {{else}}
-                <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
-              {{end}}
+              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}}</div>
             {{else}}
               <p class="bad">UNAVAILABLE{{if .Storage.Error}}: {{.Storage.Error}}{{end}}</p>
-              {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
             {{end}}
           </div>
           {{end}}
         {{end}}
-        {{if .UnmanagedAvailable}}<p><a href="/downloads/unmanaged">Unmanaged files →</a></p>{{end}}
       </section>
       <section class="card">
-        <h2>Library</h2>
+        <div class="card-head"><h2>Library</h2><a class="card-link" href="/library">View</a></div>
         <div class="big" data-dashboard-field="totalMedia">{{.TotalMedia}}</div>
         <div class="kv">
           <span>Movies</span><b data-dashboard-field="movies">{{.Movies}}</b>
           <span>Series</span><b data-dashboard-field="series">{{.Series}}</b>
           <span>Library size</span><b data-dashboard-field="libraryBytes">{{human .LibraryBytes}}</b>
         </div>
-        <p><a href="/library">Browse Library →</a></p>
       </section>
       <section class="card">
-        <h2>Torrents</h2>
+        <div class="card-head"><h2>Torrents</h2><a class="card-link" href="/torrents">View</a></div>
         <div class="big" data-dashboard-field="totalTorrents">{{.TotalTorrents}}</div>
         <div class="kv">
           <span>Current</span><b class="current-status" data-dashboard-field="current">{{.Current}}</b>
@@ -74,11 +51,10 @@
           <span>Unassociated</span><b class="unassociated" data-dashboard-field="unassociated">{{.Unassociated}}</b>
           {{if gt .ObsoleteKnown 0}}<span>Known reclaimable</span><b data-dashboard-field="obsoleteReclaimable">{{human .ObsoleteReclaimable}}</b>{{end}}
         </div>
-        <p><a href="/torrents">Browse Torrents →</a></p>
         {{if .UnmanagedError}}<p class="warn">Unmanaged scan unavailable: {{.UnmanagedError}}</p>{{end}}
       </section>
       <section class="card">
-        <h2>Lifetime statistics</h2>
+        <div class="card-head"><h2>Lifetime statistics</h2><a class="card-link" href="/history">View</a></div>
         <div class="big" data-dashboard-field="reclaimedBytes">{{human .Stats.ReclaimedBytes}}</div>
         <div class="muted">actual space reclaimed</div>
         <div class="kv card-kv">
@@ -88,11 +64,10 @@
           <span>Library bytes removed</span><b data-dashboard-field="mediaBytes">{{human .Stats.MediaBytes}}</b>
           <span>Last 30 days</span><b data-dashboard-field="last30Bytes">{{human .Stats.Last30Bytes}}</b>
         </div>
-        <p><a href="/history">Cleanup history →</a></p>
       </section>
       {{if .Services}}
       <section class="card">
-        <h2>Services</h2>
+        <div class="card-head"><h2>Services</h2><a class="card-link" href="/services">View</a></div>
         <div class="kv">{{range .Services}}<span>{{.Name}}</span><b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b>{{end}}</div>
       </section>
       {{end}}

@@ -23,6 +23,8 @@ type Server struct {
 	inv              *inventory.Service
 	tasks            *tasks.Manager
 	homeTpl          *template.Template
+	storageTpl       *template.Template
+	servicesTpl      *template.Template
 	libraryTpl       *template.Template
 	historyTpl       *template.Template
 	profileTpl       *template.Template
@@ -67,6 +69,14 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
+	storageTemplate, err := parseUITemplate("storage.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
+	servicesTemplate, err := parseUITemplate("services.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
 	libraryTemplate, err := parseUITemplate("library.html", templateFunctions)
 	if err != nil {
 		return nil, err
@@ -107,7 +117,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
+	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
 	if taskManager != nil {
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
@@ -131,6 +141,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/ui/events", server.uiEvents)
 	mux.HandleFunc("/ui/status", server.uiStatus)
 	mux.HandleFunc("/", server.home)
+	mux.HandleFunc("/storage", server.storagePage)
+	mux.HandleFunc("/services", server.servicesPage)
 	mux.HandleFunc("/library", server.library)
 	mux.HandleFunc("/library/", server.media)
 	mux.HandleFunc("/media/", server.media)

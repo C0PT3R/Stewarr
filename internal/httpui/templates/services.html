@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Services · {{appName}}</title>
+  {{head}}
+</head>
+<body data-controller="shell revisions">
+  {{chrome "services"}}
+  <main id="services-content" data-reactive-fragment data-live-policy="immediate">
+    <h1 class="page-title">Services</h1>
+    {{if not .Services}}
+      <p class="muted">No integrations are configured yet.</p>
+    {{else}}
+    <div class="services-grid">
+      {{range .Services}}
+      <div class="card service">
+        <div class="service-title"><span>{{.Name}}</span> <b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b></div>
+        {{if .Message}}<div class="muted">{{.Message}}</div>{{end}}
+        {{if not .CheckedAt.IsZero}}<div class="muted">Checked {{fmtUpdated .CheckedAt}}</div>{{end}}
+        {{with index $.ServiceRoots .Name}}
+        <ul class="service-roots">
+          {{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}
+        </ul>
+        {{end}}
+      </div>
+      {{end}}
+    </div>
+    {{end}}
+  </main>
+</body>
+</html>
