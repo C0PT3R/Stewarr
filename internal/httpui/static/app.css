@@ -995,6 +995,9 @@ td:has(> a > strong) > a {
   font-size: 13px;
   color: var(--faint);
 }
+.field-stack label[hidden] {
+  display: none;
+}
 .field-stack input,
 .field-stack select {
   font-size: 14px;

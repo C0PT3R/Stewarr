@@ -37,8 +37,8 @@
         <div class="card-head"><h2>Library</h2><a class="card-link" href="/library">View</a></div>
         <div class="big" data-dashboard-field="totalMedia">{{.TotalMedia}}</div>
         <div class="kv">
-          <span>Movies</span><b data-dashboard-field="movies">{{.Movies}}</b>
-          <span>Series</span><b data-dashboard-field="series">{{.Series}}</b>
+          {{if .HasMovieLibrary}}<span>Movies</span><b data-dashboard-field="movies">{{.Movies}}</b>{{end}}
+          {{if .HasSeriesLibrary}}<span>Series</span><b data-dashboard-field="series">{{.Series}}</b>{{end}}
           <span>Library size</span><b data-dashboard-field="libraryBytes">{{human .LibraryBytes}}</b>
         </div>
       </section>
@@ -65,12 +65,14 @@
           <span>Last 30 days</span><b data-dashboard-field="last30Bytes">{{human .Stats.Last30Bytes}}</b>
         </div>
       </section>
-      {{if .Services}}
       <section class="card">
         <div class="card-head"><h2>Services</h2><a class="card-link" href="/services">View</a></div>
+        {{if .Services}}
         <div class="kv">{{range .Services}}<span>{{.Name}}</span><b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b>{{end}}</div>
+        {{else}}
+        <div class="muted">No integrations configured yet.</div>
+        {{end}}
       </section>
-      {{end}}
     </div>
   </main>
 </body>

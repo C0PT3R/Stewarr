@@ -131,7 +131,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   otherwise-kept show instead of only ever reasoning about a whole series;
   a movie, or a series with no season data yet, is unaffected.
 
-### Live config editing and multi-instance integrations (0.2.13-0.2.26)
+### Live config editing and multi-instance integrations (0.2.13-0.2.28)
 
 - Integrations move from a static, must-exist-before-launch config file to
   live, in-app management: adding, editing (including moving an integration to
@@ -156,6 +156,14 @@ This file separates implemented behavior from intended direction. It is not a pr
   point of moving storage-path discovery into the app in the first place:
   add an integration and its paths show up promptly, without a restart or an
   hours-long wait.
+- File reconciliation no longer fails on a fresh install with zero
+  integrations configured — that's an expected starting state, not a
+  misconfiguration, and now publishes an empty-but-reliable file topology
+  instead of erroring. The Home page's Services card always shows (with an
+  empty state instead of disappearing entirely), and its Library card only
+  shows a Movies/Series row for a library that's actually configured. The
+  Add/Edit integration forms show only the credential fields the selected
+  type actually uses (an API key, or a username+password, never both).
 
 ### Model and operations
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"connarr/internal/config"
@@ -139,12 +140,31 @@ func (server *Server) submitEditIntegration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := r.FormValue("id")
+	// The edit form only shows the credential fields relevant to the
+	// integration's type (API key, or username+password, never both) — the
+	// other side isn't present in the submission at all, so it must be
+	// carried forward from the existing value rather than treated as
+	// cleared, or a save with no real intent to touch it would silently wipe
+	// a credential set outside the UI (e.g. qBittorrent's optional API key).
+	var existing config.Integration
+	for _, integration := range server.inv.Config().Integrations {
+		if integration.ID == id {
+			existing = integration
+			break
+		}
+	}
 	updates := config.Integration{
 		Name:     r.FormValue("name"),
 		URL:      r.FormValue("url"),
-		APIKey:   r.FormValue("api_key"),
-		Username: r.FormValue("username"),
-		Password: r.FormValue("password"),
+		APIKey:   existing.APIKey,
+		Username: existing.Username,
+		Password: existing.Password,
+	}
+	if strings.EqualFold(existing.Type, "qbittorrent") {
+		updates.Username = r.FormValue("username")
+		updates.Password = r.FormValue("password")
+	} else {
+		updates.APIKey = r.FormValue("api_key")
 	}
 	if err := server.inv.EditIntegration(r.Context(), id, updates); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

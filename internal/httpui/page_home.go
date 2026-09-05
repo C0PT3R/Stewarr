@@ -18,7 +18,9 @@ type homeData struct {
 	LastErr              error
 	Refreshing           bool
 	TotalMedia           int
+	HasMovieLibrary      bool
 	Movies               int
+	HasSeriesLibrary     bool
 	Series               int
 	LibraryBytes         int64
 	TotalTorrents        int
@@ -60,7 +62,11 @@ func (server *Server) dashboardSnapshot() homeData {
 	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
 	reliability := server.inv.ReliabilitySnapshot()
 	planningReliable := server.planningReliable(reliability)
-	d := homeData{Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, ts, planningReliable)}
+	cfg := server.inv.Config()
+	d := homeData{
+		Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, ts, planningReliable),
+		HasMovieLibrary: len(cfg.IntegrationsOfType("radarr")) > 0, HasSeriesLibrary: len(cfg.IntegrationsOfType("sonarr")) > 0,
+	}
 	if !planningReliable && d.LastErr == nil {
 		if server.tasks != nil && server.tasks.ConsistencyPending() {
 			d.LastErr = fmt.Errorf("Automatic removal planning paused. Post-removal synchronization is pending")

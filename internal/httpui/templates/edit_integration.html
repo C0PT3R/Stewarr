@@ -13,9 +13,12 @@
           <label>Type<input value="{{.Type}}" disabled></label>
           <label for="integration-name">Name<input id="integration-name" name="name" value="{{.Name}}" required></label>
           <label for="integration-url">URL<input id="integration-url" name="url" type="url" value="{{.URL}}" required></label>
-          <label for="integration-api-key">API key<input id="integration-api-key" name="api_key" type="password" value="{{.APIKey}}" autocomplete="off"></label>
+          {{if eq .Type "qbittorrent"}}
           <label for="integration-username">Username<input id="integration-username" name="username" value="{{.Username}}" autocomplete="off"></label>
           <label for="integration-password">Password<input id="integration-password" name="password" type="password" value="{{.Password}}" autocomplete="off"></label>
+          {{else}}
+          <label for="integration-api-key">API key<input id="integration-api-key" name="api_key" type="password" value="{{.APIKey}}" autocomplete="off"></label>
+          {{end}}
         </div>
         <p data-modal-error hidden class="bad"></p>
         <div class="actions">

@@ -408,7 +408,12 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	for _, f := range qbRootFetches {
 		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
 	}
-	if len(roots) == 0 {
+	// Zero storage-owning integrations configured at all is a legitimate,
+	// expected state on a fresh install — not a failure. Only treat an empty
+	// root set as an error when at least one integration is configured but
+	// none of them reported a usable root, which is a real misconfiguration
+	// worth surfacing.
+	if len(roots) == 0 && len(radInstances)+len(sonInstances)+len(qbInstances) > 0 {
 		return service.setFilesError(fmt.Errorf("no integration storage roots are available"))
 	}
 	stageStarted = time.Now()

@@ -112,12 +112,29 @@ export class ShellController extends window.Stimulus.Controller {
 
   filterChange(event: Event): void {
     const target = event.target as HTMLElement;
+    if (target.matches("[data-integration-type]")) {
+      this.syncIntegrationFields(target as HTMLSelectElement);
+      return;
+    }
     if (target.matches(".unmanagedPick")) {
       this.syncUnmanagedSelection();
       return;
     }
     const form = target.closest<HTMLFormElement>("form[data-auto-filter]");
     if (form) this.navigateList(this.formURL(form));
+  }
+
+  // Each integration type only needs a subset of credential fields (an API
+  // key, or a username+password, never both) — show only the ones that
+  // apply to whatever type is currently selected in the Add integration form.
+  syncIntegrationFields(select: HTMLSelectElement): void {
+    const form = select.closest("form");
+    if (!form) return;
+    const type = select.value;
+    for (const field of form.querySelectorAll<HTMLElement>("[data-integration-field]")) {
+      const types = (field.dataset.integrationField || "").split(/\s+/);
+      field.hidden = !types.includes(type);
+    }
   }
 
   async submit(event: Event): Promise<void> {

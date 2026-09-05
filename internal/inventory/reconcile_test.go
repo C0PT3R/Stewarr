@@ -2,6 +2,7 @@ package inventory
 
 import (
 	"connarr/internal/config"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -72,5 +73,22 @@ func TestWalkStorageRootsMergesOverlappingIntegrationContexts(t *testing.T) {
 	}
 	if len(files) != 1 || len(files[0].StorageContexts) != 2 {
 		t.Fatalf("files=%#v", files)
+	}
+}
+
+// TestReconcileFilesSucceedsWithNoIntegrationsConfigured guards a fresh
+// install: zero storage-owning integrations configured is a legitimate,
+// expected state (nothing to discover yet), not a failure. reconcileFiles
+// must publish an empty-but-reliable file topology instead of erroring —
+// it used to hard-fail with "no integration storage roots are available"
+// purely because no integrations existed yet, well before the user had any
+// chance to add one.
+func TestReconcileFilesSucceedsWithNoIntegrationsConfigured(t *testing.T) {
+	service := New(config.Config{}, nil)
+	if err := service.ReconcileFiles(context.Background()); err != nil {
+		t.Fatalf("expected reconciliation with zero integrations to succeed, got %v", err)
+	}
+	if got := service.ReliabilitySnapshot().FileModel; got != "reliable" {
+		t.Fatalf("FileModel=%q, want reliable", got)
 	}
 }

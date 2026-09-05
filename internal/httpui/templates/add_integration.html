@@ -9,7 +9,7 @@
     <div class="removal-scroll">
       <form data-background-submit method="post" action="/services/integrations">
         <div class="field-stack">
-          <label for="integration-type">Type<select id="integration-type" name="type" required>
+          <label for="integration-type">Type<select id="integration-type" name="type" required data-integration-type>
             <option value="radarr">Radarr</option>
             <option value="sonarr">Sonarr</option>
             <option value="qbittorrent">qBittorrent</option>
@@ -18,9 +18,9 @@
           </select></label>
           <label for="integration-name">Name<input id="integration-name" name="name" required></label>
           <label for="integration-url">URL<input id="integration-url" name="url" type="url" required></label>
-          <label for="integration-api-key">API key<input id="integration-api-key" name="api_key" type="password" autocomplete="off"></label>
-          <label for="integration-username">Username<input id="integration-username" name="username" autocomplete="off"></label>
-          <label for="integration-password">Password<input id="integration-password" name="password" type="password" autocomplete="off"></label>
+          <label for="integration-api-key" data-integration-field="radarr sonarr jellyfin seerr">API key<input id="integration-api-key" name="api_key" type="password" autocomplete="off"></label>
+          <label for="integration-username" data-integration-field="qbittorrent" hidden>Username<input id="integration-username" name="username" autocomplete="off"></label>
+          <label for="integration-password" data-integration-field="qbittorrent" hidden>Password<input id="integration-password" name="password" type="password" autocomplete="off"></label>
         </div>
         <p data-modal-error hidden class="bad"></p>
         <div class="actions">
