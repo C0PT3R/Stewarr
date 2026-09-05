@@ -383,6 +383,18 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if integrationID == "" && !resolvedOK {
+		matches := 0
+		for _, m := range items {
+			if string(m.Type) == parts[0] && m.SourceID == sourceID {
+				matches++
+			}
+		}
+		if matches > 1 {
+			http.Error(w, "this media id exists in more than one configured instance; an integration_id is required", http.StatusConflict)
+			return
+		}
+	}
 
 	for i := range items {
 		m := items[i]
@@ -398,7 +410,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		}
 		m.Torrents = projection.filterTorrents(m.Torrents)
 		current, superseded, unassociated := groupMediaTorrents(m.Torrents)
-		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.SourceID)
+		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.IntegrationID, m.SourceID)
 		files := storageView.Files
 		if len(projection.ManagedFiles) > 0 {
 			refs, _, _ := server.inv.ManagedFileRefs(m.Type, m.SourceID, m.IntegrationID)

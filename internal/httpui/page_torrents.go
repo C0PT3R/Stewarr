@@ -324,6 +324,10 @@ func (server *Server) torrentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	_, updated, last := server.inv.Snapshot()
 	torrent, detailErr := server.inv.TorrentDetail(hash, integrationID)
+	if integrationID == "" && detailErr != nil && strings.Contains(strings.ToLower(detailErrString(detailErr)), "more than one configured instance") {
+		http.Error(w, detailErr.Error(), http.StatusConflict)
+		return
+	}
 	if strings.Contains(strings.ToLower(detailErrString(detailErr)), "not found") {
 		if notice, found := server.removalHistory("torrent", strings.ToLower(hash)); found {
 			server.renderOperation(w, operationPageData{Active: "torrents", FragmentID: "torrent-detail", Label: notice.Label, Notice: notice, BackURL: "/torrents", BackLabel: "Torrents"})

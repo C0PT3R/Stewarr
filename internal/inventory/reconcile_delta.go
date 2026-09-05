@@ -406,7 +406,7 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 
 	mediaRefs := make([]model.MediaFileRef, 0, len(oldMediaRefs)+len(replacementMediaRefs))
 	for _, ref := range oldMediaRefs {
-		key := fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)
+		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)
 		if ownerSet[key] || removedOwnerSet[key] {
 			continue
 		}

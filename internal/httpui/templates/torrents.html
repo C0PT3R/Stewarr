@@ -78,7 +78,7 @@
             </td>
             <td><strong>{{printf "%.1f" .SwarmValue}}</strong></td>
             <td>
-              <a data-list-item-link href="/torrents/{{.Hash}}"><strong>{{.Name}}</strong></a>
+              <a data-list-item-link href="/torrents/{{.Hash}}?integration_id={{.IntegrationID}}"><strong>{{.Name}}</strong></a>
             </td>
             <td>
               {{if .MediaItems}}{{range $i,$m:=.MediaItems}}{{if $i}}<br>{{end}}<a data-list-item-link href="/library/{{$m.Type}}/{{$m.SourceID}}?integration_id={{$m.IntegrationID}}">{{$m.Title}} {{if $m.Year}}({{$m.Year}}){{end}}</a>{{end}}{{else if .FormerMediaItems}}{{range $i,$m:=.FormerMediaItems}}{{if $i}}<br>{{end}}{{if .Title}}<a data-list-item-link href="/library/{{.Type}}/{{.SourceID}}?integration_id={{.IntegrationID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}Former {{.Type}} {{.SourceID}}{{end}} <span class=muted>(historical)</span>{{end}}{{else}}—{{end}}
@@ -92,7 +92,7 @@
             <td>{{.LeechersSwarm}}</td>
             <td>{{unixTime .LastActivity}}</td>
             <td>
-              <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Hash}}">🗑</button>
+              <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Hash}}&integration_id={{.IntegrationID}}">🗑</button>
             </td>
           </tr>
           {{else}}

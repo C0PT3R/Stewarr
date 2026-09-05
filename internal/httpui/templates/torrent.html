@@ -11,7 +11,7 @@
     <main id="torrent-detail" data-reactive-fragment data-live-policy="immediate">
       <div style="display:flex;align-items:center;gap:12px">
         <h1 class=page-title style="flex:1">{{.Torrent.Name}}</h1>
-        <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}">🗑</button>
+        <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}&integration_id={{.Torrent.IntegrationID}}">🗑</button>
       </div>
       <div style="margin:0 24px">
         {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}

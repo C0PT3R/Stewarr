@@ -235,7 +235,7 @@ func (service *Service) MediaByDevice(items []model.Media) map[string][]model.Me
 	}
 	deviceByMediaKey := map[string]uint64{}
 	for _, ref := range mediaRefs {
-		key := fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)
+		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)
 		if _, known := deviceByMediaKey[key]; known {
 			continue
 		}
@@ -245,7 +245,7 @@ func (service *Service) MediaByDevice(items []model.Media) map[string][]model.Me
 	}
 	out := map[string][]model.Media{}
 	for _, item := range items {
-		device, ok := deviceByMediaKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)]
+		device, ok := deviceByMediaKey[fmt.Sprintf("%s:%s:%d", item.Type, item.IntegrationID, item.SourceID)]
 		if !ok {
 			continue
 		}

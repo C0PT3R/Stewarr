@@ -848,12 +848,12 @@ func storageGuidance(plan removal.RemovalPlan, mediaType model.MediaType, relate
 func exclusionOptions(refs []model.MediaFileRef, mediaItems []model.Media) (bool, bool, []model.Media) {
 	selectedMedia := map[string]bool{}
 	for _, ref := range refs {
-		selectedMedia[fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)] = true
+		selectedMedia[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)] = true
 	}
 	canExcludeMovies, canExcludeSeries := false, false
 	targets := []model.Media{}
 	for _, mediaItem := range mediaItems {
-		if !selectedMedia[fmt.Sprintf("%s:%d", mediaItem.Type, mediaItem.SourceID)] {
+		if !selectedMedia[fmt.Sprintf("%s:%s:%d", mediaItem.Type, mediaItem.IntegrationID, mediaItem.SourceID)] {
 			continue
 		}
 		switch mediaItem.Type {
@@ -912,7 +912,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, integr
 	physicalTorrentHashes := physicallyBackingTorrentHashes(files, refs, allTorrentRefs)
 	var mediaItem *model.Media
 	for itemIndex := range items {
-		if items[itemIndex].Type == kind && items[itemIndex].SourceID == id {
+		if items[itemIndex].Type == kind && items[itemIndex].IntegrationID == mr.IntegrationID && items[itemIndex].SourceID == id {
 			mediaItem = &items[itemIndex]
 			break
 		}
@@ -1095,11 +1095,12 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 	items, _, _ := server.inv.Snapshot()
 	mediaMap := map[string]model.MediaRef{}
 	for _, m := range items {
-		mediaMap[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = model.MediaRef{Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
+		mediaMap[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
 	}
 	byMedia := map[string][]model.MediaFileRef{}
 	for _, r := range proven {
-		byMedia[fmt.Sprintf("%s:%d", r.MediaType, r.MediaID)] = append(byMedia[fmt.Sprintf("%s:%d", r.MediaType, r.MediaID)], r)
+		key := fmt.Sprintf("%s:%s:%d", r.MediaType, r.IntegrationID, r.MediaID)
+		byMedia[key] = append(byMedia[key], r)
 	}
 	related := []relatedManagedMedia{}
 	for key, refs := range byMedia {
@@ -1110,7 +1111,7 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 		groups := groupManagedFiles(refs, byPath, selectedManaged)
 		fullCounts := map[string]int{}
 		for _, fr := range mrefs {
-			if fr.MediaType != mr.Type || fr.MediaID != mr.SourceID {
+			if fr.MediaType != mr.Type || fr.IntegrationID != mr.IntegrationID || fr.MediaID != mr.SourceID {
 				continue
 			}
 			g := "Files"

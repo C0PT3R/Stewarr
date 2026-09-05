@@ -80,8 +80,8 @@ func Open(path string) (*Store, error) {
 		`PRAGMA synchronous=NORMAL;`,
 		`PRAGMA busy_timeout=5000;`,
 		`CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS warriors (kind TEXT NOT NULL, source_id INTEGER NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(kind,source_id));`,
-		`CREATE TABLE IF NOT EXISTS portals (client TEXT NOT NULL, hash TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client,hash));`,
+		`CREATE TABLE IF NOT EXISTS media (kind TEXT NOT NULL, source_id INTEGER NOT NULL, integration_id TEXT NOT NULL DEFAULT '', payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(kind,source_id,integration_id));`,
+		`CREATE TABLE IF NOT EXISTS torrents (client TEXT NOT NULL, hash TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client,hash));`,
 		`CREATE TABLE IF NOT EXISTS unmanaged_files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(kind,source_id,source,source_file_id));`,
@@ -301,10 +301,10 @@ func (s *Store) SaveMedia(items []model.Media) error {
 }
 
 func (s *Store) saveMedia(items []model.Media) error {
-	if err := s.exec("DELETE FROM warriors"); err != nil {
+	if err := s.exec("DELETE FROM media"); err != nil {
 		return err
 	}
-	st, e := s.prepare(`INSERT INTO warriors(kind,source_id,payload,updated_at) VALUES(?,?,?,?)`)
+	st, e := s.prepare(`INSERT INTO media(kind,source_id,integration_id,payload,updated_at) VALUES(?,?,?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -319,18 +319,19 @@ func (s *Store) saveMedia(items []model.Media) error {
 		C.sqlite3_clear_bindings(st)
 		bindText(st, 1, string(m.Type))
 		bindInt(st, 2, int64(m.SourceID))
-		bindText(st, 3, string(b))
-		bindText(st, 4, now)
+		bindText(st, 3, m.IntegrationID)
+		bindText(st, 4, string(b))
+		bindText(st, 5, now)
 		if e := stepDone(s, st); e != nil {
 			return e
 		}
 	}
-	return s.setMeta("warriors.updated_at", now)
+	return s.setMeta("media.updated_at", now)
 }
 func (s *Store) LoadMedia() ([]model.Media, time.Time, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT payload FROM warriors`)
+	st, e := s.prepare(`SELECT payload FROM media`)
 	if e != nil {
 		return nil, time.Time{}, e
 	}
@@ -356,7 +357,7 @@ func (s *Store) LoadMedia() ([]model.Media, time.Time, error) {
 		}
 		return out[i].SizeBytes > out[j].SizeBytes
 	})
-	ts, _ := s.meta("warriors.updated_at")
+	ts, _ := s.meta("media.updated_at")
 	t, _ := time.Parse(time.RFC3339Nano, ts)
 	return out, t, nil
 }
@@ -368,10 +369,10 @@ func (s *Store) SaveTorrents(items []model.Torrent) error {
 }
 
 func (s *Store) saveTorrents(items []model.Torrent) error {
-	if err := s.exec("DELETE FROM portals"); err != nil {
+	if err := s.exec("DELETE FROM torrents"); err != nil {
 		return err
 	}
-	st, e := s.prepare(`INSERT INTO portals(client,hash,payload,updated_at) VALUES(?,?,?,?)`)
+	st, e := s.prepare(`INSERT INTO torrents(client,hash,payload,updated_at) VALUES(?,?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -418,12 +419,12 @@ func (s *Store) saveTorrents(items []model.Torrent) error {
 			return e
 		}
 	}
-	return s.setMeta("portals.updated_at", now)
+	return s.setMeta("torrents.updated_at", now)
 }
 func (s *Store) LoadTorrents() ([]model.Torrent, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT payload FROM portals`)
+	st, e := s.prepare(`SELECT payload FROM torrents`)
 	if e != nil {
 		return nil, e
 	}

@@ -26,7 +26,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].SourceID != 42 || got[0].RetentionValue != 7.5 {
-		t.Fatalf("unexpected warriors: %#v", got)
+		t.Fatalf("unexpected media: %#v", got)
 	}
 
 	now := time.Now().UTC().Truncate(time.Second)

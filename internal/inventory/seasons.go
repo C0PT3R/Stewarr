@@ -8,9 +8,12 @@ import (
 	"connarr/internal/model"
 )
 
+// seasonKey identifies one season across multiple configured Sonarr
+// instances — seriesID (Media.SourceID) is only unique within one instance.
 type seasonKey struct {
-	seriesID int
-	season   int
+	integrationID string
+	seriesID      int
+	season        int
 }
 
 // seasonFromParts recovers the season number and display group from a
@@ -25,9 +28,10 @@ func seasonFromParts(parts []model.MediaFilePart) (number int, group string, ok 
 }
 
 // aggregateSeasons groups Sonarr media file refs into per-season summaries,
-// keyed by SeriesID (Media.SourceID). A ref with no Parts (season grouping
-// unknown) is skipped; Connarr only knows season boundaries for Sonarr.
-func aggregateSeasons(mediaRefs []model.MediaFileRef, files []model.File) map[int][]model.Season {
+// keyed by (IntegrationID, SeriesID/Media.SourceID). A ref with no Parts
+// (season grouping unknown) is skipped; Connarr only knows season boundaries
+// for Sonarr.
+func aggregateSeasons(mediaRefs []model.MediaFileRef, files []model.File) map[ownerKey][]model.Season {
 	sizeByPath := make(map[string]int64, len(files))
 	for _, f := range files {
 		sizeByPath[filepath.Clean(f.Path)] = f.SizeBytes
@@ -42,7 +46,7 @@ func aggregateSeasons(mediaRefs []model.MediaFileRef, files []model.File) map[in
 		if !ok {
 			continue
 		}
-		key := seasonKey{seriesID: ref.MediaID, season: seasonNumber}
+		key := seasonKey{integrationID: ref.IntegrationID, seriesID: ref.MediaID, season: seasonNumber}
 		season, exists := accumulators[key]
 		if !exists {
 			season = &model.Season{Number: seasonNumber, FileGroup: group}
@@ -55,12 +59,13 @@ func aggregateSeasons(mediaRefs []model.MediaFileRef, files []model.File) map[in
 			season.LastAddedAt = ref.AddedAt
 		}
 	}
-	out := map[int][]model.Season{}
+	out := map[ownerKey][]model.Season{}
 	for _, key := range order {
-		out[key.seriesID] = append(out[key.seriesID], *accumulators[key])
+		seriesKey := ownerKey{IntegrationID: key.integrationID, OwnerID: key.seriesID}
+		out[seriesKey] = append(out[seriesKey], *accumulators[key])
 	}
-	for seriesID := range out {
-		sort.Slice(out[seriesID], func(i, j int) bool { return out[seriesID][i].Number < out[seriesID][j].Number })
+	for seriesKey := range out {
+		sort.Slice(out[seriesKey], func(i, j int) bool { return out[seriesKey][i].Number < out[seriesKey][j].Number })
 	}
 	return out
 }
@@ -72,13 +77,14 @@ func attachSeasons(items []model.Media, mediaRefs []model.MediaFileRef, files []
 	bySeries := aggregateSeasons(mediaRefs, files)
 	for i := range items {
 		if items[i].Type == model.Series {
-			items[i].Seasons = bySeries[items[i].SourceID]
+			items[i].Seasons = bySeries[ownerKey{IntegrationID: items[i].IntegrationID, OwnerID: items[i].SourceID}]
 		}
 	}
 }
 
-// seasonPathsByKey groups every sonarr MediaFileRef's path by (seriesID,
-// season number), for estimate/hardlink computations scoped to one season.
+// seasonPathsByKey groups every sonarr MediaFileRef's path by (integrationID,
+// seriesID, season number), for estimate/hardlink computations scoped to one
+// season.
 func seasonPathsByKey(mediaRefs []model.MediaFileRef) map[seasonKey][]string {
 	out := map[seasonKey][]string{}
 	for _, ref := range mediaRefs {
@@ -89,7 +95,7 @@ func seasonPathsByKey(mediaRefs []model.MediaFileRef) map[seasonKey][]string {
 		if !ok {
 			continue
 		}
-		key := seasonKey{seriesID: ref.MediaID, season: seasonNumber}
+		key := seasonKey{integrationID: ref.IntegrationID, seriesID: ref.MediaID, season: seasonNumber}
 		out[key] = append(out[key], ref.Path)
 	}
 	return out
@@ -105,7 +111,7 @@ func applySeasonFileEstimates(items []model.Media, files []model.File, refs []mo
 			continue
 		}
 		for j := range items[i].Seasons {
-			key := seasonKey{seriesID: items[i].SourceID, season: items[i].Seasons[j].Number}
+			key := seasonKey{integrationID: items[i].IntegrationID, seriesID: items[i].SourceID, season: items[i].Seasons[j].Number}
 			e := x.Estimate(paths[key])
 			items[i].Seasons[j].ReclaimableKnown = e.Known
 			items[i].Seasons[j].ReclaimableBytes = e.ReclaimableBytes
@@ -131,7 +137,7 @@ func applySeasonBundleEstimates(items []model.Media, torrents []model.Torrent, f
 				continue
 			}
 			for _, season := range t.HardlinkedSeasons {
-				key := seasonKey{seriesID: ref.SourceID, season: season}
+				key := seasonKey{integrationID: ref.IntegrationID, seriesID: ref.SourceID, season: season}
 				hardlinkPathsByKey[key] = append(hardlinkPathsByKey[key], x.TorrentPaths(t.Hash)...)
 			}
 		}
@@ -141,7 +147,7 @@ func applySeasonBundleEstimates(items []model.Media, torrents []model.Torrent, f
 			continue
 		}
 		for j := range items[i].Seasons {
-			key := seasonKey{seriesID: items[i].SourceID, season: items[i].Seasons[j].Number}
+			key := seasonKey{integrationID: items[i].IntegrationID, seriesID: items[i].SourceID, season: items[i].Seasons[j].Number}
 			e := x.Estimate(filetopology.Union(seasonOwnPaths[key], hardlinkPathsByKey[key]))
 			items[i].Seasons[j].BundleReclaimableKnown = e.Known
 			items[i].Seasons[j].BundleReclaimableBytes = e.ReclaimableBytes

@@ -1224,7 +1224,7 @@ func applyTorrentFileEstimates(torrents []model.Torrent, files []model.File, ref
 }
 
 func sameMediaRef(left, right model.MediaRef) bool {
-	return left.Type == right.Type && left.SourceID == right.SourceID
+	return left.Type == right.Type && left.IntegrationID == right.IntegrationID && left.SourceID == right.SourceID
 }
 
 func containsMediaRef(items []model.MediaRef, candidate model.MediaRef) bool {
@@ -1244,7 +1244,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 	seasonPaths := seasonPathsByKey(mediaRefs)
 	currentMediaByKey := make(map[string]model.MediaRef, len(media))
 	for _, item := range media {
-		currentMediaByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = model.MediaRef{IntegrationID: item.IntegrationID, Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
+		currentMediaByKey[fmt.Sprintf("%s:%s:%d", item.Type, item.IntegrationID, item.SourceID)] = model.MediaRef{IntegrationID: item.IntegrationID, Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
 	}
 	for torrentIndex := range torrents {
 		torrent := &torrents[torrentIndex]
@@ -1259,7 +1259,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 		// the entire library for every torrent (O(torrents) instead of
 		// O(torrents x media), which dominates refresh time on large libraries).
 		for _, mediaItem := range candidateMediaRefs(index, torrent.Hash, currentMediaByKey) {
-			matched, _ := index.TorrentMediaPhysicalMatch(torrent.Hash, mediaItem.Type, mediaItem.SourceID)
+			matched, _ := index.TorrentMediaPhysicalMatch(torrent.Hash, mediaItem.Type, mediaItem.IntegrationID, mediaItem.SourceID)
 			if !matched {
 				continue
 			}
@@ -1277,7 +1277,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 			torrent.AssociationReason = "Current filesystem topology proves this torrent physically backs managed media."
 		}
 		for _, mediaItem := range torrent.MediaItems {
-			hardlinked, known := index.TorrentMediaHardlink(torrent.Hash, mediaItem.Type, mediaItem.SourceID)
+			hardlinked, known := index.TorrentMediaHardlink(torrent.Hash, mediaItem.Type, mediaItem.IntegrationID, mediaItem.SourceID)
 			if known {
 				torrent.HardlinkKnownMediaItems = append(torrent.HardlinkKnownMediaItems, mediaItem)
 			}
@@ -1290,7 +1290,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 			}
 			torrentPaths := index.TorrentPaths(torrent.Hash)
 			for key, paths := range seasonPaths {
-				if key.seriesID != mediaItem.SourceID {
+				if key.seriesID != mediaItem.SourceID || key.integrationID != mediaItem.IntegrationID {
 					continue
 				}
 				if hl, _ := index.PathsHardlinked(paths, torrentPaths); hl {
@@ -1313,7 +1313,7 @@ func candidateMediaRefs(index *filetopology.Index, hash string, currentMediaByKe
 		physicalPaths := append([]string{torrentPath}, index.SamePhysicalPaths(torrentPath)...)
 		for _, path := range physicalPaths {
 			for _, ref := range index.MediaOwners(path) {
-				key := fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)
+				key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)
 				if seen[key] {
 					continue
 				}
@@ -1330,7 +1330,7 @@ func candidateMediaRefs(index *filetopology.Index, hash string, currentMediaByKe
 func applyMediaFileEstimates(items []model.Media, files []model.File, refs []model.MediaFileRef) {
 	x := filetopology.New(files, refs, nil)
 	for i := range items {
-		e := x.Estimate(x.MediaPaths(items[i].Type, items[i].SourceID))
+		e := x.Estimate(x.MediaPaths(items[i].Type, items[i].IntegrationID, items[i].SourceID))
 		items[i].ReclaimableKnown = e.Known
 		items[i].ReclaimableBytes = e.ReclaimableBytes
 	}
@@ -1351,13 +1351,13 @@ func applyMediaBundleEstimates(items []model.Media, torrents []model.Torrent, fi
 			continue
 		}
 		for _, ref := range t.HardlinkedMediaItems {
-			key := fmt.Sprintf("%s:%d", ref.Type, ref.SourceID)
+			key := fmt.Sprintf("%s:%s:%d", ref.Type, ref.IntegrationID, ref.SourceID)
 			hardlinkPathsByMediaKey[key] = append(hardlinkPathsByMediaKey[key], x.TorrentPaths(t.Hash)...)
 		}
 	}
 	for i := range items {
-		key := fmt.Sprintf("%s:%d", items[i].Type, items[i].SourceID)
-		mediaPaths := x.MediaPaths(items[i].Type, items[i].SourceID)
+		key := fmt.Sprintf("%s:%s:%d", items[i].Type, items[i].IntegrationID, items[i].SourceID)
+		mediaPaths := x.MediaPaths(items[i].Type, items[i].IntegrationID, items[i].SourceID)
 		e := x.Estimate(filetopology.Union(mediaPaths, hardlinkPathsByMediaKey[key]))
 		items[i].BundleReclaimableKnown = e.Known
 		items[i].BundleReclaimableBytes = e.ReclaimableBytes
@@ -1367,7 +1367,7 @@ func applyMediaBundleEstimates(items []model.Media, torrents []model.Torrent, fi
 func mediaRefMap(items []model.Media) map[string]model.MediaRef {
 	out := map[string]model.MediaRef{}
 	for _, m := range items {
-		out[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
+		out[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
 	}
 	return out
 }
@@ -1392,7 +1392,7 @@ func buildFileViews(paths []string, x *filetopology.Index, mediaRefs map[string]
 			peer := FilePeer{Path: peerPath}
 			seenMedia := map[string]bool{}
 			for _, r := range x.MediaOwners(peerPath) {
-				key := fmt.Sprintf("%s:%d", r.MediaType, r.MediaID)
+				key := fmt.Sprintf("%s:%s:%d", r.MediaType, r.IntegrationID, r.MediaID)
 				if ref, ok := mediaRefs[key]; ok && !seenMedia[key] {
 					peer.Media = append(peer.Media, ref)
 					seenMedia[key] = true
@@ -1414,12 +1414,12 @@ func buildFileViews(paths []string, x *filetopology.Index, mediaRefs map[string]
 	return views
 }
 
-func (service *Service) MediaStorage(kind model.MediaType, id int) (MediaStorageView, time.Time, error) {
+func (service *Service) MediaStorage(kind model.MediaType, integrationID string, id int) (MediaStorageView, time.Time, error) {
 	files, mr, tr, updated, err := service.FileSnapshot()
 	items, _, _ := service.Snapshot()
 	torrents := service.TorrentSnapshot()
 	x := filetopology.New(files, mr, tr)
-	paths := x.MediaPaths(kind, id)
+	paths := x.MediaPaths(kind, integrationID, id)
 	view := MediaStorageView{Files: buildFileViews(paths, x, mediaRefMap(items), torrentOwnerMap(torrents))}
 	view.RemoveMedia = x.Estimate(paths)
 	var currentPaths []string
@@ -1429,7 +1429,7 @@ func (service *Service) MediaStorage(kind model.MediaType, id int) (MediaStorage
 		}
 		matched := false
 		for _, ref := range t.MediaItems {
-			if ref.Type == kind && ref.SourceID == id {
+			if ref.Type == kind && ref.IntegrationID == integrationID && ref.SourceID == id {
 				matched = true
 				break
 			}
@@ -1460,11 +1460,11 @@ func projectTorrentRelations(media []model.Media, torrents []model.Torrent) {
 	mediaIndex := map[string]int{}
 	for i := range media {
 		media[i].Torrents = nil
-		mediaIndex[fmt.Sprintf("%s:%d", media[i].Type, media[i].SourceID)] = i
+		mediaIndex[fmt.Sprintf("%s:%s:%d", media[i].Type, media[i].IntegrationID, media[i].SourceID)] = i
 	}
 	seen := map[string]map[string]bool{}
 	attach := func(ref model.MediaRef, t model.Torrent, current bool) {
-		key := fmt.Sprintf("%s:%d", ref.Type, ref.SourceID)
+		key := fmt.Sprintf("%s:%s:%d", ref.Type, ref.IntegrationID, ref.SourceID)
 		i, ok := mediaIndex[key]
 		if !ok {
 			return
@@ -1498,10 +1498,10 @@ func mediaHasCurrentFiles(m model.Media) bool {
 func preserveJellyfinFacts(dst, previous []model.Media) {
 	byKey := make(map[string]model.Media, len(previous))
 	for _, m := range previous {
-		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if old, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].IntegrationID, dst[i].SourceID)]; ok {
 			dst[i].Views = old.Views
 			dst[i].UniqueViewers = old.UniqueViewers
 			dst[i].LastWatched = old.LastWatched
@@ -1513,10 +1513,10 @@ func preserveJellyfinFacts(dst, previous []model.Media) {
 func preserveSeerrFacts(dst, previous []model.Media) {
 	byKey := make(map[string]model.Media, len(previous))
 	for _, m := range previous {
-		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if old, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].IntegrationID, dst[i].SourceID)]; ok {
 			dst[i].Requested = old.Requested
 			dst[i].RequestedAt = old.RequestedAt
 		}
@@ -1526,10 +1526,10 @@ func preserveSeerrFacts(dst, previous []model.Media) {
 func mergeJellyfinFacts(dst, enriched []model.Media) {
 	byKey := make(map[string]model.Media, len(enriched))
 	for _, m := range enriched {
-		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if source, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+		if source, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].IntegrationID, dst[i].SourceID)]; ok {
 			dst[i].Views = source.Views
 			dst[i].UniqueViewers = source.UniqueViewers
 			dst[i].LastWatched = source.LastWatched
@@ -1550,10 +1550,10 @@ func clearJellyfinFacts(items []model.Media) {
 func mergeSeerrFacts(dst, enriched []model.Media) {
 	byKey := make(map[string]model.Media, len(enriched))
 	for _, m := range enriched {
-		byKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if source, ok := byKey[fmt.Sprintf("%s:%d", dst[i].Type, dst[i].SourceID)]; ok {
+		if source, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].IntegrationID, dst[i].SourceID)]; ok {
 			dst[i].Requested = source.Requested
 			dst[i].RequestedAt = source.RequestedAt
 		}

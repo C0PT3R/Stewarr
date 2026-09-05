@@ -488,10 +488,11 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 			}
 		}
 		if r.FormValue("unmonitor_movies") == "1" {
-			seen := map[int]bool{}
+			seen := map[string]bool{}
 			for _, ref := range removedManaged {
-				if strings.EqualFold(ref.Source, "radarr") && !seen[ref.MediaID] {
-					seen[ref.MediaID] = true
+				key := ref.IntegrationID + ":" + strconv.Itoa(ref.MediaID)
+				if strings.EqualFold(ref.Source, "radarr") && !seen[key] {
+					seen[key] = true
 					if e := server.inv.SetMovieMonitored(ctx, ref.IntegrationID, ref.MediaID, false); e != nil {
 						recordError(fmt.Sprintf("unmonitor movie %d: %v", ref.MediaID, e))
 						mutationUncertain = true
@@ -503,15 +504,16 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 			}
 		}
 		if r.FormValue("unmonitor_episodes") == "1" {
-			seen := map[int]bool{}
+			seen := map[string]bool{}
 			idsByIntegration := map[string][]int{}
 			for _, ref := range removedManaged {
 				if !strings.EqualFold(ref.Source, "sonarr") {
 					continue
 				}
 				for _, part := range ref.Parts {
-					if part.SourcePartID > 0 && !seen[part.SourcePartID] {
-						seen[part.SourcePartID] = true
+					key := ref.IntegrationID + ":" + strconv.Itoa(part.SourcePartID)
+					if part.SourcePartID > 0 && !seen[key] {
+						seen[key] = true
 						idsByIntegration[ref.IntegrationID] = append(idsByIntegration[ref.IntegrationID], part.SourcePartID)
 					}
 				}
@@ -529,10 +531,10 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		}
 		removedMedia := map[string]bool{}
 		for _, ref := range removedManaged {
-			removedMedia[fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)] = true
+			removedMedia[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)] = true
 		}
 		for _, mediaItem := range d.ExclusionMedia {
-			if !removedMedia[fmt.Sprintf("%s:%d", mediaItem.Type, mediaItem.SourceID)] {
+			if !removedMedia[fmt.Sprintf("%s:%s:%d", mediaItem.Type, mediaItem.IntegrationID, mediaItem.SourceID)] {
 				continue
 			}
 			switch mediaItem.Type {
