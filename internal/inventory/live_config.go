@@ -151,29 +151,77 @@ func (service *Service) RemoveIntegration(id string) error {
 
 	service.mu.Lock()
 	service.cfg = updatedCfg
-	// Deactivate by reconstructing the same "unconfigured" client shape New
-	// already uses at startup for a type with no configured integration —
-	// every reconciliation loop assumes this field is never nil.
-	service.activateClientLocked(config.Integration{Type: removed.Type})
+	service.deactivateClientLocked(removed)
 	delete(service.statuses, removed.Name)
 	service.mu.Unlock()
 	return nil
 }
 
-// activateClientLocked (re)builds the client for integration's type from its
-// current fields. Called with service.mu already held for writing.
+// buildRadarrClients/buildSonarrClients/buildQBittorrentClients construct one
+// live client per configured instance of their type, keyed by the
+// integration's stable ID. Radarr/Sonarr/qBittorrent are the three types
+// that support more than one configured instance (see
+// config.multiInstanceAllowed); Jellyfin/Seerr stay single-client.
+func buildRadarrClients(configuration config.Config) map[string]*radarr.Client {
+	out := map[string]*radarr.Client{}
+	for _, integration := range configuration.IntegrationsOfType("radarr") {
+		out[integration.ID] = radarr.New(integration.URL, integration.APIKey)
+	}
+	return out
+}
+
+func buildSonarrClients(configuration config.Config) map[string]*sonarr.Client {
+	out := map[string]*sonarr.Client{}
+	for _, integration := range configuration.IntegrationsOfType("sonarr") {
+		out[integration.ID] = sonarr.New(integration.URL, integration.APIKey)
+	}
+	return out
+}
+
+func buildQBittorrentClients(configuration config.Config) map[string]*qbittorrent.Client {
+	out := map[string]*qbittorrent.Client{}
+	for _, integration := range configuration.IntegrationsOfType("qbittorrent") {
+		out[integration.ID] = qbittorrent.New(integration.Name, integration.URL, integration.Username, integration.Password, integration.APIKey)
+	}
+	return out
+}
+
+// activateClientLocked (re)builds the client for integration from its
+// current fields and activates it under its stable ID (for the
+// multi-instance types) or as the single client (Jellyfin/Seerr). Called
+// with service.mu already held for writing.
 func (service *Service) activateClientLocked(integration config.Integration) {
 	switch integration.Type {
 	case "radarr":
-		service.rad = radarr.New(integration.URL, integration.APIKey)
+		service.rad[integration.ID] = radarr.New(integration.URL, integration.APIKey)
 	case "sonarr":
-		service.son = sonarr.New(integration.URL, integration.APIKey)
+		service.son[integration.ID] = sonarr.New(integration.URL, integration.APIKey)
 	case "jellyfin":
 		service.jf = jellyfin.New(integration.URL, integration.APIKey)
 	case "seerr":
 		service.seerr = seerr.New(integration.URL, integration.APIKey)
 	case "qbittorrent":
-		service.qb = qbittorrent.New(integration.Name, integration.URL, integration.Username, integration.Password, integration.APIKey)
+		service.qb[integration.ID] = qbittorrent.New(integration.Name, integration.URL, integration.Username, integration.Password, integration.APIKey)
+	}
+}
+
+// deactivateClientLocked removes integration's client entirely (for the
+// multi-instance types, so a removed instance stops matching any future
+// lookup by ID) or resets it to the "unconfigured" shape every
+// reconciliation loop assumes is never nil (Jellyfin/Seerr). Called with
+// service.mu already held for writing.
+func (service *Service) deactivateClientLocked(integration config.Integration) {
+	switch integration.Type {
+	case "radarr":
+		delete(service.rad, integration.ID)
+	case "sonarr":
+		delete(service.son, integration.ID)
+	case "qbittorrent":
+		delete(service.qb, integration.ID)
+	case "jellyfin":
+		service.jf = jellyfin.New("", "")
+	case "seerr":
+		service.seerr = seerr.New("", "")
 	}
 }
 

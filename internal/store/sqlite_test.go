@@ -37,7 +37,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err := db.AddImportEvents(events); err != nil {
 		t.Fatal(err)
 	}
-	gotEvents, err := db.ImportEvents("radarr")
+	gotEvents, err := db.ImportEvents("radarr", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,12 +235,12 @@ func TestPublishInventoryRollsBackCursorAndSnapshotTogether(t *testing.T) {
 	defer db.Close()
 	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Title: "old"}}
 	oldTorrents := []model.Torrent{{Hash: "old", Name: "old"}}
-	if err := db.PublishInventory(1, 10, oldTorrents, oldMedia); err != nil {
+	if err := db.PublishInventory(1, map[string]int64{"qb1": 10}, oldTorrents, oldMedia); err != nil {
 		t.Fatal(err)
 	}
 
 	db.beforeCommit = func() error { return fmt.Errorf("injected commit failure") }
-	err = db.PublishInventory(2, 20,
+	err = db.PublishInventory(2, map[string]int64{"qb1": 20},
 		[]model.Torrent{{Hash: "new", Name: "new"}},
 		[]model.Media{{Type: model.Movie, SourceID: 2, Title: "new"}},
 	)
@@ -249,7 +249,7 @@ func TestPublishInventoryRollsBackCursorAndSnapshotTogether(t *testing.T) {
 		t.Fatal("expected injected failure")
 	}
 
-	got, err := db.MetaInt64("qbittorrent.rid")
+	got, err := db.MetaInt64("qbittorrent.qb1.rid")
 	if err != nil {
 		t.Fatal(err)
 	}

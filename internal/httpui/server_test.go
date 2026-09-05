@@ -658,14 +658,14 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 		{Hash: "old", Name: "Superseded release", AssociationStatus: model.TorrentSuperseded, FormerMediaItems: []model.MediaRef{mediaRelation}},
 		{Hash: "unrelated", Name: "Unrelated", AssociationStatus: model.TorrentUnassociated},
 	}
-	if err := database.PublishInventory(1, 0, torrents, media); err != nil {
+	if err := database.PublishInventory(1, nil, torrents, media); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.PublishReconciliation(1, files, mediaRefs, torrentRefs, nil, torrents, media); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{inv: inventory.New(config.Config{}, database)}
-	plan, err := server.buildMediaRemovalPlan(model.Movie, 1, false, map[string]bool{}, map[string]bool{}, map[string]bool{})
+	plan, err := server.buildMediaRemovalPlan(model.Movie, 1, "", false, map[string]bool{}, map[string]bool{}, map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,17 +702,17 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 	if !foundPreservedOwner {
 		t.Fatalf("multi-file torrent did not disclose the preserved other media owner: %#v", plan.FileGroups)
 	}
-	revalidated, err := server.buildMediaRemovalPlan(model.Movie, 1, true, selectedManagedSet([]string{"radarr:9"}), mapFromValues([]string{"linked"}), map[string]bool{})
+	revalidated, err := server.buildMediaRemovalPlan(model.Movie, 1, "", true, selectedManagedSet([]string{"radarr:9"}), mapFromValues([]string{"linked"}), map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(revalidated.Related) != 2 || !selectedTorrent(revalidated.Related, "linked") || selectedTorrent(revalidated.Related, "copied") {
 		t.Fatalf("execution revalidation discarded related torrent: %#v", revalidated.Related)
 	}
-	if _, err := server.buildMediaRemovalPlan(model.Movie, 1, true, map[string]bool{"radarr:9": true}, map[string]bool{"unrelated": true}, map[string]bool{}); err == nil || !strings.Contains(err.Error(), "not current") {
+	if _, err := server.buildMediaRemovalPlan(model.Movie, 1, "", true, map[string]bool{"radarr:9": true}, map[string]bool{"unrelated": true}, map[string]bool{}); err == nil || !strings.Contains(err.Error(), "not current") {
 		t.Fatalf("unrelated torrent selection error=%v", err)
 	}
-	if _, err := server.buildMediaRemovalPlan(model.Movie, 1, true, map[string]bool{"radarr:10": true}, map[string]bool{}, map[string]bool{}); err == nil || !strings.Contains(err.Error(), "does not belong") {
+	if _, err := server.buildMediaRemovalPlan(model.Movie, 1, "", true, map[string]bool{"radarr:10": true}, map[string]bool{}, map[string]bool{}); err == nil || !strings.Contains(err.Error(), "does not belong") {
 		t.Fatalf("cross-media managed selection error=%v", err)
 	}
 }

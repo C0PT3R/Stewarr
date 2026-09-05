@@ -115,7 +115,8 @@ func (server *Server) removalMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	kind := model.MediaType(strings.TrimSpace(r.URL.Query().Get("type")))
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
-	d, err := server.buildMediaRemovalPlan(kind, id, r.URL.Query().Get("selection") == "1", selectedManagedSet(r.URL.Query()["managed_file"]), selectedTorrentSet(r), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
+	integrationID := strings.TrimSpace(r.URL.Query().Get("integration_id"))
+	d, err := server.buildMediaRemovalPlan(kind, id, integrationID, r.URL.Query().Get("selection") == "1", selectedManagedSet(r.URL.Query()["managed_file"]), selectedTorrentSet(r), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -127,7 +128,7 @@ func (server *Server) removalTorrent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET only", 405)
 		return
 	}
-	d, err := server.buildTorrentRemovalPlan(r.URL.Query().Get("hash"), targetSelection(r), selectedManagedSet(r.URL.Query()["managed_file"]), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
+	d, err := server.buildTorrentRemovalPlan(r.URL.Query().Get("hash"), strings.TrimSpace(r.URL.Query().Get("integration_id")), targetSelection(r), selectedManagedSet(r.URL.Query()["managed_file"]), selectedUnmanagedSet(r.URL.Query()["unmanaged_path"]))
 	if err != nil {
 		http.Error(w, err.Error(), 404)
 		return
@@ -217,6 +218,7 @@ func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
 	case "media":
 		kind := model.MediaType(form.Get("media_type"))
 		id, _ := strconv.Atoi(form.Get("media_id"))
+		integrationID := strings.TrimSpace(form.Get("integration_id"))
 		if (kind != model.Movie && kind != model.Series) || id <= 0 {
 			return removalAdmission{}, fmt.Errorf("invalid media identity")
 		}
@@ -233,23 +235,40 @@ func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
 			}
 		}
 		items, _, _ := server.inv.Snapshot()
-		for _, item := range items {
-			if item.Type == kind && item.SourceID == id {
-				return removalAdmission{Kind: removal.MediaObject, Key: fmt.Sprintf("%s:%d", kind, id), Label: item.Title, DryRun: dryRun}, nil
-			}
+		mr, ok := mediaRefFor(items, kind, id, integrationID)
+		if !ok {
+			return removalAdmission{}, fmt.Errorf("media not found")
 		}
-		return removalAdmission{}, fmt.Errorf("media not found")
+		return removalAdmission{Kind: removal.MediaObject, Key: mediaOperationKey(kind, id, mr.IntegrationID), Label: mr.Title, DryRun: dryRun}, nil
 	case "torrent":
 		hash := strings.ToLower(strings.TrimSpace(form.Get("hash")))
+		integrationID := strings.TrimSpace(form.Get("integration_id"))
 		if hash == "" || form.Get("target") != "1" {
 			return removalAdmission{}, fmt.Errorf("nothing selected")
 		}
+		var found *model.Torrent
 		for _, torrent := range server.inv.TorrentSnapshot() {
-			if strings.EqualFold(torrent.Hash, hash) {
-				return removalAdmission{Kind: removal.TorrentObject, Key: hash, Label: torrent.Name, DryRun: dryRun}, nil
+			if !strings.EqualFold(torrent.Hash, hash) {
+				continue
 			}
+			if integrationID != "" {
+				if torrent.IntegrationID == integrationID {
+					t := torrent
+					found = &t
+					break
+				}
+				continue
+			}
+			if found != nil {
+				return removalAdmission{}, fmt.Errorf("torrent hash %q exists in more than one configured instance; an integration_id is required", hash)
+			}
+			t := torrent
+			found = &t
 		}
-		return removalAdmission{}, fmt.Errorf("torrent not found")
+		if found == nil {
+			return removalAdmission{}, fmt.Errorf("torrent not found")
+		}
+		return removalAdmission{Kind: removal.TorrentObject, Key: hash, Label: found.Name, DryRun: dryRun}, nil
 	case "unmanaged":
 		paths := form["path"]
 		if len(paths) == 0 {
@@ -326,9 +345,10 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 	case "media":
 		mt := model.MediaType(r.FormValue("media_type"))
 		id, _ := strconv.Atoi(r.FormValue("media_id"))
-		d, err = server.buildMediaRemovalPlan(mt, id, true, selectedManagedSet(r.Form["managed_file"]), mapFromValues(r.Form["torrent"]), map[string]bool{})
+		integrationID := strings.TrimSpace(r.FormValue("integration_id"))
+		d, err = server.buildMediaRemovalPlan(mt, id, integrationID, true, selectedManagedSet(r.Form["managed_file"]), mapFromValues(r.Form["torrent"]), map[string]bool{})
 	case "torrent":
-		d, err = server.buildTorrentRemovalPlan(r.FormValue("hash"), true, map[string]bool{}, map[string]bool{})
+		d, err = server.buildTorrentRemovalPlan(r.FormValue("hash"), strings.TrimSpace(r.FormValue("integration_id")), true, map[string]bool{}, map[string]bool{})
 	case "unmanaged":
 		d, err = server.buildUnmanagedRemovalPlan(r.Form["path"], map[string]bool{})
 	default:
@@ -409,7 +429,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 				if !rt.Selected {
 					continue
 				}
-				if e := server.inv.RemoveTorrent(ctx, rt.Torrent.Hash); e != nil {
+				if e := server.inv.RemoveTorrent(ctx, rt.Torrent.Hash, rt.Torrent.IntegrationID); e != nil {
 					recordError("torrent " + rt.Torrent.Name + ": " + e.Error())
 					ownerFailed = true
 					mutationUncertain = true
@@ -430,7 +450,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 			}
 		case "torrent":
 			if d.TorrentSelected {
-				if e := server.inv.RemoveTorrent(ctx, d.Hash); e != nil {
+				if e := server.inv.RemoveTorrent(ctx, d.Hash, d.TorrentIntegrationID); e != nil {
 					recordError(e.Error())
 					mutationUncertain = true
 				} else {
@@ -447,7 +467,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 				if !rt.Selected {
 					continue
 				}
-				if e := server.inv.RemoveTorrent(ctx, rt.Torrent.Hash); e != nil {
+				if e := server.inv.RemoveTorrent(ctx, rt.Torrent.Hash, rt.Torrent.IntegrationID); e != nil {
 					recordError("torrent " + rt.Torrent.Name + ": " + e.Error())
 					ownerFailed = true
 					mutationUncertain = true
@@ -472,7 +492,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 			for _, ref := range removedManaged {
 				if strings.EqualFold(ref.Source, "radarr") && !seen[ref.MediaID] {
 					seen[ref.MediaID] = true
-					if e := server.inv.SetMovieMonitored(ctx, ref.MediaID, false); e != nil {
+					if e := server.inv.SetMovieMonitored(ctx, ref.IntegrationID, ref.MediaID, false); e != nil {
 						recordError(fmt.Sprintf("unmonitor movie %d: %v", ref.MediaID, e))
 						mutationUncertain = true
 					} else {
@@ -484,7 +504,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		}
 		if r.FormValue("unmonitor_episodes") == "1" {
 			seen := map[int]bool{}
-			ids := []int{}
+			idsByIntegration := map[string][]int{}
 			for _, ref := range removedManaged {
 				if !strings.EqualFold(ref.Source, "sonarr") {
 					continue
@@ -492,13 +512,13 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 				for _, part := range ref.Parts {
 					if part.SourcePartID > 0 && !seen[part.SourcePartID] {
 						seen[part.SourcePartID] = true
-						ids = append(ids, part.SourcePartID)
+						idsByIntegration[ref.IntegrationID] = append(idsByIntegration[ref.IntegrationID], part.SourcePartID)
 					}
 				}
 			}
-			if len(ids) > 0 {
+			for integrationID, ids := range idsByIntegration {
 				sort.Ints(ids)
-				if e := server.inv.SetEpisodesMonitored(ctx, ids, false); e != nil {
+				if e := server.inv.SetEpisodesMonitored(ctx, integrationID, ids, false); e != nil {
 					recordError("unmonitor episodes: " + e.Error())
 					mutationUncertain = true
 				} else {

@@ -97,7 +97,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 	form := url.Values{}
 	switch action.Kind {
 	case cleanup.StandaloneMedia, cleanup.StandaloneSeason, cleanup.HardlinkedBundle:
-		refs, _, err := server.inv.ManagedFileRefs(action.Media.Type, action.Media.SourceID)
+		refs, _, err := server.inv.ManagedFileRefs(action.Media.Type, action.Media.SourceID, action.Media.IntegrationID)
 		if err != nil {
 			return nil, err
 		}
@@ -116,6 +116,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 		form.Set("kind", "media")
 		form.Set("media_type", string(action.Media.Type))
 		form.Set("media_id", strconv.Itoa(action.Media.SourceID))
+		form.Set("integration_id", action.Media.IntegrationID)
 		for _, ref := range refs {
 			form.Add("managed_file", managedFileKey(ref))
 		}
@@ -128,6 +129,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 		}
 		form.Set("kind", "torrent")
 		form.Set("hash", strings.ToLower(action.Torrents[0].Hash))
+		form.Set("integration_id", action.Torrents[0].IntegrationID)
 		form.Set("target", "1")
 	default:
 		return nil, fmt.Errorf("unsupported action kind %q", action.Kind)

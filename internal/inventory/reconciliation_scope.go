@@ -17,6 +17,10 @@ const reconciliationScopeKey = "inventory.reconciliation.scope.v1"
 type ReconciliationOwner struct {
 	Type model.MediaType `json:"type"`
 	ID   int             `json:"id"`
+	// IntegrationID disambiguates ID across multiple configured instances of
+	// the same integration type. Empty on scopes persisted before
+	// multi-instance support existed.
+	IntegrationID string `json:"integrationId,omitempty"`
 }
 
 type ReconciliationScope struct {
@@ -54,7 +58,7 @@ func (scope ReconciliationScope) normalized() ReconciliationScope {
 	owners := map[string]ReconciliationOwner{}
 	for _, owner := range scope.Owners {
 		if owner.ID > 0 && (owner.Type == model.Movie || owner.Type == model.Series) {
-			owners[fmt.Sprintf("%s:%d", owner.Type, owner.ID)] = owner
+			owners[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = owner
 		}
 	}
 	scope.Owners = scope.Owners[:0]

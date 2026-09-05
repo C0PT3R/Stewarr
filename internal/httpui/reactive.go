@@ -272,6 +272,13 @@ type pendingProjection struct {
 	Notices      []operationNotice
 }
 
+// mediaOperationKey identifies one media item across pending-removal
+// projections and history lookups. integrationID disambiguates SourceID
+// across multiple configured instances of the same integration type.
+func mediaOperationKey(kind model.MediaType, id int, integrationID string) string {
+	return fmt.Sprintf("%s:%d:%s", kind, id, integrationID)
+}
+
 func emptyPendingProjection() pendingProjection {
 	return pendingProjection{Media: map[string]operationNotice{}, Torrents: map[string]operationNotice{}, Unmanaged: map[string]operationNotice{}, ManagedFiles: map[string]operationNotice{}}
 }
@@ -289,7 +296,7 @@ func (server *Server) pendingProjection() pendingProjection {
 	managedTotals := map[string]int{}
 	_, mediaRefs, _, _, _ := server.inv.FileSnapshot()
 	for _, mediaRef := range mediaRefs {
-		owner := fmt.Sprintf("%s:%d", mediaRef.MediaType, mediaRef.MediaID)
+		owner := mediaOperationKey(mediaRef.MediaType, mediaRef.MediaID, mediaRef.IntegrationID)
 		managedOwners[managedFileKey(mediaRef)] = owner
 		managedTotals[owner]++
 	}
@@ -331,7 +338,8 @@ func (server *Server) pendingProjection() pendingProjection {
 				projection.Torrents[strings.ToLower(strings.TrimSpace(form.Get("hash")))] = notice
 			}
 			if form.Get("kind") == "media" {
-				key := fmt.Sprintf("%s:%s", form.Get("media_type"), form.Get("media_id"))
+				id, _ := strconv.Atoi(form.Get("media_id"))
+				key := mediaOperationKey(model.MediaType(form.Get("media_type")), id, form.Get("integration_id"))
 				if managedTotals[key] > 0 && selectedByOwner[key] >= managedTotals[key] {
 					projection.Media[key] = notice
 				}
@@ -354,7 +362,7 @@ func (server *Server) pendingProjection() pendingProjection {
 func (projection pendingProjection) filterMedia(items []model.Media) []model.Media {
 	filtered := make([]model.Media, 0, len(items))
 	for _, item := range items {
-		if _, pending := projection.Media[fmt.Sprintf("%s:%d", item.Type, item.SourceID)]; !pending {
+		if _, pending := projection.Media[mediaOperationKey(item.Type, item.SourceID, item.IntegrationID)]; !pending {
 			filtered = append(filtered, item)
 		}
 	}
@@ -381,8 +389,8 @@ func (projection pendingProjection) filterUnmanaged(items []model.UnmanagedFile)
 	return filtered
 }
 
-func (projection pendingProjection) mediaOperation(kind model.MediaType, id int) (operationNotice, bool) {
-	notice, found := projection.Media[fmt.Sprintf("%s:%d", kind, id)]
+func (projection pendingProjection) mediaOperation(kind model.MediaType, id int, integrationID string) (operationNotice, bool) {
+	notice, found := projection.Media[mediaOperationKey(kind, id, integrationID)]
 	return notice, found
 }
 

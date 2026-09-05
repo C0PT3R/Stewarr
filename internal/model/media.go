@@ -42,10 +42,15 @@ func NormalizeTorrentStatus(status string) string {
 }
 
 type MediaRef struct {
-	Type     MediaType `json:"type"`
-	SourceID int       `json:"sourceId"`
-	Title    string    `json:"title"`
-	Year     int       `json:"year"`
+	// IntegrationID disambiguates SourceID across multiple configured
+	// instances of the same integration type — Radarr's own movie IDs (like
+	// Sonarr's series IDs) are unique only within one instance, never
+	// globally, so identifying "this media item" always requires both.
+	IntegrationID string    `json:"integrationId,omitempty"`
+	Type          MediaType `json:"type"`
+	SourceID      int       `json:"sourceId"`
+	Title         string    `json:"title"`
+	Year          int       `json:"year"`
 }
 
 type Torrent struct {

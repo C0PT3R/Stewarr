@@ -317,12 +317,13 @@ func (server *Server) torrentDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	integrationID := strings.TrimSpace(r.URL.Query().Get("integration_id"))
 	if notice, pending := server.pendingProjection().torrentOperation(hash); pending {
 		server.renderOperation(w, operationPageData{Active: "torrents", FragmentID: "torrent-detail", Label: notice.Label, Notice: notice, BackURL: "/torrents", BackLabel: "Torrents"})
 		return
 	}
 	_, updated, last := server.inv.Snapshot()
-	torrent, detailErr := server.inv.TorrentDetail(hash)
+	torrent, detailErr := server.inv.TorrentDetail(hash, integrationID)
 	if strings.Contains(strings.ToLower(detailErrString(detailErr)), "not found") {
 		if notice, found := server.removalHistory("torrent", strings.ToLower(hash)); found {
 			server.renderOperation(w, operationPageData{Active: "torrents", FragmentID: "torrent-detail", Label: notice.Label, Notice: notice, BackURL: "/torrents", BackLabel: "Torrents"})

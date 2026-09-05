@@ -333,41 +333,80 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	torrents := append([]model.Torrent(nil), service.torrents...)
 	generation := service.generation
 	service.mu.RUnlock()
-	torrentsByHash := map[string]model.Torrent{}
+	torrentsByInstance := map[string]map[string]model.Torrent{}
 	for _, t := range torrents {
-		torrentsByHash[strings.ToLower(t.Hash)] = t
+		if torrentsByInstance[t.IntegrationID] == nil {
+			torrentsByInstance[t.IntegrationID] = map[string]model.Torrent{}
+		}
+		torrentsByInstance[t.IntegrationID][strings.ToLower(t.Hash)] = t
 	}
-	rad := service.rad.WithContext(ctx)
-	son := service.son.WithContext(ctx)
-	qb := service.qb.WithContext(ctx)
-	var radarrRoots, sonarrRoots, qbittorrentRoots []string
-	var radarrErr, sonarrErr, qbittorrentErr error
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	radClients := service.rad
+	sonClients := service.son
+	qbClients := service.qb
+	service.mu.RUnlock()
+
+	type rootsFetch struct {
+		integration config.Integration
+		roots       []string
+		err         error
+	}
+	radRootFetches := make([]rootsFetch, len(radInstances))
+	sonRootFetches := make([]rootsFetch, len(sonInstances))
+	qbRootFetches := make([]rootsFetch, len(qbInstances))
 	var wg sync.WaitGroup
 	stageStarted = time.Now()
-	wg.Add(3)
-	go func() { defer wg.Done(); radarrRoots, radarrErr = rad.StorageRoots() }()
-	go func() { defer wg.Done(); sonarrRoots, sonarrErr = son.StorageRoots() }()
-	go func() { defer wg.Done(); qbittorrentRoots, qbittorrentErr = qb.StorageRoots(torrentsByHash) }()
+	wg.Add(len(radInstances) + len(sonInstances) + len(qbInstances))
+	for i, integration := range radInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			roots, err := radClients[integration.ID].WithContext(ctx).StorageRoots()
+			radRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
+		}(i, integration)
+	}
+	for i, integration := range sonInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			roots, err := sonClients[integration.ID].WithContext(ctx).StorageRoots()
+			sonRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
+		}(i, integration)
+	}
+	for i, integration := range qbInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			roots, err := qbClients[integration.ID].WithContext(ctx).StorageRoots(torrentsByInstance[integration.ID])
+			qbRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
+		}(i, integration)
+	}
 	wg.Wait()
-	if radarrErr != nil {
-		return service.setFilesError(fmt.Errorf("radarr storage roots: %w", radarrErr))
+	for _, f := range radRootFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("radarr (%s) storage roots: %w", f.integration.Name, f.err))
+		}
 	}
-	if sonarrErr != nil {
-		return service.setFilesError(fmt.Errorf("sonarr storage roots: %w", sonarrErr))
+	for _, f := range sonRootFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("sonarr (%s) storage roots: %w", f.integration.Name, f.err))
+		}
 	}
-	if qbittorrentErr != nil {
-		return service.setFilesError(fmt.Errorf("qbittorrent storage roots: %w", qbittorrentErr))
+	for _, f := range qbRootFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("qbittorrent (%s) storage roots: %w", f.integration.Name, f.err))
+		}
 	}
 	metrics["roots"] = time.Since(stageStarted).Round(time.Millisecond)
 	var roots []storageRoot
-	if i, ok := service.cfg.FirstIntegration("radarr"); ok {
-		roots = append(roots, configuredOrDiscoveredRoots(i, radarrRoots)...)
+	for _, f := range radRootFetches {
+		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
 	}
-	if i, ok := service.cfg.FirstIntegration("sonarr"); ok {
-		roots = append(roots, configuredOrDiscoveredRoots(i, sonarrRoots)...)
+	for _, f := range sonRootFetches {
+		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
 	}
-	if i, ok := service.cfg.FirstIntegration("qbittorrent"); ok {
-		roots = append(roots, configuredOrDiscoveredRoots(i, qbittorrentRoots)...)
+	for _, f := range qbRootFetches {
+		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
 	}
 	if len(roots) == 0 {
 		return service.setFilesError(fmt.Errorf("no integration storage roots are available"))
@@ -383,74 +422,118 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	for _, f := range files {
 		byPath[f.Path] = true
 	}
-	movieIDs, seriesIDs := []int{}, []int{}
-	mediaRootByKey := map[string]string{}
+	movieIDsByInstance := map[string][]int{}
+	seriesIDsByInstance := map[string][]int{}
+	mediaRootByKey := map[ownerKey]string{}
 	for _, m := range media {
-		mediaRootByKey[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = m.Path
+		mediaRootByKey[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}] = m.Path
 		if m.Type == model.Movie {
-			movieIDs = append(movieIDs, m.SourceID)
+			movieIDsByInstance[m.IntegrationID] = append(movieIDsByInstance[m.IntegrationID], m.SourceID)
 		} else if m.Type == model.Series {
-			seriesIDs = append(seriesIDs, m.SourceID)
+			seriesIDsByInstance[m.IntegrationID] = append(seriesIDsByInstance[m.IntegrationID], m.SourceID)
 		}
 	}
-	var radarrFiles []radarr.FileRecord
-	var sonarrFiles []sonarr.FileRecord
-	var qbittorrentFiles map[string][]qbittorrent.File
-	torrentsToFetch := torrentsByHash
-	metrics["torrents_cached"] = 0
-	metrics["torrents_fetched"] = len(torrentsToFetch)
+	type radarrFilesFetch struct {
+		integration config.Integration
+		files       []radarr.FileRecord
+		err         error
+	}
+	type sonarrFilesFetch struct {
+		integration config.Integration
+		files       []sonarr.FileRecord
+		err         error
+	}
+	type qbittorrentFilesFetch struct {
+		integration config.Integration
+		files       map[string][]qbittorrent.File
+		err         error
+	}
+	radFilesFetches := make([]radarrFilesFetch, len(radInstances))
+	sonFilesFetches := make([]sonarrFilesFetch, len(sonInstances))
+	qbFilesFetches := make([]qbittorrentFilesFetch, len(qbInstances))
+	metrics["torrents_fetched"] = len(torrents)
 	stageStarted = time.Now()
 	wg = sync.WaitGroup{}
-	wg.Add(3)
-	go func() { defer wg.Done(); radarrFiles, radarrErr = rad.Files(movieIDs) }()
-	go func() { defer wg.Done(); sonarrFiles, sonarrErr = son.Files(seriesIDs) }()
-	go func() { defer wg.Done(); qbittorrentFiles, qbittorrentErr = qb.AllFiles(torrentsToFetch) }()
+	wg.Add(len(radInstances) + len(sonInstances) + len(qbInstances))
+	for i, integration := range radInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			files, err := radClients[integration.ID].WithContext(ctx).Files(movieIDsByInstance[integration.ID])
+			radFilesFetches[i] = radarrFilesFetch{integration: integration, files: files, err: err}
+		}(i, integration)
+	}
+	for i, integration := range sonInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			files, err := sonClients[integration.ID].WithContext(ctx).Files(seriesIDsByInstance[integration.ID])
+			sonFilesFetches[i] = sonarrFilesFetch{integration: integration, files: files, err: err}
+		}(i, integration)
+	}
+	for i, integration := range qbInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			files, err := qbClients[integration.ID].WithContext(ctx).AllFiles(torrentsByInstance[integration.ID])
+			qbFilesFetches[i] = qbittorrentFilesFetch{integration: integration, files: files, err: err}
+		}(i, integration)
+	}
 	wg.Wait()
-	if radarrErr != nil {
-		return service.setFilesError(fmt.Errorf("radarr files: %w", radarrErr))
+	for _, f := range radFilesFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("radarr (%s) files: %w", f.integration.Name, f.err))
+		}
 	}
-	if sonarrErr != nil {
-		return service.setFilesError(fmt.Errorf("sonarr files: %w", sonarrErr))
+	for _, f := range sonFilesFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("sonarr (%s) files: %w", f.integration.Name, f.err))
+		}
 	}
-	if qbittorrentErr != nil {
-		return service.setFilesError(fmt.Errorf("qbittorrent files: %w", qbittorrentErr))
+	for _, f := range qbFilesFetches {
+		if f.err != nil {
+			return service.setFilesError(fmt.Errorf("qbittorrent (%s) files: %w", f.integration.Name, f.err))
+		}
 	}
 	metrics["claims"] = time.Since(stageStarted).Round(time.Millisecond)
 	mediaRefs := []model.MediaFileRef{}
 	torrentRefs := []model.TorrentFileRef{}
 	claimed := map[string]bool{}
-	for _, f := range radarrFiles {
-		root := mediaRootByKey[fmt.Sprintf("%s:%d", model.Movie, f.MovieID)]
-		if root == "" {
-			continue
-		}
-		p := filepath.Clean(filepath.Join(root, f.Relative))
-		mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "radarr"), IntegrationName: integrationName(service.cfg, "radarr", "Movies"), MediaType: model.Movie, MediaID: f.MovieID, Source: "radarr", SourceFileID: f.ID, Path: p})
-		if byPath[p] {
-			claimed[p] = true
-		}
-	}
-	for _, f := range sonarrFiles {
-		root := mediaRootByKey[fmt.Sprintf("%s:%d", model.Series, f.SeriesID)]
-		if root == "" {
-			continue
-		}
-		p := filepath.Clean(filepath.Join(root, f.Relative))
-		mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...), AddedAt: f.DateAdded})
-		if byPath[p] {
-			claimed[p] = true
-		}
-	}
-	for h, xs := range qbittorrentFiles {
-		t, ok := torrentsByHash[h]
-		if !ok {
-			continue
-		}
-		for _, x := range xs {
-			p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
-			torrentRefs = append(torrentRefs, model.TorrentFileRef{IntegrationID: integrationID(service.cfg, "qbittorrent"), IntegrationName: integrationName(service.cfg, "qbittorrent", t.Client), Client: t.Client, Hash: h, FileIndex: x.Index, Path: p})
+	for _, rf := range radFilesFetches {
+		for _, f := range rf.files {
+			root := mediaRootByKey[ownerKey{IntegrationID: rf.integration.ID, OwnerID: f.MovieID}]
+			if root == "" {
+				continue
+			}
+			p := filepath.Clean(filepath.Join(root, f.Relative))
+			mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: rf.integration.ID, IntegrationName: rf.integration.Name, MediaType: model.Movie, MediaID: f.MovieID, Source: "radarr", SourceFileID: f.ID, Path: p})
 			if byPath[p] {
 				claimed[p] = true
+			}
+		}
+	}
+	for _, sf := range sonFilesFetches {
+		for _, f := range sf.files {
+			root := mediaRootByKey[ownerKey{IntegrationID: sf.integration.ID, OwnerID: f.SeriesID}]
+			if root == "" {
+				continue
+			}
+			p := filepath.Clean(filepath.Join(root, f.Relative))
+			mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: sf.integration.ID, IntegrationName: sf.integration.Name, MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...), AddedAt: f.DateAdded})
+			if byPath[p] {
+				claimed[p] = true
+			}
+		}
+	}
+	for _, qf := range qbFilesFetches {
+		for h, xs := range qf.files {
+			t, ok := torrentsByInstance[qf.integration.ID][h]
+			if !ok {
+				continue
+			}
+			for _, x := range xs {
+				p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
+				torrentRefs = append(torrentRefs, model.TorrentFileRef{IntegrationID: qf.integration.ID, IntegrationName: qf.integration.Name, Client: t.Client, Hash: h, FileIndex: x.Index, Path: p})
+				if byPath[p] {
+					claimed[p] = true
+				}
 			}
 		}
 	}

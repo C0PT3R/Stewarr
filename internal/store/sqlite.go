@@ -48,11 +48,12 @@ type HistoryEvent struct {
 }
 
 type ImportEvent struct {
-	Source     string
-	OwnerID    int
-	SubID      int
-	DownloadID string
-	ImportedAt time.Time
+	Source        string
+	IntegrationID string
+	OwnerID       int
+	SubID         int
+	DownloadID    string
+	ImportedAt    time.Time
 }
 
 func Open(path string) (*Store, error) {
@@ -91,8 +92,8 @@ func Open(path string) (*Store, error) {
 		`CREATE TABLE IF NOT EXISTS torrent_files (client TEXT NOT NULL, hash TEXT NOT NULL, file_index INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(client,hash,file_index));`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_hash ON torrent_files(client,hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_path ON torrent_files(path);`,
-		`CREATE TABLE IF NOT EXISTS arr_imports (source TEXT NOT NULL, owner_id INTEGER NOT NULL, sub_id INTEGER NOT NULL DEFAULT 0, download_id TEXT NOT NULL, imported_at TEXT NOT NULL, PRIMARY KEY(source,owner_id,sub_id,download_id,imported_at));`,
-		`CREATE INDEX IF NOT EXISTS idx_arr_imports_source_owner ON arr_imports(source,owner_id,sub_id,imported_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS arr_imports (source TEXT NOT NULL, owner_id INTEGER NOT NULL, sub_id INTEGER NOT NULL DEFAULT 0, download_id TEXT NOT NULL, imported_at TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source,integration_id,owner_id,sub_id,download_id,imported_at));`,
+		`CREATE INDEX IF NOT EXISTS idx_arr_imports_source_owner ON arr_imports(source,integration_id,owner_id,sub_id,imported_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_arr_imports_hash ON arr_imports(download_id);`,
 		`CREATE TABLE IF NOT EXISTS history_events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL, status TEXT NOT NULL, dry_run INTEGER NOT NULL DEFAULT 1, requested_kind TEXT NOT NULL DEFAULT '', requested_key TEXT NOT NULL DEFAULT '', requested_label TEXT NOT NULL DEFAULT '', reclaimable_bytes INTEGER NOT NULL DEFAULT 0, payload BLOB NOT NULL DEFAULT '{}', error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);`,
 		`CREATE INDEX IF NOT EXISTS idx_history_events_created ON history_events(created_at DESC);`,
@@ -112,6 +113,7 @@ func Open(path string) (*Store, error) {
 		{"torrent_files", "integration_id", "TEXT NOT NULL DEFAULT ''"},
 		{"torrent_files", "integration_name", "TEXT NOT NULL DEFAULT ''"},
 		{"history_events", "media_bytes", "INTEGER NOT NULL DEFAULT 0"},
+		{"arr_imports", "integration_id", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := s.ensureColumn(migration.table, migration.column, migration.definition); err != nil {
 			s.Close()
@@ -459,7 +461,7 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 			_ = s.exec("ROLLBACK")
 		}
 	}()
-	st, e := s.prepare(`INSERT OR IGNORE INTO arr_imports(source,owner_id,sub_id,download_id,imported_at) VALUES(?,?,?,?,?)`)
+	st, e := s.prepare(`INSERT OR IGNORE INTO arr_imports(source,owner_id,sub_id,download_id,imported_at,integration_id) VALUES(?,?,?,?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -472,6 +474,7 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 		bindInt(st, 3, int64(x.SubID))
 		bindText(st, 4, strings.ToLower(strings.TrimSpace(x.DownloadID)))
 		bindText(st, 5, x.ImportedAt.UTC().Format(time.RFC3339Nano))
+		bindText(st, 6, x.IntegrationID)
 		if e := stepDone(s, st); e != nil {
 			return e
 		}
@@ -482,15 +485,21 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 	ok = true
 	return nil
 }
-func (s *Store) ImportEvents(source string) ([]ImportEvent, error) {
+
+// ImportEvents returns import history for one integration instance of
+// source ("radarr"/"sonarr"). integrationID disambiguates movie/series IDs
+// across multiple configured instances of the same type; pass "" to match
+// only pre-multi-instance rows persisted before this column existed.
+func (s *Store) ImportEvents(source, integrationID string) ([]ImportEvent, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT owner_id,sub_id,download_id,imported_at FROM arr_imports WHERE source=? ORDER BY imported_at DESC`)
+	st, e := s.prepare(`SELECT owner_id,sub_id,download_id,imported_at FROM arr_imports WHERE source=? AND integration_id=? ORDER BY imported_at DESC`)
 	if e != nil {
 		return nil, e
 	}
 	defer C.sqlite3_finalize(st)
 	bindText(st, 1, source)
+	bindText(st, 2, integrationID)
 	var out []ImportEvent
 	for {
 		rc := C.sqlite3_step(st)
@@ -501,7 +510,7 @@ func (s *Store) ImportEvents(source string) ([]ImportEvent, error) {
 			return nil, s.err(rc)
 		}
 		t, _ := time.Parse(time.RFC3339Nano, colText(st, 3))
-		out = append(out, ImportEvent{Source: source, OwnerID: int(C.sqlite3_column_int64(st, 0)), SubID: int(C.sqlite3_column_int64(st, 1)), DownloadID: colText(st, 2), ImportedAt: t})
+		out = append(out, ImportEvent{Source: source, IntegrationID: integrationID, OwnerID: int(C.sqlite3_column_int64(st, 0)), SubID: int(C.sqlite3_column_int64(st, 1)), DownloadID: colText(st, 2), ImportedAt: t})
 	}
 	return out, nil
 }
@@ -1044,18 +1053,23 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 	})
 }
 
-// PublishInventory atomically advances qBittorrent's incremental cursor with
-// the Media and Torrent snapshot to which it belongs. Replaying an old RID is
-// safe; advancing it without its snapshot is not.
-func (s *Store) PublishInventory(generation uint64, torrentRID int64, torrents []model.Torrent, media []model.Media) error {
+// PublishInventory atomically advances every configured qBittorrent
+// instance's incremental cursor (keyed by integration ID, since each
+// instance has its own independent sync stream) with the Media and Torrent
+// snapshot to which they belong. Replaying an old RID is safe; advancing it
+// without its snapshot is not.
+func (s *Store) PublishInventory(generation uint64, torrentRIDs map[string]int64, torrents []model.Torrent, media []model.Media) error {
 	s.accessMu.Lock()
 	defer s.accessMu.Unlock()
 	return s.withWriteTx(func() error {
 		if err := s.saveTorrents(torrents); err != nil {
 			return err
 		}
-		if torrentRID != 0 {
-			if err := s.setMeta("qbittorrent.rid", strconv.FormatInt(torrentRID, 10)); err != nil {
+		for integrationID, rid := range torrentRIDs {
+			if rid == 0 {
+				continue
+			}
+			if err := s.setMeta("qbittorrent."+integrationID+".rid", strconv.FormatInt(rid, 10)); err != nil {
 				return err
 			}
 		}

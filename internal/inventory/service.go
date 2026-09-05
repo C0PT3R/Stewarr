@@ -78,12 +78,17 @@ type Service struct {
 	statuses                 map[string]ServiceStatus
 	reconciliationMu         sync.Mutex
 	changed                  chan struct{}
-	rad                      *radarr.Client
-	son                      *sonarr.Client
-	jf                       *jellyfin.Client
-	seerr                    *seerr.Client
-	qb                       *qbittorrent.Client
-	db                       *store.Store
+	// rad/son/qb are keyed by config.Integration.ID: Radarr, Sonarr, and
+	// qBittorrent are commonly run as more than one instance (separate
+	// quality-tier libraries, a seedbox alongside a local client). Jellyfin
+	// and Seerr are each a single centralized service in every known
+	// real-world deployment, so they keep the simpler single-client shape.
+	rad   map[string]*radarr.Client
+	son   map[string]*sonarr.Client
+	jf    *jellyfin.Client
+	seerr *seerr.Client
+	qb    map[string]*qbittorrent.Client
+	db    *store.Store
 	// configPath is where a live config mutation (AddIntegration) persists
 	// the updated Config. Empty means live editing is unavailable (e.g. a
 	// Service built directly in tests, with no file backing it at all).
@@ -105,7 +110,7 @@ func (service *Service) SetConfigPath(path string) {
 }
 
 func New(configuration config.Config, database *store.Store) *Service {
-	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: radarr.New(configuration.Radarr.URL, configuration.Radarr.APIKey), son: sonarr.New(configuration.Sonarr.URL, configuration.Sonarr.APIKey), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), qb: qbittorrent.New(configuration.QBittorrent.Name, configuration.QBittorrent.URL, configuration.QBittorrent.Username, configuration.QBittorrent.Password, configuration.QBittorrent.APIKey)}
+	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), qb: buildQBittorrentClients(configuration)}
 	loadStarted := time.Now()
 	if database != nil {
 		if items, updated, err := database.LoadMedia(); err == nil {
@@ -359,11 +364,27 @@ func parseCursor(v string) time.Time {
 }
 
 type torrentProvenance struct {
-	Source       string
-	OwnerID      int
-	SubID        int
-	ImportedAt   time.Time
-	SupersededBy string
+	Source        string
+	IntegrationID string
+	OwnerID       int
+	SubID         int
+	ImportedAt    time.Time
+	SupersededBy  string
+}
+
+// ownerKey identifies one Radarr movie or Sonarr series across multiple
+// configured instances of the same type — OwnerID (Radarr's/Sonarr's own
+// numeric ID) is unique only within one instance.
+type ownerKey struct {
+	IntegrationID string
+	OwnerID       int
+}
+
+// torrentKey identifies one torrent across multiple configured qBittorrent
+// instances — the same infohash can legitimately exist in more than one
+// client (cross-seeding, a seedbox mirrored to a local client).
+func torrentKey(integrationID, hash string) string {
+	return integrationID + "\x00" + strings.ToLower(strings.TrimSpace(hash))
 }
 
 func addProvenance(m map[string][]torrentProvenance, hash string, p torrentProvenance) {
@@ -374,134 +395,209 @@ func addProvenance(m map[string][]torrentProvenance, hash string, p torrentProve
 	m[h] = append(m[h], p)
 }
 
-func (service *Service) syncImportHistory(ctx context.Context) (map[int][]string, map[int][]string, map[string][]torrentProvenance, error) {
+// syncImportHistory fans out import-history sync across every configured
+// Radarr and Sonarr instance independently — each gets its own durable
+// cursor (radarr.<id>.history.cursor / sonarr.<id>.history.cursor) and its
+// own rows in arr_imports (tagged with integration_id), since movie/series
+// IDs are only unique within one instance. The returned maps are keyed by
+// (IntegrationID, OwnerID) for the same reason.
+func (service *Service) syncImportHistory(ctx context.Context) (map[ownerKey][]string, map[ownerKey][]string, map[string][]torrentProvenance, error) {
 	if service.db == nil {
 		return nil, nil, nil, fmt.Errorf("database is unavailable")
 	}
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	radClients := service.rad
+	sonClients := service.son
+	service.mu.RUnlock()
 
-	rc, _ := service.db.Meta("radarr.history.cursor")
-	sc, _ := service.db.Meta("sonarr.history.cursor")
-	var re []radarr.ImportEvent
-	var se []sonarr.ImportEvent
-	var rn, sn time.Time
-	var rerr, serr error
+	type radarrFetch struct {
+		integration config.Integration
+		events      []radarr.ImportEvent
+		newest      time.Time
+		err         error
+	}
+	type sonarrFetch struct {
+		integration config.Integration
+		events      []sonarr.ImportEvent
+		newest      time.Time
+		err         error
+	}
+	radFetches := make([]radarrFetch, len(radInstances))
+	sonFetches := make([]sonarrFetch, len(sonInstances))
 	var wg sync.WaitGroup
-	rad := service.rad.WithContext(ctx)
-	son := service.son.WithContext(ctx)
-	wg.Add(2)
-	go func() { defer wg.Done(); re, rn, rerr = rad.ImportEventsSince(parseCursor(rc)) }()
-	go func() { defer wg.Done(); se, sn, serr = son.ImportEventsSince(parseCursor(sc)) }()
-	wg.Wait()
-	if rerr != nil {
-		return nil, nil, nil, fmt.Errorf("radarr history: %w", rerr)
+	for i, integration := range radInstances {
+		wg.Add(1)
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			cursor, _ := service.db.Meta("radarr." + integration.ID + ".history.cursor")
+			client := radClients[integration.ID]
+			events, newest, err := client.WithContext(ctx).ImportEventsSince(parseCursor(cursor))
+			radFetches[i] = radarrFetch{integration: integration, events: events, newest: newest, err: err}
+		}(i, integration)
 	}
-	if serr != nil {
-		return nil, nil, nil, fmt.Errorf("sonarr history: %w", serr)
+	for i, integration := range sonInstances {
+		wg.Add(1)
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			cursor, _ := service.db.Meta("sonarr." + integration.ID + ".history.cursor")
+			client := sonClients[integration.ID]
+			events, newest, err := client.WithContext(ctx).ImportEventsSince(parseCursor(cursor))
+			sonFetches[i] = sonarrFetch{integration: integration, events: events, newest: newest, err: err}
+		}(i, integration)
+	}
+	wg.Wait()
+	for _, f := range radFetches {
+		if f.err != nil {
+			return nil, nil, nil, fmt.Errorf("radarr (%s) history: %w", f.integration.Name, f.err)
+		}
+	}
+	for _, f := range sonFetches {
+		if f.err != nil {
+			return nil, nil, nil, fmt.Errorf("sonarr (%s) history: %w", f.integration.Name, f.err)
+		}
 	}
 
-	batch := make([]store.ImportEvent, 0, len(re)+len(se))
-	for _, x := range re {
-		batch = append(batch, store.ImportEvent{Source: "radarr", OwnerID: x.MovieID, DownloadID: x.DownloadID, ImportedAt: x.Date})
+	batch := []store.ImportEvent{}
+	for _, f := range radFetches {
+		for _, x := range f.events {
+			batch = append(batch, store.ImportEvent{Source: "radarr", IntegrationID: f.integration.ID, OwnerID: x.MovieID, DownloadID: x.DownloadID, ImportedAt: x.Date})
+		}
 	}
-	for _, x := range se {
-		batch = append(batch, store.ImportEvent{Source: "sonarr", OwnerID: x.SeriesID, SubID: x.EpisodeID, DownloadID: x.DownloadID, ImportedAt: x.Date})
+	for _, f := range sonFetches {
+		for _, x := range f.events {
+			batch = append(batch, store.ImportEvent{Source: "sonarr", IntegrationID: f.integration.ID, OwnerID: x.SeriesID, SubID: x.EpisodeID, DownloadID: x.DownloadID, ImportedAt: x.Date})
+		}
 	}
 	if err := service.db.AddImportEvents(batch); err != nil {
 		return nil, nil, nil, err
 	}
-	if !rn.IsZero() {
-		if err := service.db.SetMeta("radarr.history.cursor", rn.UTC().Format(time.RFC3339Nano)); err != nil {
-			return nil, nil, nil, fmt.Errorf("persist radarr history cursor: %w", err)
+	for _, f := range radFetches {
+		if !f.newest.IsZero() {
+			if err := service.db.SetMeta("radarr."+f.integration.ID+".history.cursor", f.newest.UTC().Format(time.RFC3339Nano)); err != nil {
+				return nil, nil, nil, fmt.Errorf("persist radarr (%s) history cursor: %w", f.integration.Name, err)
+			}
 		}
 	}
-	if !sn.IsZero() {
-		if err := service.db.SetMeta("sonarr.history.cursor", sn.UTC().Format(time.RFC3339Nano)); err != nil {
-			return nil, nil, nil, fmt.Errorf("persist sonarr history cursor: %w", err)
+	for _, f := range sonFetches {
+		if !f.newest.IsZero() {
+			if err := service.db.SetMeta("sonarr."+f.integration.ID+".history.cursor", f.newest.UTC().Format(time.RFC3339Nano)); err != nil {
+				return nil, nil, nil, fmt.Errorf("persist sonarr (%s) history cursor: %w", f.integration.Name, err)
+			}
 		}
-	}
-
-	rall, err := service.db.ImportEvents("radarr")
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	sall, err := service.db.ImportEvents("sonarr")
-	if err != nil {
-		return nil, nil, nil, err
 	}
 
 	provenance := map[string][]torrentProvenance{}
-	rids := map[int][]string{}
-	latestMovieHash := map[int]string{}
-	for _, x := range rall { // newest first
-		h := strings.ToLower(x.DownloadID)
-		latest := latestMovieHash[x.OwnerID]
-		if latest == "" {
-			latestMovieHash[x.OwnerID] = h
-			rids[x.OwnerID] = []string{h}
-			addProvenance(provenance, h, torrentProvenance{Source: "radarr", OwnerID: x.OwnerID, ImportedAt: x.ImportedAt})
-			continue
+	rids := map[ownerKey][]string{}
+	for _, integration := range radInstances {
+		rall, err := service.db.ImportEvents("radarr", integration.ID)
+		if err != nil {
+			return nil, nil, nil, err
 		}
-		if h == latest {
-			addProvenance(provenance, h, torrentProvenance{Source: "radarr", OwnerID: x.OwnerID, ImportedAt: x.ImportedAt})
-			continue
+		latestMovieHash := map[int]string{}
+		for _, x := range rall { // newest first
+			h := strings.ToLower(x.DownloadID)
+			key := ownerKey{IntegrationID: integration.ID, OwnerID: x.OwnerID}
+			latest := latestMovieHash[x.OwnerID]
+			if latest == "" {
+				latestMovieHash[x.OwnerID] = h
+				rids[key] = []string{h}
+				addProvenance(provenance, h, torrentProvenance{Source: "radarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, ImportedAt: x.ImportedAt})
+				continue
+			}
+			if h == latest {
+				addProvenance(provenance, h, torrentProvenance{Source: "radarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, ImportedAt: x.ImportedAt})
+				continue
+			}
+			addProvenance(provenance, h, torrentProvenance{Source: "radarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, ImportedAt: x.ImportedAt, SupersededBy: latest})
 		}
-		addProvenance(provenance, h, torrentProvenance{Source: "radarr", OwnerID: x.OwnerID, ImportedAt: x.ImportedAt, SupersededBy: latest})
 	}
 
-	bySeries := map[int]map[string]bool{}
-	latestEpisodeHash := map[int]string{}
-	for _, x := range sall { // newest first, one current hash per episode
-		h := strings.ToLower(x.DownloadID)
-		latest := latestEpisodeHash[x.SubID]
-		if latest == "" {
-			latestEpisodeHash[x.SubID] = h
-			if bySeries[x.OwnerID] == nil {
-				bySeries[x.OwnerID] = map[string]bool{}
+	sids := map[ownerKey][]string{}
+	for _, integration := range sonInstances {
+		sall, err := service.db.ImportEvents("sonarr", integration.ID)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		bySeries := map[int]map[string]bool{}
+		latestEpisodeHash := map[int]string{}
+		for _, x := range sall { // newest first, one current hash per episode
+			h := strings.ToLower(x.DownloadID)
+			latest := latestEpisodeHash[x.SubID]
+			if latest == "" {
+				latestEpisodeHash[x.SubID] = h
+				if bySeries[x.OwnerID] == nil {
+					bySeries[x.OwnerID] = map[string]bool{}
+				}
+				bySeries[x.OwnerID][h] = true
+				addProvenance(provenance, h, torrentProvenance{Source: "sonarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt})
+				continue
 			}
-			bySeries[x.OwnerID][h] = true
-			addProvenance(provenance, h, torrentProvenance{Source: "sonarr", OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt})
-			continue
+			if h == latest {
+				addProvenance(provenance, h, torrentProvenance{Source: "sonarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt})
+				continue
+			}
+			addProvenance(provenance, h, torrentProvenance{Source: "sonarr", IntegrationID: integration.ID, OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt, SupersededBy: latest})
 		}
-		if h == latest {
-			addProvenance(provenance, h, torrentProvenance{Source: "sonarr", OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt})
-			continue
+		for sid, set := range bySeries {
+			key := ownerKey{IntegrationID: integration.ID, OwnerID: sid}
+			for h := range set {
+				sids[key] = append(sids[key], h)
+			}
+			sort.Strings(sids[key])
 		}
-		addProvenance(provenance, h, torrentProvenance{Source: "sonarr", OwnerID: x.OwnerID, SubID: x.SubID, ImportedAt: x.ImportedAt, SupersededBy: latest})
-	}
-	sids := map[int][]string{}
-	for sid, set := range bySeries {
-		for h := range set {
-			sids[sid] = append(sids[sid], h)
-		}
-		sort.Strings(sids[sid])
 	}
 	return rids, sids, provenance, nil
 }
 
-func (service *Service) syncTorrents(ctx context.Context) (map[string]model.Torrent, int64, error) {
-	previous := map[string]model.Torrent{}
+// syncTorrents fans out an incremental sync across every configured
+// qBittorrent instance independently, each with its own durable RID cursor.
+// The same infohash can legitimately exist in more than one instance
+// (cross-seeding, a seedbox mirrored to a local client), so the merged
+// result is keyed by torrentKey(instanceID, hash), not hash alone.
+func (service *Service) syncTorrents(ctx context.Context) (map[string]model.Torrent, map[string]int64, error) {
+	service.mu.RLock()
+	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	qbClients := service.qb
+	service.mu.RUnlock()
+
+	previousByInstance := map[string]map[string]model.Torrent{}
 	if service.db != nil {
 		ps, err := service.db.LoadTorrents()
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
 		for _, p := range ps {
-			previous[strings.ToLower(p.Hash)] = p
+			if previousByInstance[p.IntegrationID] == nil {
+				previousByInstance[p.IntegrationID] = map[string]model.Torrent{}
+			}
+			previousByInstance[p.IntegrationID][strings.ToLower(p.Hash)] = p
 		}
 	}
-	rid := int64(0)
-	if service.db != nil {
-		var err error
-		rid, err = service.db.MetaInt64("qbittorrent.rid")
+
+	out := map[string]model.Torrent{}
+	rids := map[string]int64{}
+	for _, integration := range qbInstances {
+		rid := int64(0)
+		if service.db != nil {
+			var err error
+			rid, err = service.db.MetaInt64("qbittorrent." + integration.ID + ".rid")
+			if err != nil {
+				return nil, nil, fmt.Errorf("load qbittorrent (%s) sync cursor: %w", integration.Name, err)
+			}
+		}
+		next, newRID, err := qbClients[integration.ID].WithContext(ctx).Sync(previousByInstance[integration.ID], rid)
 		if err != nil {
-			return nil, 0, fmt.Errorf("load qbittorrent sync cursor: %w", err)
+			return nil, nil, fmt.Errorf("qbittorrent (%s): %w", integration.Name, err)
+		}
+		rids[integration.ID] = newRID
+		for hash, t := range next {
+			t.IntegrationID = integration.ID
+			out[torrentKey(integration.ID, hash)] = t
 		}
 	}
-	next, newRID, err := service.qb.WithContext(ctx).Sync(previous, rid)
-	if err != nil {
-		return nil, rid, err
-	}
-	return next, newRID, nil
+	return out, rids, nil
 }
 
 func (service *Service) Refresh(ctx context.Context) error {
@@ -527,50 +623,70 @@ func (service *Service) Refresh(ctx context.Context) error {
 
 	// Stage 1: current application state. Publish this quickly; cached database
 	// state was already available from startup while these requests were running.
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	radClients := service.rad
+	sonClients := service.son
+	service.mu.RUnlock()
 	var wg sync.WaitGroup
-	var radarrMedia, sonarrMedia []model.Media
+	radarrMediaByInstance := make([][]model.Media, len(radInstances))
+	sonarrMediaByInstance := make([][]model.Media, len(sonInstances))
+	radarrErrs := make([]error, len(radInstances))
+	sonarrErrs := make([]error, len(sonInstances))
 	var torrentMap map[string]model.Torrent
-	var torrentRID int64
-	var radarrErr, sonarrErr, qbittorrentErr error
+	var torrentRIDs map[string]int64
+	var qbittorrentErr error
 	baseStarted := time.Now()
-	rad := service.rad.WithContext(ctx)
-	son := service.son.WithContext(ctx)
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		radarrMedia, radarrErr = rad.Inventory()
-		service.setStatus(integrationName(service.cfg, "radarr", "Radarr"), service.cfg.Radarr.URL != "", radarrErr == nil, radarrErr)
-	}()
-	go func() {
-		defer wg.Done()
-		sonarrMedia, sonarrErr = son.Inventory()
-		service.setStatus(integrationName(service.cfg, "sonarr", "Sonarr"), service.cfg.Sonarr.URL != "", sonarrErr == nil, sonarrErr)
-	}()
-	go func() { defer wg.Done(); torrentMap, torrentRID, qbittorrentErr = service.syncTorrents(ctx) }()
+	wg.Add(len(radInstances) + len(sonInstances) + 1)
+	for i, integration := range radInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			media, err := radClients[integration.ID].WithContext(ctx).Inventory()
+			for mediaIndex := range media {
+				media[mediaIndex].IntegrationID = integration.ID
+				media[mediaIndex].IntegrationName = integration.Name
+			}
+			radarrMediaByInstance[i] = media
+			radarrErrs[i] = err
+			service.setStatus(integration.Name, true, err == nil, err)
+		}(i, integration)
+	}
+	for i, integration := range sonInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			media, err := sonClients[integration.ID].WithContext(ctx).Inventory()
+			for mediaIndex := range media {
+				media[mediaIndex].IntegrationID = integration.ID
+				media[mediaIndex].IntegrationName = integration.Name
+			}
+			sonarrMediaByInstance[i] = media
+			sonarrErrs[i] = err
+			service.setStatus(integration.Name, true, err == nil, err)
+		}(i, integration)
+	}
+	go func() { defer wg.Done(); torrentMap, torrentRIDs, qbittorrentErr = service.syncTorrents(ctx) }()
 	wg.Wait()
 	service.setStageTiming("base inventory", baseStarted)
-	if radarrErr != nil {
-		return service.fail(radarrErr)
+	for i, err := range radarrErrs {
+		if err != nil {
+			return service.fail(fmt.Errorf("radarr (%s): %w", radInstances[i].Name, err))
+		}
 	}
-	if sonarrErr != nil {
-		return service.fail(sonarrErr)
+	for i, err := range sonarrErrs {
+		if err != nil {
+			return service.fail(fmt.Errorf("sonarr (%s): %w", sonInstances[i].Name, err))
+		}
 	}
 	if qbittorrentErr != nil {
-		service.setStatus(integrationName(service.cfg, "qbittorrent", "qBittorrent"), true, false, qbittorrentErr)
 		return service.fail(fmt.Errorf("qbittorrent: %w", qbittorrentErr))
 	}
-	service.setStatus(integrationName(service.cfg, "qbittorrent", "qBittorrent"), service.cfg.QBittorrent.URL != "", true, nil)
-	if i, ok := service.cfg.FirstIntegration("radarr"); ok {
-		for mediaIndex := range radarrMedia {
-			radarrMedia[mediaIndex].IntegrationID = i.ID
-			radarrMedia[mediaIndex].IntegrationName = i.Name
-		}
+	var radarrMedia, sonarrMedia []model.Media
+	for _, media := range radarrMediaByInstance {
+		radarrMedia = append(radarrMedia, media...)
 	}
-	if i, ok := service.cfg.FirstIntegration("sonarr"); ok {
-		for mediaIndex := range sonarrMedia {
-			sonarrMedia[mediaIndex].IntegrationID = i.ID
-			sonarrMedia[mediaIndex].IntegrationName = i.Name
-		}
+	for _, media := range sonarrMediaByInstance {
+		sonarrMedia = append(sonarrMedia, media...)
 	}
 	all := append(radarrMedia, sonarrMedia...)
 	// Jellyfin and Seerr are enrichment, not inventory authorities. Base refresh
@@ -668,7 +784,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	service.reliability.Inventory = true
 	service.mu.Unlock()
 	service.baseReadyOnce.Do(func() { close(service.baseReady) })
-	var rids, sids map[int][]string
+	var rids, sids map[ownerKey][]string
 	var provenance map[string][]torrentProvenance
 	var he error
 	historyStarted := time.Now()
@@ -690,8 +806,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		return service.fail(he)
 	}
 
-	if service.cfg.QBittorrent.URL == "" {
-		service.setStatus(integrationName(service.cfg, "qbittorrent", "qBittorrent"), false, false, nil)
+	if len(service.cfg.IntegrationsOfType("qbittorrent")) == 0 {
 		service.mu.Lock()
 		applyMediaFileEstimates(all, service.files, service.mediaFileRefs)
 		attachSeasons(all, service.mediaFileRefs, service.files)
@@ -699,7 +814,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		valuation.ApplyMedia(all, service.cfg)
 		generation := service.generation
 		if service.db != nil {
-			if e := service.db.PublishInventory(generation, 0, nil, all); e != nil {
+			if e := service.db.PublishInventory(generation, nil, nil, all); e != nil {
 				service.mu.Unlock()
 				return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", e))
 			}
@@ -716,13 +831,21 @@ func (service *Service) Refresh(ctx context.Context) error {
 
 	// Stage 2: durable, incremental import provenance. The first-ever run
 	// bootstraps *arr history; later runs stop at the saved cursor.
+	// hashIndex maps a bare torrent hash to every composite torrentMap key
+	// that currently carries it — the same infohash can legitimately be
+	// present in more than one configured qBittorrent instance.
+	hashIndex := map[string][]string{}
+	for key, t := range torrentMap {
+		h := strings.ToLower(t.Hash)
+		hashIndex[h] = append(hashIndex[h], key)
+	}
 	torrentMediaItems := map[string][]model.MediaRef{}
 	for i := range all {
 		m := &all[i]
 		if m.Type == model.Movie {
-			m.DownloadIDs = rids[m.SourceID]
+			m.DownloadIDs = rids[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}]
 		} else {
-			m.DownloadIDs = sids[m.SourceID]
+			m.DownloadIDs = sids[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}]
 		}
 		// A logical media item may remain in Radarr/Sonarr after all of its files
 		// have been deleted. Keep that media in Connarr, but do not let its
@@ -735,20 +858,21 @@ func (service *Service) Refresh(ctx context.Context) error {
 		seen := map[string]bool{}
 		for _, id := range m.DownloadIDs {
 			h := strings.ToLower(id)
-			if _, ok := torrentMap[h]; ok && !seen[h] {
-				torrentMediaItems[h] = append(torrentMediaItems[h], model.MediaRef{Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year})
-				seen[h] = true
+			for _, key := range hashIndex[h] {
+				if !seen[key] {
+					torrentMediaItems[key] = append(torrentMediaItems[key], model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year})
+					seen[key] = true
+				}
 			}
 		}
 	}
 	currentRefs := map[string]model.MediaRef{}
 	for _, m := range all {
-		currentRefs[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = model.MediaRef{Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
+		currentRefs[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
 	}
 
 	torrentList := make([]model.Torrent, 0, len(torrentMap))
 	for h, t := range torrentMap {
-		t.IntegrationID = integrationID(service.cfg, "qbittorrent")
 		t.MediaItems = torrentMediaItems[h]
 		t.FormerMediaItems = nil
 		t.SupersededByHash = ""
@@ -761,7 +885,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		t.InspectedFiles = 0
 		t.SharedFiles = 0
 
-		prov := provenance[h]
+		prov := provenance[strings.ToLower(t.Hash)]
 		superseded := false
 		seenFormer := map[string]bool{}
 		for _, p := range prov {
@@ -775,13 +899,13 @@ func (service *Service) Refresh(ctx context.Context) error {
 			if p.Source == "sonarr" {
 				kind = model.Series
 			}
-			key := fmt.Sprintf("%s:%d", kind, p.OwnerID)
+			key := fmt.Sprintf("%s:%s:%d", kind, p.IntegrationID, p.OwnerID)
 			ref, ok := currentRefs[key]
 			if !ok {
 				// Import history remains meaningful after media disappears from
 				// Radarr/Sonarr. Its stable owner identity survives even when the
 				// current title and year can no longer be resolved.
-				ref = model.MediaRef{Type: kind, SourceID: p.OwnerID}
+				ref = model.MediaRef{IntegrationID: p.IntegrationID, Type: kind, SourceID: p.OwnerID}
 			}
 			if !seenFormer[key] {
 				t.FormerMediaItems = append(t.FormerMediaItems, ref)
@@ -849,7 +973,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	service.stageTimings["relationships merge"] = time.Since(relationshipsMergeStarted)
 	generation := service.generation
 	if service.db != nil {
-		if e := service.db.PublishInventory(generation, torrentRID, torrentList, all); e != nil {
+		if e := service.db.PublishInventory(generation, torrentRIDs, torrentList, all); e != nil {
 			service.mu.Unlock()
 			return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", e))
 		}
@@ -1005,14 +1129,24 @@ func (service *Service) FileSnapshot() ([]model.File, []model.MediaFileRef, []mo
 	return files, mr, tr, service.filesUpdated, service.filesErr
 }
 
-func (service *Service) ManagedFileRefs(kind model.MediaType, id int) ([]model.MediaFileRef, time.Time, error) {
+// ManagedFileRefs returns the files claimed by one specific media item.
+// integrationID disambiguates SourceID across multiple configured instances
+// of the same integration type (Radarr's own movie IDs, like Sonarr's series
+// IDs, are unique only within one instance) — pass "" only when the caller
+// has already independently proven (kind, id) can't collide, e.g. it was
+// resolved from a single already-identified model.Media.
+func (service *Service) ManagedFileRefs(kind model.MediaType, id int, integrationID string) ([]model.MediaFileRef, time.Time, error) {
 	_, refs, _, updated, err := service.FileSnapshot()
 	out := []model.MediaFileRef{}
 	for _, r := range refs {
-		if r.MediaType == kind && r.MediaID == id {
-			r.Parts = append([]model.MediaFilePart(nil), r.Parts...)
-			out = append(out, r)
+		if r.MediaType != kind || r.MediaID != id {
+			continue
 		}
+		if integrationID != "" && r.IntegrationID != integrationID {
+			continue
+		}
+		r.Parts = append([]model.MediaFilePart(nil), r.Parts...)
+		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Path) < strings.ToLower(out[j].Path) })
 	return out, updated, err
@@ -1110,7 +1244,7 @@ func applyTorrentMediaHardlinks(torrents []model.Torrent, media []model.Media, f
 	seasonPaths := seasonPathsByKey(mediaRefs)
 	currentMediaByKey := make(map[string]model.MediaRef, len(media))
 	for _, item := range media {
-		currentMediaByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = model.MediaRef{Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
+		currentMediaByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = model.MediaRef{IntegrationID: item.IntegrationID, Type: item.Type, SourceID: item.SourceID, Title: item.Title, Year: item.Year}
 	}
 	for torrentIndex := range torrents {
 		torrent := &torrents[torrentIndex]
@@ -1233,7 +1367,7 @@ func applyMediaBundleEstimates(items []model.Media, torrents []model.Torrent, fi
 func mediaRefMap(items []model.Media) map[string]model.MediaRef {
 	out := map[string]model.MediaRef{}
 	for _, m := range items {
-		out[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = model.MediaRef{Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
+		out[fmt.Sprintf("%s:%d", m.Type, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
 	}
 	return out
 }
@@ -1495,21 +1629,40 @@ func (service *Service) TorrentSnapshot() []model.Torrent {
 }
 
 // TorrentDetail enriches the locally indexed relationship/storage facts with
-// live client-owned details. Nothing fetched here is persisted.
-func (service *Service) TorrentDetail(hash string) (model.Torrent, error) {
+// live client-owned details. Nothing fetched here is persisted. integrationID
+// disambiguates hash across multiple configured qBittorrent instances (the
+// same infohash can legitimately exist in more than one, e.g. cross-seeding
+// or a seedbox mirrored to a local client); when empty, a match is only
+// accepted if it is unique.
+func (service *Service) TorrentDetail(hash, integrationID string) (model.Torrent, error) {
 	var indexed model.Torrent
 	found := false
 	for _, t := range service.TorrentSnapshot() {
-		if strings.EqualFold(t.Hash, hash) {
-			indexed = t
-			found = true
-			break
+		if !strings.EqualFold(t.Hash, hash) {
+			continue
 		}
+		if integrationID != "" {
+			if t.IntegrationID == integrationID {
+				indexed, found = t, true
+				break
+			}
+			continue
+		}
+		if found {
+			return model.Torrent{}, fmt.Errorf("torrent hash %q exists in more than one configured instance; an integration_id is required", hash)
+		}
+		indexed, found = t, true
 	}
 	if !found {
 		return model.Torrent{}, fmt.Errorf("torrent not found")
 	}
-	live, err := service.qb.Detail(hash)
+	service.mu.RLock()
+	client, ok := service.qb[indexed.IntegrationID]
+	service.mu.RUnlock()
+	if !ok {
+		return indexed, fmt.Errorf("qbittorrent client for integration %q not found", indexed.IntegrationID)
+	}
+	live, err := client.Detail(hash)
 	if err != nil {
 		return indexed, err
 	}
@@ -1568,50 +1721,111 @@ func (service *Service) UnmanagedSnapshot() ([]model.UnmanagedFile, time.Time, e
 	return out, service.unmanagedUpdated, service.unmanagedErr
 }
 
-// RemoveManagedFile delegates removal of one managed file to the application
-// that owns that file. The Media object itself remains in the owner application.
+// RemoveManagedFile delegates removal of one managed file to the specific
+// application instance that owns that file (ref.IntegrationID). The Media
+// object itself remains in the owner application.
 func (service *Service) RemoveManagedFile(ctx context.Context, ref model.MediaFileRef) error {
 	switch strings.ToLower(ref.Source) {
 	case "radarr":
 		if ref.SourceFileID <= 0 {
 			return fmt.Errorf("radarr managed file id is missing")
 		}
-		return service.rad.WithContext(ctx).DeleteFile(ref.SourceFileID)
+		client, err := service.radarrClient(ref.IntegrationID)
+		if err != nil {
+			return err
+		}
+		return client.WithContext(ctx).DeleteFile(ref.SourceFileID)
 	case "sonarr":
 		if ref.SourceFileID <= 0 {
 			return fmt.Errorf("sonarr managed file id is missing")
 		}
-		return service.son.WithContext(ctx).DeleteFile(ref.SourceFileID)
+		client, err := service.sonarrClient(ref.IntegrationID)
+		if err != nil {
+			return err
+		}
+		return client.WithContext(ctx).DeleteFile(ref.SourceFileID)
 	default:
 		return fmt.Errorf("unsupported managed-file owner %q", ref.Source)
 	}
 }
 
-// RemoveTorrent delegates torrent and torrent-owned data removal to qBittorrent.
-func (service *Service) RemoveTorrent(ctx context.Context, hash string) error {
-	return service.qb.WithContext(ctx).Delete(hash)
+// RemoveTorrent delegates torrent and torrent-owned data removal to the
+// specific qBittorrent instance identified by integrationID — the same
+// infohash can legitimately exist in more than one configured instance.
+func (service *Service) RemoveTorrent(ctx context.Context, hash, integrationID string) error {
+	client, err := service.qbittorrentClient(integrationID)
+	if err != nil {
+		return err
+	}
+	return client.WithContext(ctx).Delete(hash)
 }
 
-func (service *Service) SetMovieMonitored(ctx context.Context, id int, monitored bool) error {
-	return service.rad.WithContext(ctx).SetMonitored(id, monitored)
+func (service *Service) SetMovieMonitored(ctx context.Context, integrationID string, id int, monitored bool) error {
+	client, err := service.radarrClient(integrationID)
+	if err != nil {
+		return err
+	}
+	return client.WithContext(ctx).SetMonitored(id, monitored)
 }
 
-func (service *Service) SetEpisodesMonitored(ctx context.Context, ids []int, monitored bool) error {
-	return service.son.WithContext(ctx).SetEpisodesMonitored(ids, monitored)
+func (service *Service) SetEpisodesMonitored(ctx context.Context, integrationID string, ids []int, monitored bool) error {
+	client, err := service.sonarrClient(integrationID)
+	if err != nil {
+		return err
+	}
+	return client.WithContext(ctx).SetEpisodesMonitored(ids, monitored)
 }
 
 func (service *Service) AddMovieImportListExclusion(ctx context.Context, mediaItem model.Media) error {
 	if mediaItem.Type != model.Movie {
 		return fmt.Errorf("import-list exclusion target is not a movie")
 	}
-	return service.rad.WithContext(ctx).AddImportListExclusion(mediaItem.Title, mediaItem.Year, mediaItem.TMDBID)
+	client, err := service.radarrClient(mediaItem.IntegrationID)
+	if err != nil {
+		return err
+	}
+	return client.WithContext(ctx).AddImportListExclusion(mediaItem.Title, mediaItem.Year, mediaItem.TMDBID)
 }
 
 func (service *Service) AddSeriesImportListExclusion(ctx context.Context, mediaItem model.Media) error {
 	if mediaItem.Type != model.Series {
 		return fmt.Errorf("import-list exclusion target is not a series")
 	}
-	return service.son.WithContext(ctx).AddImportListExclusion(mediaItem.Title, mediaItem.TVDBID)
+	client, err := service.sonarrClient(mediaItem.IntegrationID)
+	if err != nil {
+		return err
+	}
+	return client.WithContext(ctx).AddImportListExclusion(mediaItem.Title, mediaItem.TVDBID)
+}
+
+func (service *Service) radarrClient(integrationID string) (*radarr.Client, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	client, ok := service.rad[integrationID]
+	if !ok {
+		return nil, fmt.Errorf("no radarr client for integration %q", integrationID)
+	}
+	return client, nil
+}
+
+func (service *Service) sonarrClient(integrationID string) (*sonarr.Client, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	client, ok := service.son[integrationID]
+	if !ok {
+		return nil, fmt.Errorf("no sonarr client for integration %q", integrationID)
+	}
+	return client, nil
+}
+
+func (service *Service) qbittorrentClient(integrationID string) (*qbittorrent.Client, error) {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	client, ok := service.qb[integrationID]
+	if !ok {
+		return nil, fmt.Errorf("no qbittorrent client for integration %q", integrationID)
+	}
+	return client, nil
 }
 
 // VerifyUnmanaged fails closed before direct filesystem removal. It refreshes
@@ -1627,38 +1841,77 @@ func (service *Service) VerifyUnmanagedContext(ctx context.Context, paths []stri
 	for _, p := range paths {
 		wanted[filepath.Clean(p)] = true
 	}
-	var radarrMedia, sonarrMedia []model.Media
-	var qbittorrentErr, radarrErr, sonarrErr error
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	radClients := service.rad
+	sonClients := service.son
+	qbClients := service.qb
+	service.mu.RUnlock()
+
 	var wg sync.WaitGroup
-	qb := service.qb.WithContext(ctx)
-	rad := service.rad.WithContext(ctx)
-	son := service.son.WithContext(ctx)
-	wg.Add(3)
-	go func() { defer wg.Done(); qbittorrentErr = qb.VerifyPathsUnmanaged(paths) }()
-	go func() {
-		defer wg.Done()
-		if service.cfg.Radarr.URL != "" {
-			radarrMedia, radarrErr = rad.Inventory()
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		if service.cfg.Sonarr.URL != "" {
-			sonarrMedia, sonarrErr = son.Inventory()
-		}
-	}()
+	qbErrs := make([]error, len(qbInstances))
+	radarrMediaByInstance := make([][]model.Media, len(radInstances))
+	sonarrMediaByInstance := make([][]model.Media, len(sonInstances))
+	radarrErrs := make([]error, len(radInstances))
+	sonarrErrs := make([]error, len(sonInstances))
+	wg.Add(len(qbInstances) + len(radInstances) + len(sonInstances))
+	for i, integration := range qbInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			qbErrs[i] = qbClients[integration.ID].WithContext(ctx).VerifyPathsUnmanaged(paths)
+		}(i, integration)
+	}
+	for i, integration := range radInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			media, err := radClients[integration.ID].WithContext(ctx).Inventory()
+			for mediaIndex := range media {
+				media[mediaIndex].IntegrationID = integration.ID
+			}
+			radarrMediaByInstance[i] = media
+			radarrErrs[i] = err
+		}(i, integration)
+	}
+	for i, integration := range sonInstances {
+		go func(i int, integration config.Integration) {
+			defer wg.Done()
+			media, err := sonClients[integration.ID].WithContext(ctx).Inventory()
+			for mediaIndex := range media {
+				media[mediaIndex].IntegrationID = integration.ID
+			}
+			sonarrMediaByInstance[i] = media
+			sonarrErrs[i] = err
+		}(i, integration)
+	}
 	wg.Wait()
-	if qbittorrentErr != nil {
-		return fmt.Errorf("cannot verify current qBittorrent ownership: %w", qbittorrentErr)
+	for i, err := range qbErrs {
+		if err != nil {
+			return fmt.Errorf("cannot verify current qBittorrent (%s) ownership: %w", qbInstances[i].Name, err)
+		}
 	}
-	if radarrErr != nil {
-		return fmt.Errorf("cannot verify current Radarr ownership: %w", radarrErr)
+	for i, err := range radarrErrs {
+		if err != nil {
+			return fmt.Errorf("cannot verify current Radarr (%s) ownership: %w", radInstances[i].Name, err)
+		}
 	}
-	if sonarrErr != nil {
-		return fmt.Errorf("cannot verify current Sonarr ownership: %w", sonarrErr)
+	for i, err := range sonarrErrs {
+		if err != nil {
+			return fmt.Errorf("cannot verify current Sonarr (%s) ownership: %w", sonInstances[i].Name, err)
+		}
 	}
-	movieIDs, seriesIDs := make([]int, 0, len(radarrMedia)), make([]int, 0, len(sonarrMedia))
-	mediaRoots := map[string]string{}
+	var radarrMedia, sonarrMedia []model.Media
+	for _, media := range radarrMediaByInstance {
+		radarrMedia = append(radarrMedia, media...)
+	}
+	for _, media := range sonarrMediaByInstance {
+		sonarrMedia = append(sonarrMedia, media...)
+	}
+
+	movieIDsByInstance := map[string][]int{}
+	seriesIDsByInstance := map[string][]int{}
+	mediaRoots := map[ownerKey]string{}
 	for _, mediaItem := range radarrMedia {
 		possible := false
 		for path := range wanted {
@@ -1668,8 +1921,8 @@ func (service *Service) VerifyUnmanagedContext(ctx context.Context, paths []stri
 			}
 		}
 		if possible {
-			movieIDs = append(movieIDs, mediaItem.SourceID)
-			mediaRoots[fmt.Sprintf("%s:%d", model.Movie, mediaItem.SourceID)] = mediaItem.Path
+			movieIDsByInstance[mediaItem.IntegrationID] = append(movieIDsByInstance[mediaItem.IntegrationID], mediaItem.SourceID)
+			mediaRoots[ownerKey{IntegrationID: mediaItem.IntegrationID, OwnerID: mediaItem.SourceID}] = mediaItem.Path
 		}
 	}
 	for _, mediaItem := range sonarrMedia {
@@ -1681,33 +1934,70 @@ func (service *Service) VerifyUnmanagedContext(ctx context.Context, paths []stri
 			}
 		}
 		if possible {
-			seriesIDs = append(seriesIDs, mediaItem.SourceID)
-			mediaRoots[fmt.Sprintf("%s:%d", model.Series, mediaItem.SourceID)] = mediaItem.Path
+			seriesIDsByInstance[mediaItem.IntegrationID] = append(seriesIDsByInstance[mediaItem.IntegrationID], mediaItem.SourceID)
+			mediaRoots[ownerKey{IntegrationID: mediaItem.IntegrationID, OwnerID: mediaItem.SourceID}] = mediaItem.Path
 		}
 	}
-	var radarrFiles []radarr.FileRecord
-	var sonarrFiles []sonarr.FileRecord
+
+	type radarrFilesFetch struct {
+		integrationID string
+		files         []radarr.FileRecord
+		err           error
+	}
+	type sonarrFilesFetch struct {
+		integrationID string
+		files         []sonarr.FileRecord
+		err           error
+	}
+	radFilesFetches := make([]radarrFilesFetch, 0, len(movieIDsByInstance))
+	for id := range movieIDsByInstance {
+		radFilesFetches = append(radFilesFetches, radarrFilesFetch{integrationID: id})
+	}
+	sonFilesFetches := make([]sonarrFilesFetch, 0, len(seriesIDsByInstance))
+	for id := range seriesIDsByInstance {
+		sonFilesFetches = append(sonFilesFetches, sonarrFilesFetch{integrationID: id})
+	}
 	wg = sync.WaitGroup{}
-	wg.Add(2)
-	go func() { defer wg.Done(); radarrFiles, radarrErr = rad.Files(movieIDs) }()
-	go func() { defer wg.Done(); sonarrFiles, sonarrErr = son.Files(seriesIDs) }()
+	wg.Add(len(radFilesFetches) + len(sonFilesFetches))
+	for i := range radFilesFetches {
+		go func(i int) {
+			defer wg.Done()
+			id := radFilesFetches[i].integrationID
+			radFilesFetches[i].files, radFilesFetches[i].err = radClients[id].WithContext(ctx).Files(movieIDsByInstance[id])
+		}(i)
+	}
+	for i := range sonFilesFetches {
+		go func(i int) {
+			defer wg.Done()
+			id := sonFilesFetches[i].integrationID
+			sonFilesFetches[i].files, sonFilesFetches[i].err = sonClients[id].WithContext(ctx).Files(seriesIDsByInstance[id])
+		}(i)
+	}
 	wg.Wait()
-	if radarrErr != nil {
-		return fmt.Errorf("cannot verify current Radarr file claims: %w", radarrErr)
-	}
-	if sonarrErr != nil {
-		return fmt.Errorf("cannot verify current Sonarr file claims: %w", sonarrErr)
-	}
-	for _, file := range radarrFiles {
-		path := filepath.Clean(filepath.Join(mediaRoots[fmt.Sprintf("%s:%d", model.Movie, file.MovieID)], file.Relative))
-		if wanted[path] {
-			return fmt.Errorf("file is now claimed by Radarr: %s", path)
+	for _, f := range radFilesFetches {
+		if f.err != nil {
+			return fmt.Errorf("cannot verify current Radarr file claims: %w", f.err)
 		}
 	}
-	for _, file := range sonarrFiles {
-		path := filepath.Clean(filepath.Join(mediaRoots[fmt.Sprintf("%s:%d", model.Series, file.SeriesID)], file.Relative))
-		if wanted[path] {
-			return fmt.Errorf("file is now claimed by Sonarr: %s", path)
+	for _, f := range sonFilesFetches {
+		if f.err != nil {
+			return fmt.Errorf("cannot verify current Sonarr file claims: %w", f.err)
+		}
+	}
+	for _, f := range radFilesFetches {
+		for _, file := range f.files {
+			path := filepath.Clean(filepath.Join(mediaRoots[ownerKey{IntegrationID: f.integrationID, OwnerID: file.MovieID}], file.Relative))
+			if wanted[path] {
+				return fmt.Errorf("file is now claimed by Radarr: %s", path)
+			}
+		}
+	}
+	for _, f := range sonFilesFetches {
+		for _, file := range f.files {
+			path := filepath.Clean(filepath.Join(mediaRoots[ownerKey{IntegrationID: f.integrationID, OwnerID: file.SeriesID}], file.Relative))
+			if wanted[path] {
+				return fmt.Errorf("file is now claimed by Sonarr: %s", path)
+			}
 		}
 	}
 	return nil

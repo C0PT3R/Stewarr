@@ -131,6 +131,26 @@ This file separates implemented behavior from intended direction. It is not a pr
   otherwise-kept show instead of only ever reasoning about a whole series;
   a movie, or a series with no season data yet, is unaffected.
 
+### Live config editing and multi-instance integrations (0.2.13-0.2.26)
+
+- Integrations move from a static, must-exist-before-launch config file to
+  live, in-app management: adding, editing (including moving an integration to
+  an entirely new URL without severing the data already attributed to it), and
+  removing an integration all validate a real connection before persisting,
+  then activate immediately without disturbing in-memory reconciliation state.
+  A removed integration's files become Unmanaged rather than disappearing.
+- Radarr, Sonarr, and qBittorrent each support more than one configured
+  instance simultaneously (separate quality-tier libraries, a seedbox
+  alongside a local client); every reconciliation, import-history, and
+  removal-execution path fans out per instance and disambiguates identity by
+  a stable per-integration ID rather than assuming one adapter per type.
+  Jellyfin and Seerr remain single-instance by design, matching how they're
+  actually deployed in practice.
+- Media and torrent removal, and the Library/Torrent detail pages, carry an
+  explicit `integration_id` end to end so an ambiguous match (the same
+  Radarr/Sonarr source ID, or the same torrent infohash, existing in more than
+  one configured instance) fails closed instead of silently guessing.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and
@@ -178,8 +198,8 @@ This file separates implemented behavior from intended direction. It is not a pr
 
 ## Later
 
-- Multiple Radarr/Sonarr/qBittorrent instances and a GUI integration manager
-  with capability discovery and connection testing.
+- Capability discovery for the integration manager (auto-detecting what an
+  added integration supports, beyond the connection test already in place).
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
   integration adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly

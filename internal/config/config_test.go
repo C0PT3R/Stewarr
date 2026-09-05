@@ -119,14 +119,29 @@ func TestLoadRejectsReservedUnmanagedIntegrationName(t *testing.T) {
 	}
 }
 
-func TestLoadFailsClosedOnDuplicateRuntimeIntegrationType(t *testing.T) {
+func TestLoadAllowsMultipleSonarrInstances(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.json")
 	body := `{"integrations":[{"type":"sonarr","name":"TV","url":"http://s1"},{"type":"sonarr","name":"Anime","url":"http://s2"}],"storage":{"target_usage_percent":90,"critical_usage_percent":95}}`
 	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatalf("expected multiple sonarr instances to be allowed, got %v", err)
+	}
+	if len(cfg.Integrations) != 2 {
+		t.Fatalf("expected 2 integrations, got %#v", cfg.Integrations)
+	}
+}
+
+func TestLoadFailsClosedOnDuplicateSingleInstanceRuntimeType(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	body := `{"integrations":[{"type":"jellyfin","name":"J1","url":"http://j1"},{"type":"jellyfin","name":"J2","url":"http://j2"}],"storage":{"target_usage_percent":90,"critical_usage_percent":95}}`
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Load(p); err == nil {
-		t.Fatal("expected duplicate runtime type to fail closed")
+		t.Fatal("expected duplicate jellyfin instances to fail closed")
 	}
 }
 
@@ -222,10 +237,21 @@ func TestAddIntegrationAppendsAndRefreshesDerivedFields(t *testing.T) {
 	}
 }
 
-func TestAddIntegrationRejectsSecondInstanceOfSameType(t *testing.T) {
+func TestAddIntegrationAllowsSecondInstanceOfMultiInstanceType(t *testing.T) {
 	base := Config{Integrations: []Integration{{Type: "radarr", Name: "Movies", URL: "http://radarr:7878"}}}
-	if _, err := AddIntegration(base, Integration{Type: "radarr", Name: "Movies 4K", URL: "http://radarr4k:7878"}); err == nil {
-		t.Fatal("expected a second radarr instance to be rejected by this runtime")
+	updated, err := AddIntegration(base, Integration{Type: "radarr", Name: "Movies 4K", URL: "http://radarr4k:7878"})
+	if err != nil {
+		t.Fatalf("expected a second radarr instance to be allowed, got %v", err)
+	}
+	if len(updated.Integrations) != 2 {
+		t.Fatalf("expected 2 integrations, got %d", len(updated.Integrations))
+	}
+}
+
+func TestAddIntegrationRejectsSecondInstanceOfSingleInstanceType(t *testing.T) {
+	base := Config{Integrations: []Integration{{Type: "jellyfin", Name: "Jellyfin", URL: "http://jellyfin:8096"}}}
+	if _, err := AddIntegration(base, Integration{Type: "jellyfin", Name: "Jellyfin 2", URL: "http://jellyfin2:8096"}); err == nil {
+		t.Fatal("expected a second jellyfin instance to be rejected")
 	}
 }
 

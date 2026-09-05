@@ -164,6 +164,22 @@ func (configuration Config) IntegrationsOfType(integrationType string) []Integra
 	}
 	return matchingIntegrations
 }
+
+// multiInstanceAllowed reports whether integrationType may have more than one
+// configured entry. Radarr/Sonarr/qBittorrent are commonly run in more than
+// one instance (separate quality-tier libraries, a seedbox alongside a local
+// client); Jellyfin/Seerr are each a single centralized service in every
+// known real-world deployment, so they keep the simpler one-instance shape
+// (FirstIntegration-derived Config.Jellyfin/Config.Seerr fields).
+func multiInstanceAllowed(integrationType string) bool {
+	switch strings.ToLower(integrationType) {
+	case "radarr", "sonarr", "qbittorrent":
+		return true
+	default:
+		return false
+	}
+}
+
 func (configuration Config) FirstIntegration(integrationType string) (Integration, bool) {
 	for _, integration := range configuration.Integrations {
 		if strings.EqualFold(integration.Type, integrationType) {
@@ -256,13 +272,13 @@ func Load(path string) (Config, error) {
 		}
 		typeCounts[integration.Type]++
 	}
-	// The config/domain now has stable integration instances, but the current
-	// runtime still has one adapter slot per integration type. Fail closed rather
-	// than silently ignoring a second owner and falsely classifying its files as
-	// Unmanaged. This guard can be removed when adapter fan-out is completed.
+	// Jellyfin/Seerr are each a single centralized service in every known
+	// real-world deployment (see multiInstanceAllowed); fail closed on a
+	// second one rather than silently using only the first and falsely
+	// classifying the other's data as Unmanaged.
 	for integrationType, count := range typeCounts {
-		if count > 1 {
-			return configuration, fmt.Errorf("multiple %s integration instances are not supported by this runtime yet", integrationType)
+		if count > 1 && !multiInstanceAllowed(integrationType) {
+			return configuration, fmt.Errorf("multiple %s integration instances are not supported", integrationType)
 		}
 	}
 	configuration.populateDerivedIntegrationFields()
@@ -373,9 +389,11 @@ func AddIntegration(configuration Config, candidate Integration) (Config, error)
 	if err := validateIntegration(candidate, seenNames); err != nil {
 		return configuration, err
 	}
-	for _, existing := range configuration.Integrations {
-		if strings.EqualFold(existing.Type, candidate.Type) {
-			return configuration, fmt.Errorf("a %s integration already exists; multiple instances of the same type are not supported by this runtime yet", candidate.Type)
+	if !multiInstanceAllowed(candidate.Type) {
+		for _, existing := range configuration.Integrations {
+			if strings.EqualFold(existing.Type, candidate.Type) {
+				return configuration, fmt.Errorf("a %s integration already exists; only one is supported", candidate.Type)
+			}
 		}
 	}
 	id, err := newIntegrationID(candidate.Type)

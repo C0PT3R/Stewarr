@@ -96,7 +96,7 @@ func TestFormForActionStandaloneMediaRoundTripsThroughAdmitRemoval(t *testing.T)
 	if err != nil {
 		t.Fatalf("constructed form was rejected by admitRemoval: %v", err)
 	}
-	if admission.Kind != removal.MediaObject || admission.Key != "movie:1" || admission.Label != "Test Movie" {
+	if admission.Kind != removal.MediaObject || admission.Key != "movie:1:radarr-1" || admission.Label != "Test Movie" {
 		t.Fatalf("unexpected admission: %#v", admission)
 	}
 }

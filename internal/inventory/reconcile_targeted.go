@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"connarr/internal/config"
 	"connarr/internal/integrations/radarr"
 	"connarr/internal/integrations/sonarr"
 	"connarr/internal/model"
@@ -69,33 +70,111 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	}
 	torrents = filteredTorrents
 
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	radClients := service.rad
+	sonClients := service.son
+	service.mu.RUnlock()
+	// A scope's owners predate multi-instance support and may carry no
+	// IntegrationID; that's only safe to infer when exactly one instance of
+	// the relevant type is configured. Any owner this can't resolve makes the
+	// whole scope untrustworthy — fall back to a full reconciliation rather
+	// than risk querying the wrong instance's client.
+	resolveInstance := func(owner ReconciliationOwner, instances []config.Integration) (string, bool) {
+		if owner.IntegrationID != "" {
+			return owner.IntegrationID, true
+		}
+		if len(instances) == 1 {
+			return instances[0].ID, true
+		}
+		return "", false
+	}
 	ownerSet := map[string]bool{}
-	movieIDs, seriesIDs := []int{}, []int{}
+	movieIDsByInstance := map[string][]int{}
+	seriesIDsByInstance := map[string][]int{}
 	for _, owner := range scope.Owners {
-		ownerSet[fmt.Sprintf("%s:%d", owner.Type, owner.ID)] = true
 		if owner.Type == model.Movie {
-			movieIDs = append(movieIDs, owner.ID)
+			id, ok := resolveInstance(owner, radInstances)
+			if !ok {
+				return service.promoteTargeted(ctx, "owner_instance_ambiguous")
+			}
+			ownerSet[fmt.Sprintf("%s:%s:%d", owner.Type, id, owner.ID)] = true
+			movieIDsByInstance[id] = append(movieIDsByInstance[id], owner.ID)
 		} else {
-			seriesIDs = append(seriesIDs, owner.ID)
+			id, ok := resolveInstance(owner, sonInstances)
+			if !ok {
+				return service.promoteTargeted(ctx, "owner_instance_ambiguous")
+			}
+			ownerSet[fmt.Sprintf("%s:%s:%d", owner.Type, id, owner.ID)] = true
+			seriesIDsByInstance[id] = append(seriesIDsByInstance[id], owner.ID)
 		}
 	}
-	mediaRootByKey := map[string]string{}
+	mediaRootByKey := map[ownerKey]string{}
 	for _, item := range media {
-		mediaRootByKey[fmt.Sprintf("%s:%d", item.Type, item.SourceID)] = item.Path
+		mediaRootByKey[ownerKey{IntegrationID: item.IntegrationID, OwnerID: item.SourceID}] = item.Path
 	}
 	stageStarted = time.Now()
-	var radarrFiles []radarr.FileRecord
-	var sonarrFiles []sonarr.FileRecord
-	var radarrErr, sonarrErr error
-	var wait sync.WaitGroup
-	wait.Add(2)
-	go func() { defer wait.Done(); radarrFiles, radarrErr = service.rad.WithContext(ctx).Files(movieIDs) }()
-	go func() { defer wait.Done(); sonarrFiles, sonarrErr = service.son.WithContext(ctx).Files(seriesIDs) }()
-	wait.Wait()
-	if radarrErr != nil || sonarrErr != nil {
-		return service.promoteTargeted(ctx, "owner_query_failed")
+	radInstanceByID := map[string]config.Integration{}
+	for _, integration := range radInstances {
+		radInstanceByID[integration.ID] = integration
 	}
-	replacementMediaRefs := targetedMediaRefs(service, radarrFiles, sonarrFiles, mediaRootByKey)
+	sonInstanceByID := map[string]config.Integration{}
+	for _, integration := range sonInstances {
+		sonInstanceByID[integration.ID] = integration
+	}
+	type radarrFilesFetch struct {
+		integrationID string
+		files         []radarr.FileRecord
+		err           error
+	}
+	type sonarrFilesFetch struct {
+		integrationID string
+		files         []sonarr.FileRecord
+		err           error
+	}
+	radFetches := make([]radarrFilesFetch, 0, len(movieIDsByInstance))
+	for id := range movieIDsByInstance {
+		radFetches = append(radFetches, radarrFilesFetch{integrationID: id})
+	}
+	sonFetches := make([]sonarrFilesFetch, 0, len(seriesIDsByInstance))
+	for id := range seriesIDsByInstance {
+		sonFetches = append(sonFetches, sonarrFilesFetch{integrationID: id})
+	}
+	var wait sync.WaitGroup
+	wait.Add(len(radFetches) + len(sonFetches))
+	for i := range radFetches {
+		go func(i int) {
+			defer wait.Done()
+			id := radFetches[i].integrationID
+			radFetches[i].files, radFetches[i].err = radClients[id].WithContext(ctx).Files(movieIDsByInstance[id])
+		}(i)
+	}
+	for i := range sonFetches {
+		go func(i int) {
+			defer wait.Done()
+			id := sonFetches[i].integrationID
+			sonFetches[i].files, sonFetches[i].err = sonClients[id].WithContext(ctx).Files(seriesIDsByInstance[id])
+		}(i)
+	}
+	wait.Wait()
+	for _, f := range radFetches {
+		if f.err != nil {
+			return service.promoteTargeted(ctx, "owner_query_failed")
+		}
+	}
+	for _, f := range sonFetches {
+		if f.err != nil {
+			return service.promoteTargeted(ctx, "owner_query_failed")
+		}
+	}
+	var replacementMediaRefs []model.MediaFileRef
+	for _, f := range radFetches {
+		replacementMediaRefs = append(replacementMediaRefs, radarrMediaRefs(radInstanceByID[f.integrationID], f.files, mediaRootByKey)...)
+	}
+	for _, f := range sonFetches {
+		replacementMediaRefs = append(replacementMediaRefs, sonarrMediaRefs(sonInstanceByID[f.integrationID], f.files, mediaRootByKey)...)
+	}
 	if !mediaRefChangesWithinScope(oldMediaRefs, replacementMediaRefs, ownerSet, affectedPaths) {
 		return service.promoteTargeted(ctx, "owner_scope_mismatch")
 	}
@@ -103,7 +182,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 
 	mediaRefs := make([]model.MediaFileRef, 0, len(oldMediaRefs)+len(replacementMediaRefs))
 	for _, ref := range oldMediaRefs {
-		if !ownerSet[fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)] {
+		if !ownerSet[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)] {
 			mediaRefs = append(mediaRefs, ref)
 		}
 	}
@@ -183,9 +262,19 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 		}
 	}
 	mc := cloneMedia(service.items)
-	ownerSizes := targetedOwnerSizes(radarrFiles, sonarrFiles)
+	ownerSizes := map[string]int64{}
+	for _, f := range radFetches {
+		for _, file := range f.files {
+			ownerSizes[fmt.Sprintf("%s:%s:%d", model.Movie, f.integrationID, file.MovieID)] += file.Size
+		}
+	}
+	for _, f := range sonFetches {
+		for _, file := range f.files {
+			ownerSizes[fmt.Sprintf("%s:%s:%d", model.Series, f.integrationID, file.SeriesID)] += file.Size
+		}
+	}
 	for mediaIndex := range mc {
-		key := fmt.Sprintf("%s:%d", mc[mediaIndex].Type, mc[mediaIndex].SourceID)
+		key := fmt.Sprintf("%s:%s:%d", mc[mediaIndex].Type, mc[mediaIndex].IntegrationID, mc[mediaIndex].SourceID)
 		if ownerSet[key] {
 			mc[mediaIndex].SizeBytes = ownerSizes[key]
 		}
@@ -247,17 +336,6 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	return nil
 }
 
-func targetedOwnerSizes(radarrFiles []radarr.FileRecord, sonarrFiles []sonarr.FileRecord) map[string]int64 {
-	sizes := map[string]int64{}
-	for _, file := range radarrFiles {
-		sizes[fmt.Sprintf("%s:%d", model.Movie, file.MovieID)] += file.Size
-	}
-	for _, file := range sonarrFiles {
-		sizes[fmt.Sprintf("%s:%d", model.Series, file.SeriesID)] += file.Size
-	}
-	return sizes
-}
-
 func refreshTargetedPaths(files []model.File, requested []string) (map[string]bool, []model.File, error) {
 	byPath := map[string]model.File{}
 	byIdentity := map[[2]uint64][]string{}
@@ -308,15 +386,25 @@ func refreshTargetedPaths(files []model.File, requested []string) (map[string]bo
 	return affected, refreshed, nil
 }
 
-func targetedMediaRefs(service *Service, radarrFiles []radarr.FileRecord, sonarrFiles []sonarr.FileRecord, roots map[string]string) []model.MediaFileRef {
+// radarrMediaRefs/sonarrMediaRefs build MediaFileRefs for one specific
+// configured instance's fetched files, tagged with that instance's own ID —
+// callers with more than one configured instance of a type must call these
+// once per instance and merge the results, never merge raw file lists first
+// (movie/series IDs are only unique within one instance).
+func radarrMediaRefs(integration config.Integration, files []radarr.FileRecord, roots map[ownerKey]string) []model.MediaFileRef {
 	refs := []model.MediaFileRef{}
-	for _, file := range radarrFiles {
-		root := roots[fmt.Sprintf("%s:%d", model.Movie, file.MovieID)]
-		refs = append(refs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "radarr"), IntegrationName: integrationName(service.cfg, "radarr", "Movies"), MediaType: model.Movie, MediaID: file.MovieID, Source: "radarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative))})
+	for _, file := range files {
+		root := roots[ownerKey{IntegrationID: integration.ID, OwnerID: file.MovieID}]
+		refs = append(refs, model.MediaFileRef{IntegrationID: integration.ID, IntegrationName: integration.Name, MediaType: model.Movie, MediaID: file.MovieID, Source: "radarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative))})
 	}
-	for _, file := range sonarrFiles {
-		root := roots[fmt.Sprintf("%s:%d", model.Series, file.SeriesID)]
-		refs = append(refs, model.MediaFileRef{IntegrationID: integrationID(service.cfg, "sonarr"), IntegrationName: integrationName(service.cfg, "sonarr", "Series"), MediaType: model.Series, MediaID: file.SeriesID, Source: "sonarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative)), Parts: append([]model.MediaFilePart(nil), file.Parts...), AddedAt: file.DateAdded})
+	return refs
+}
+
+func sonarrMediaRefs(integration config.Integration, files []sonarr.FileRecord, roots map[ownerKey]string) []model.MediaFileRef {
+	refs := []model.MediaFileRef{}
+	for _, file := range files {
+		root := roots[ownerKey{IntegrationID: integration.ID, OwnerID: file.SeriesID}]
+		refs = append(refs, model.MediaFileRef{IntegrationID: integration.ID, IntegrationName: integration.Name, MediaType: model.Series, MediaID: file.SeriesID, Source: "sonarr", SourceFileID: file.ID, Path: filepath.Clean(filepath.Join(root, file.Relative)), Parts: append([]model.MediaFilePart(nil), file.Parts...), AddedAt: file.DateAdded})
 	}
 	return refs
 }
@@ -324,7 +412,7 @@ func targetedMediaRefs(service *Service, radarrFiles []radarr.FileRecord, sonarr
 func mediaRefChangesWithinScope(oldRefs, newRefs []model.MediaFileRef, owners map[string]bool, paths map[string]bool) bool {
 	oldPaths, newPaths := map[string]bool{}, map[string]bool{}
 	for _, ref := range oldRefs {
-		if owners[fmt.Sprintf("%s:%d", ref.MediaType, ref.MediaID)] {
+		if owners[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)] {
 			oldPaths[filepath.Clean(ref.Path)] = true
 		}
 	}

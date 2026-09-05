@@ -367,21 +367,33 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	integrationID := strings.TrimSpace(r.URL.Query().Get("integration_id"))
 	projection := server.pendingProjection()
 	mediaType := model.MediaType(parts[0])
-	if notice, pending := projection.mediaOperation(mediaType, sourceID); pending {
-		server.renderOperation(w, operationPageData{Active: "library", FragmentID: "media-detail", Label: notice.Label, Notice: notice, BackURL: "/library", BackLabel: "Library"})
-		return
-	}
 
 	items, updated, last := server.inv.Snapshot()
 	reliability := server.inv.ReliabilitySnapshot()
 	if !reliability.Valuation && last == nil {
 		last = fmt.Errorf("%s Jellyfin: %s; Seerr: %s", reliability.Message, reliability.Jellyfin, reliability.Seerr)
 	}
+	resolved, resolvedOK := mediaRefFor(items, mediaType, sourceID, integrationID)
+	if resolvedOK {
+		if notice, pending := projection.mediaOperation(mediaType, sourceID, resolved.IntegrationID); pending {
+			server.renderOperation(w, operationPageData{Active: "library", FragmentID: "media-detail", Label: notice.Label, Notice: notice, BackURL: "/library", BackLabel: "Library"})
+			return
+		}
+	}
+
 	for i := range items {
 		m := items[i]
 		if string(m.Type) != parts[0] || m.SourceID != sourceID {
+			continue
+		}
+		if integrationID != "" {
+			if m.IntegrationID != integrationID {
+				continue
+			}
+		} else if resolvedOK && m.IntegrationID != resolved.IntegrationID {
 			continue
 		}
 		m.Torrents = projection.filterTorrents(m.Torrents)
@@ -389,7 +401,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.SourceID)
 		files := storageView.Files
 		if len(projection.ManagedFiles) > 0 {
-			refs, _, _ := server.inv.ManagedFileRefs(m.Type, m.SourceID)
+			refs, _, _ := server.inv.ManagedFileRefs(m.Type, m.SourceID, m.IntegrationID)
 			suppressedPaths := map[string]bool{}
 			for _, ref := range refs {
 				if _, pending := projection.ManagedFiles[managedFileKey(ref)]; pending {
@@ -429,7 +441,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if notice, found := server.removalHistory("media", fmt.Sprintf("%s:%d", mediaType, sourceID)); found {
+	if notice, found := server.removalHistory("media", mediaOperationKey(mediaType, sourceID, integrationID)); found {
 		server.renderOperation(w, operationPageData{Active: "library", FragmentID: "media-detail", Label: notice.Label, Notice: notice, BackURL: "/library", BackLabel: "Library"})
 		return
 	}

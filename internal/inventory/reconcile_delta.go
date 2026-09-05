@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"connarr/internal/config"
 	"connarr/internal/integrations/qbittorrent"
 	"connarr/internal/integrations/radarr"
 	"connarr/internal/integrations/sonarr"
@@ -34,7 +35,9 @@ func (d inventoryDelta) empty() bool {
 		len(d.newTorrentHashes) == 0 && len(d.changedTorrentHashes) == 0 && len(d.removedTorrentHashes) == 0
 }
 
-func mediaKey(m model.Media) string { return fmt.Sprintf("%s:%d", m.Type, m.SourceID) }
+func mediaKey(m model.Media) string {
+	return fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)
+}
 
 // computeInventoryDelta diffs the previous and freshly fetched base catalogs
 // by identity (Type/SourceID for media, Hash for torrents) so a periodic
@@ -53,16 +56,16 @@ func computeInventoryDelta(oldMedia, newMedia []model.Media, oldTorrents, newTor
 	for key, m := range newByKey {
 		old, existed := oldByKey[key]
 		if !existed {
-			delta.newOwners = append(delta.newOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID})
+			delta.newOwners = append(delta.newOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
 			continue
 		}
 		if filepath.Clean(old.Path) != filepath.Clean(m.Path) || old.SizeBytes != m.SizeBytes {
-			delta.changedOwners = append(delta.changedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID})
+			delta.changedOwners = append(delta.changedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
 		}
 	}
 	for key, m := range oldByKey {
 		if _, exists := newByKey[key]; !exists {
-			delta.removedOwners = append(delta.removedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID})
+			delta.removedOwners = append(delta.removedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
 		}
 	}
 
@@ -165,18 +168,19 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 
 	replacedOwners := append(append([]ReconciliationOwner{}, delta.newOwners...), delta.changedOwners...)
 	ownerSet := map[string]bool{}
-	movieIDs, seriesIDs := []int{}, []int{}
+	movieIDsByInstance := map[string][]int{}
+	seriesIDsByInstance := map[string][]int{}
 	for _, owner := range replacedOwners {
-		ownerSet[fmt.Sprintf("%s:%d", owner.Type, owner.ID)] = true
+		ownerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = true
 		if owner.Type == model.Movie {
-			movieIDs = append(movieIDs, owner.ID)
+			movieIDsByInstance[owner.IntegrationID] = append(movieIDsByInstance[owner.IntegrationID], owner.ID)
 		} else {
-			seriesIDs = append(seriesIDs, owner.ID)
+			seriesIDsByInstance[owner.IntegrationID] = append(seriesIDsByInstance[owner.IntegrationID], owner.ID)
 		}
 	}
 	removedOwnerSet := map[string]bool{}
 	for _, owner := range delta.removedOwners {
-		removedOwnerSet[fmt.Sprintf("%s:%d", owner.Type, owner.ID)] = true
+		removedOwnerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = true
 	}
 
 	replacedTorrentHashes := append(append([]string{}, delta.newTorrentHashes...), delta.changedTorrentHashes...)
@@ -189,69 +193,143 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 		removedTorrentSet[hash] = true
 	}
 
-	rad := service.rad.WithContext(ctx)
-	son := service.son.WithContext(ctx)
-	qb := service.qb.WithContext(ctx)
+	service.mu.RLock()
+	radInstances := service.cfg.IntegrationsOfType("radarr")
+	sonInstances := service.cfg.IntegrationsOfType("sonarr")
+	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	radClients := service.rad
+	sonClients := service.son
+	qbClients := service.qb
+	service.mu.RUnlock()
+	radInstanceByID := map[string]config.Integration{}
+	for _, integration := range radInstances {
+		radInstanceByID[integration.ID] = integration
+	}
+	sonInstanceByID := map[string]config.Integration{}
+	for _, integration := range sonInstances {
+		sonInstanceByID[integration.ID] = integration
+	}
+	qbInstanceByID := map[string]config.Integration{}
+	for _, integration := range qbInstances {
+		qbInstanceByID[integration.ID] = integration
+	}
 
-	var radarrFiles []radarr.FileRecord
-	var sonarrFiles []sonarr.FileRecord
-	var radarrErr, sonarrErr, qbErr error
-	var wait sync.WaitGroup
-	wait.Add(3)
-	go func() {
-		defer wait.Done()
-		if len(movieIDs) > 0 {
-			radarrFiles, radarrErr = rad.Files(movieIDs)
+	newTorrentsByInstance := map[string]map[string]model.Torrent{}
+	for _, t := range newTorrents {
+		if newTorrentsByInstance[t.IntegrationID] == nil {
+			newTorrentsByInstance[t.IntegrationID] = map[string]model.Torrent{}
 		}
-	}()
-	go func() {
-		defer wait.Done()
-		if len(seriesIDs) > 0 {
-			sonarrFiles, sonarrErr = son.Files(seriesIDs)
-		}
-	}()
-	scopedTorrents := map[string]model.Torrent{}
+		newTorrentsByInstance[t.IntegrationID][strings.ToLower(t.Hash)] = t
+	}
+
+	type radarrFilesFetch struct {
+		integrationID string
+		files         []radarr.FileRecord
+		err           error
+	}
+	type sonarrFilesFetch struct {
+		integrationID string
+		files         []sonarr.FileRecord
+		err           error
+	}
+	type qbittorrentFilesFetch struct {
+		integrationID string
+		files         map[string][]qbittorrent.File
+		err           error
+	}
+	radFetches := make([]radarrFilesFetch, 0, len(movieIDsByInstance))
+	for id := range movieIDsByInstance {
+		radFetches = append(radFetches, radarrFilesFetch{integrationID: id})
+	}
+	sonFetches := make([]sonarrFilesFetch, 0, len(seriesIDsByInstance))
+	for id := range seriesIDsByInstance {
+		sonFetches = append(sonFetches, sonarrFilesFetch{integrationID: id})
+	}
+	scopedTorrentsByInstance := map[string]map[string]model.Torrent{}
 	for hash := range torrentHashSet {
-		if t, ok := newTorrentByHash[hash]; ok {
-			scopedTorrents[hash] = t
+		for id, byHash := range newTorrentsByInstance {
+			if t, ok := byHash[hash]; ok {
+				if scopedTorrentsByInstance[id] == nil {
+					scopedTorrentsByInstance[id] = map[string]model.Torrent{}
+				}
+				scopedTorrentsByInstance[id][hash] = t
+			}
 		}
 	}
-	var qbittorrentFiles map[string][]qbittorrent.File
-	go func() {
-		defer wait.Done()
-		if len(scopedTorrents) > 0 {
-			qbittorrentFiles, qbErr = qb.AllFiles(scopedTorrents)
-		}
-	}()
+	qbFetches := make([]qbittorrentFilesFetch, 0, len(scopedTorrentsByInstance))
+	for id := range scopedTorrentsByInstance {
+		qbFetches = append(qbFetches, qbittorrentFilesFetch{integrationID: id})
+	}
+
+	var wait sync.WaitGroup
+	wait.Add(len(radFetches) + len(sonFetches) + len(qbFetches))
+	for i := range radFetches {
+		go func(i int) {
+			defer wait.Done()
+			id := radFetches[i].integrationID
+			radFetches[i].files, radFetches[i].err = radClients[id].WithContext(ctx).Files(movieIDsByInstance[id])
+		}(i)
+	}
+	for i := range sonFetches {
+		go func(i int) {
+			defer wait.Done()
+			id := sonFetches[i].integrationID
+			sonFetches[i].files, sonFetches[i].err = sonClients[id].WithContext(ctx).Files(seriesIDsByInstance[id])
+		}(i)
+	}
+	for i := range qbFetches {
+		go func(i int) {
+			defer wait.Done()
+			id := qbFetches[i].integrationID
+			qbFetches[i].files, qbFetches[i].err = qbClients[id].WithContext(ctx).AllFiles(scopedTorrentsByInstance[id])
+		}(i)
+	}
 	wait.Wait()
-	if radarrErr != nil {
-		return result, fmt.Errorf("radarr files: %w", radarrErr)
+	for _, f := range radFetches {
+		if f.err != nil {
+			return result, fmt.Errorf("radarr (%s) files: %w", radInstanceByID[f.integrationID].Name, f.err)
+		}
 	}
-	if sonarrErr != nil {
-		return result, fmt.Errorf("sonarr files: %w", sonarrErr)
+	for _, f := range sonFetches {
+		if f.err != nil {
+			return result, fmt.Errorf("sonarr (%s) files: %w", sonInstanceByID[f.integrationID].Name, f.err)
+		}
 	}
-	if qbErr != nil {
-		return result, fmt.Errorf("qbittorrent files: %w", qbErr)
+	for _, f := range qbFetches {
+		if f.err != nil {
+			return result, fmt.Errorf("qbittorrent (%s) files: %w", qbInstanceByID[f.integrationID].Name, f.err)
+		}
 	}
 
 	mediaRootByKey := make(map[string]string, len(newMedia))
+	mediaRootByOwnerKey := make(map[ownerKey]string, len(newMedia))
 	for _, m := range newMedia {
 		mediaRootByKey[mediaKey(m)] = m.Path
+		mediaRootByOwnerKey[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}] = m.Path
 	}
-	replacementMediaRefs := targetedMediaRefs(service, radarrFiles, sonarrFiles, mediaRootByKey)
+	var replacementMediaRefs []model.MediaFileRef
+	for _, f := range radFetches {
+		replacementMediaRefs = append(replacementMediaRefs, radarrMediaRefs(radInstanceByID[f.integrationID], f.files, mediaRootByOwnerKey)...)
+	}
+	for _, f := range sonFetches {
+		replacementMediaRefs = append(replacementMediaRefs, sonarrMediaRefs(sonInstanceByID[f.integrationID], f.files, mediaRootByOwnerKey)...)
+	}
 
-	replacementTorrentRefs := make([]model.TorrentFileRef, 0, len(qbittorrentFiles))
-	for hash, xs := range qbittorrentFiles {
-		t, ok := newTorrentByHash[hash]
-		if !ok {
-			continue
-		}
-		for _, x := range xs {
-			p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
-			replacementTorrentRefs = append(replacementTorrentRefs, model.TorrentFileRef{
-				IntegrationID: integrationID(service.cfg, "qbittorrent"), IntegrationName: integrationName(service.cfg, "qbittorrent", t.Client),
-				Client: t.Client, Hash: hash, FileIndex: x.Index, Path: p,
-			})
+	var replacementTorrentRefs []model.TorrentFileRef
+	for _, f := range qbFetches {
+		integration := qbInstanceByID[f.integrationID]
+		for hash, xs := range f.files {
+			t, ok := scopedTorrentsByInstance[f.integrationID][hash]
+			if !ok {
+				continue
+			}
+			for _, x := range xs {
+				p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
+				replacementTorrentRefs = append(replacementTorrentRefs, model.TorrentFileRef{
+					IntegrationID: integration.ID, IntegrationName: integration.Name,
+					Client: t.Client, Hash: hash, FileIndex: x.Index, Path: p,
+				})
+			}
 		}
 	}
 

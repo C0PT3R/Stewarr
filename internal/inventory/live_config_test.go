@@ -56,7 +56,7 @@ func TestAddIntegrationSucceedsAndActivatesClient(t *testing.T) {
 	// subsequent status check should be able to reach the fake Radarr.
 	service.mu.RLock()
 	activeCfg := service.cfg
-	activeClient := service.rad
+	activeClient := service.rad[reloaded.Integrations[0].ID]
 	service.mu.RUnlock()
 	if activeCfg.Radarr.URL != radarrSrv.URL {
 		t.Fatalf("expected service.cfg to reflect the new integration live, got %#v", activeCfg.Radarr)
@@ -105,7 +105,10 @@ func TestAddIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing.
 	}
 }
 
-func TestAddIntegrationRejectsSecondInstanceOfSameTypeAtRuntime(t *testing.T) {
+func TestAddIntegrationAllowsSecondRadarrInstanceAtRuntime(t *testing.T) {
+	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
+	defer radarrSrv.Close()
+
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(configPath, []byte(`{"integrations":[{"type":"radarr","name":"Movies","url":"http://radarr:7878"}],"storage":{}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -117,8 +120,32 @@ func TestAddIntegrationRejectsSecondInstanceOfSameTypeAtRuntime(t *testing.T) {
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
 
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies 4K", URL: "http://radarr4k:7878"}); err == nil {
-		t.Fatal("expected a second radarr instance to be rejected at runtime, same as a static config would reject it")
+	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies 4K", URL: radarrSrv.URL}); err != nil {
+		t.Fatalf("expected a second radarr instance to be allowed at runtime, got %v", err)
+	}
+	reloaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Integrations) != 2 {
+		t.Fatalf("expected 2 integrations, got %#v", reloaded.Integrations)
+	}
+}
+
+func TestAddIntegrationRejectsSecondInstanceOfSingleInstanceTypeAtRuntime(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"integrations":[{"type":"jellyfin","name":"Jellyfin","url":"http://jellyfin:8096"}],"storage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	baseCfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := New(baseCfg, nil)
+	service.SetConfigPath(configPath)
+
+	if err := service.AddIntegration(context.Background(), config.Integration{Type: "jellyfin", Name: "Jellyfin 2", URL: "http://jellyfin2:8096"}); err == nil {
+		t.Fatal("expected a second jellyfin instance to be rejected at runtime, same as a static config would reject it")
 	}
 }
 
@@ -161,7 +188,7 @@ func TestEditIntegrationMovesToNewURLPreservingIDAndActivatesLive(t *testing.T) 
 	}
 
 	service.mu.RLock()
-	activeClient := service.rad
+	activeClient := service.rad[originalID]
 	service.mu.RUnlock()
 	if err := activeClient.WithContext(context.Background()).Validate(); err != nil {
 		t.Fatalf("expected the live client to now reach the new Radarr server, got %v", err)
@@ -243,16 +270,14 @@ func TestRemoveIntegrationDeactivatesClientAndFallsBackToUnmanaged(t *testing.T)
 			t.Fatalf("expected the removed integration's status entry to be cleared, got %#v", status)
 		}
 	}
-	// The client must still be a valid, non-nil "unconfigured" client, not
-	// left dangling or nil — every reconciliation loop assumes it's usable.
+	// Radarr supports multiple instances, so a removed instance's client is
+	// deleted from the map entirely rather than left as a placeholder — there
+	// is no single "the" radarr client to fall back to.
 	service.mu.RLock()
-	activeClient := service.rad
+	_, stillPresent := service.rad[id]
 	service.mu.RUnlock()
-	if activeClient == nil {
-		t.Fatal("expected service.rad to be reset to a valid unconfigured client, not nil")
-	}
-	if err := activeClient.WithContext(context.Background()).Validate(); err != nil {
-		t.Fatalf("expected an unconfigured client's Validate to no-op rather than error, got %v", err)
+	if stillPresent {
+		t.Fatal("expected the removed integration's client to be deleted from service.rad")
 	}
 }
 
