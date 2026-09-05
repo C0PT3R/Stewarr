@@ -83,6 +83,24 @@ type Service struct {
 	seerr                    *seerr.Client
 	qb                       *qbittorrent.Client
 	db                       *store.Store
+	// configPath is where a live config mutation (AddIntegration) persists
+	// the updated Config. Empty means live editing is unavailable (e.g. a
+	// Service built directly in tests, with no file backing it at all).
+	configPath string
+	// configMu serializes AddIntegration calls: validate, persist, then swap
+	// service.cfg/rebuild the affected client as one sequence, so concurrent
+	// calls can't race each other's read-modify-write of Integrations.
+	configMu sync.Mutex
+}
+
+// SetConfigPath records where live config mutations should be persisted.
+// Called once from main() after New(); left unset in tests that construct a
+// Service directly, where AddIntegration is expected to report an error
+// rather than silently write nowhere.
+func (service *Service) SetConfigPath(path string) {
+	service.mu.Lock()
+	service.configPath = path
+	service.mu.Unlock()
 }
 
 func New(configuration config.Config, database *store.Store) *Service {

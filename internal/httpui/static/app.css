@@ -979,6 +979,24 @@ td:has(> a > strong) > a {
   flex: 0 0 auto;
 }
 
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.field-stack label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--faint);
+}
+.field-stack input,
+.field-stack select {
+  font-size: 14px;
+  color: #eee;
+}
+
 body {
   font-family: system-ui, sans-serif;
   margin: 24px;

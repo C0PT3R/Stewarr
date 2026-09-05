@@ -68,8 +68,8 @@
       "season_recency": 8
     },
     "request_value_bonus": 100,
-    "favorite_value_bonus": 1000,
-    "keep_tag_value_bonus": 10000,
+    "favorite_value_bonus": 100,
+    "keep_tag_value_bonus": 1000,
     "torrent_weights": {
       "seeds": 1,
       "leechers": 5,

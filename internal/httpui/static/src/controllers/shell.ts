@@ -51,13 +51,25 @@ export class ShellController extends window.Stimulus.Controller {
     const removal = target.closest<HTMLElement>("[data-removal-url]");
     if (removal) {
       event.preventDefault();
-      this.openRemoval(removal.dataset.removalUrl!, removal);
+      this.openOverlay(removal.dataset.removalUrl!, removal);
+      return;
+    }
+    const overlay = target.closest<HTMLElement>("[data-overlay-url]");
+    if (overlay) {
+      event.preventDefault();
+      this.openOverlay(overlay.dataset.overlayUrl!, overlay);
       return;
     }
     const loadingCancel = target.closest("[data-modal-cancel-loading]");
     if (loadingCancel) {
       event.preventDefault();
       if (this.modalRequest) this.modalRequest.abort();
+      this.closeModal();
+      return;
+    }
+    const overlayCancel = target.closest("[data-overlay-cancel]");
+    if (overlayCancel) {
+      event.preventDefault();
       this.closeModal();
       return;
     }
@@ -115,19 +127,31 @@ export class ShellController extends window.Stimulus.Controller {
       event.preventDefault();
       const url = new URL(form.action, location.href);
       for (const [name, value] of new FormData(form)) url.searchParams.append(name, value as string);
-      this.openRemoval(url.href, form.querySelector("button[type=submit]") as HTMLElement);
+      this.openOverlay(url.href, form.querySelector("button[type=submit]") as HTMLElement);
       return;
     }
     if (form.matches("[data-background-submit]")) {
       event.preventDefault();
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
       if (button) button.disabled = true;
+      const errorTarget = form.querySelector<HTMLElement>("[data-modal-error]");
+      if (errorTarget) errorTarget.hidden = true;
       try {
         const response = await fetch(form.action, { method: form.method || "POST", body: new FormData(form) });
         if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+        const insideModal = form.closest("#removal-modal");
+        if (insideModal) {
+          insideModal.replaceChildren();
+          document.body.classList.remove("modal-open");
+        }
         dispatchRevision({ kind: "operation" });
       } catch (error) {
-        announce(`Action failed: ${(error as Error).message}`);
+        if (errorTarget) {
+          errorTarget.textContent = (error as Error).message;
+          errorTarget.hidden = false;
+        } else {
+          announce(`Action failed: ${(error as Error).message}`);
+        }
       } finally {
         if (button) button.disabled = false;
       }
@@ -215,12 +239,12 @@ export class ShellController extends window.Stimulus.Controller {
     if (updates && force) updates.hidden = true;
   }
 
-  async openRemoval(url: string, opener: HTMLElement): Promise<void> {
+  async openOverlay(url: string, opener: HTMLElement): Promise<void> {
     if (this.modalRequest) this.modalRequest.abort();
     this.modalRequest = new AbortController();
     const root = document.getElementById("removal-modal") as RemovalModalRoot | null;
     if (!root) return;
-    root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Preparing removal plan…</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
+    root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading…</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
     root.dataset.openerId = opener.id || "";
     root._connarrOpener = opener;
     document.body.classList.add("modal-open");
@@ -233,7 +257,7 @@ export class ShellController extends window.Stimulus.Controller {
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
-      root.querySelector(".bad")!.textContent = `Removal plan unavailable: ${(error as Error).message}`;
+      root.querySelector(".bad")!.textContent = `Unavailable: ${(error as Error).message}`;
     } finally {
       this.modalRequest = null;
     }

@@ -220,13 +220,25 @@
       const removal = target.closest("[data-removal-url]");
       if (removal) {
         event.preventDefault();
-        this.openRemoval(removal.dataset.removalUrl, removal);
+        this.openOverlay(removal.dataset.removalUrl, removal);
+        return;
+      }
+      const overlay = target.closest("[data-overlay-url]");
+      if (overlay) {
+        event.preventDefault();
+        this.openOverlay(overlay.dataset.overlayUrl, overlay);
         return;
       }
       const loadingCancel = target.closest("[data-modal-cancel-loading]");
       if (loadingCancel) {
         event.preventDefault();
         if (this.modalRequest) this.modalRequest.abort();
+        this.closeModal();
+        return;
+      }
+      const overlayCancel = target.closest("[data-overlay-cancel]");
+      if (overlayCancel) {
+        event.preventDefault();
         this.closeModal();
         return;
       }
@@ -283,19 +295,31 @@
         event.preventDefault();
         const url = new URL(form.action, location.href);
         for (const [name, value] of new FormData(form)) url.searchParams.append(name, value);
-        this.openRemoval(url.href, form.querySelector("button[type=submit]"));
+        this.openOverlay(url.href, form.querySelector("button[type=submit]"));
         return;
       }
       if (form.matches("[data-background-submit]")) {
         event.preventDefault();
         const button = form.querySelector("button[type=submit]");
         if (button) button.disabled = true;
+        const errorTarget = form.querySelector("[data-modal-error]");
+        if (errorTarget) errorTarget.hidden = true;
         try {
           const response = await fetch(form.action, { method: form.method || "POST", body: new FormData(form) });
           if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+          const insideModal = form.closest("#removal-modal");
+          if (insideModal) {
+            insideModal.replaceChildren();
+            document.body.classList.remove("modal-open");
+          }
           dispatchRevision({ kind: "operation" });
         } catch (error) {
-          announce(`Action failed: ${error.message}`);
+          if (errorTarget) {
+            errorTarget.textContent = error.message;
+            errorTarget.hidden = false;
+          } else {
+            announce(`Action failed: ${error.message}`);
+          }
         } finally {
           if (button) button.disabled = false;
         }
@@ -377,12 +401,12 @@
       const updates = document.getElementById("updates-available");
       if (updates && force) updates.hidden = true;
     }
-    async openRemoval(url, opener) {
+    async openOverlay(url, opener) {
       if (this.modalRequest) this.modalRequest.abort();
       this.modalRequest = new AbortController();
       const root = document.getElementById("removal-modal");
       if (!root) return;
-      root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Preparing removal plan\u2026</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
+      root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading\u2026</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
       root.dataset.openerId = opener.id || "";
       root._connarrOpener = opener;
       document.body.classList.add("modal-open");
@@ -395,7 +419,7 @@
       } catch (error) {
         if (error.name === "AbortError") return;
         root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
-        root.querySelector(".bad").textContent = `Removal plan unavailable: ${error.message}`;
+        root.querySelector(".bad").textContent = `Unavailable: ${error.message}`;
       } finally {
         this.modalRequest = null;
       }

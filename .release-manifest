@@ -19,6 +19,7 @@ internal/config/config.go
 internal/config/config_test.go
 internal/filetopology/topology.go
 internal/filetopology/topology_test.go
+internal/httpui/add_integration_test.go
 internal/httpui/api.go
 internal/httpui/auto_removal.go
 internal/httpui/auto_removal_test.go
@@ -63,6 +64,7 @@ internal/httpui/static/vendor/STIMULUS-LICENSE
 internal/httpui/static/vendor/htmx-2.0.10.min.js
 internal/httpui/static/vendor/stimulus-3.2.2.umd.js
 internal/httpui/templates.go
+internal/httpui/templates/add_integration.html
 internal/httpui/templates/history.html
 internal/httpui/templates/home.html
 internal/httpui/templates/library.html
@@ -87,6 +89,8 @@ internal/integrations/seerr/client_test.go
 internal/integrations/sonarr/client.go
 internal/integrations/sonarr/client_test.go
 internal/integrations/sonarr/history.go
+internal/inventory/live_config.go
+internal/inventory/live_config_test.go
 internal/inventory/reconcile.go
 internal/inventory/reconcile_test.go
 internal/inventory/reconcile_delta.go

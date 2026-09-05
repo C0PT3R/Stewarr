@@ -9,7 +9,7 @@
 <body data-controller="shell revisions">
   {{chrome "services"}}
   <main id="services-content" data-reactive-fragment data-live-policy="immediate">
-    <h1 class="page-title">Services</h1>
+    <div class="card-head"><h1 class="page-title">Services</h1><button type="button" class="card-link" data-overlay-url="/services/add">Add integration</button></div>
     {{if not .Services}}
       <p class="muted">No integrations are configured yet.</p>
     {{else}}

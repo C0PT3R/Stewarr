@@ -103,6 +103,7 @@ func main() {
 	}
 	defer db.Close()
 	inv := inventory.New(cfg, db)
+	inv.SetConfigPath(*configPath)
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	go func() {

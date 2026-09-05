@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -59,6 +60,78 @@ func integrationID(integrationType, endpoint string) string {
 	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 	digest := sha256.Sum256([]byte(normalizedType + "\x00" + normalizedEndpoint))
 	return normalizedType + "-" + hex.EncodeToString(digest[:6])
+}
+
+// NewIntegrationID exposes integrationID's stable-ID derivation to callers
+// outside this package (live integration-add flows) without duplicating the
+// hashing scheme Load uses for integrations parsed from disk.
+func NewIntegrationID(integrationType, endpoint string) string {
+	return integrationID(integrationType, endpoint)
+}
+
+// normalizeIntegration trims/lowercases the fields Load already normalizes,
+// factored out so a live "add integration" flow applies identical rules to a
+// single candidate without re-running the whole file loader.
+func normalizeIntegration(integration *Integration) {
+	integration.Type = strings.ToLower(strings.TrimSpace(integration.Type))
+	integration.Name = strings.TrimSpace(integration.Name)
+	integration.URL = strings.TrimRight(strings.TrimSpace(integration.URL), "/")
+	integration.RootPath = strings.TrimSpace(integration.RootPath)
+}
+
+// validateIntegration checks one already-normalized integration against the
+// rules Load enforces per-entry (required fields, reserved/duplicate names,
+// supported type, url/root_path exclusivity). seenNames must contain every
+// other integration's lowercased name already accepted in this batch/config.
+func validateIntegration(integration Integration, seenNames map[string]bool) error {
+	if integration.Type == "" {
+		return fmt.Errorf("type is required")
+	}
+	if integration.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	nameKey := strings.ToLower(integration.Name)
+	if nameKey == "unmanaged" {
+		return fmt.Errorf("integration name %q is reserved", integration.Name)
+	}
+	if seenNames[nameKey] {
+		return fmt.Errorf("integration name %q must be unique (case-insensitive)", integration.Name)
+	}
+	switch integration.Type {
+	case "radarr", "sonarr", "qbittorrent", "jellyfin", "seerr":
+		if integration.URL == "" {
+			return fmt.Errorf("integration %q (%s) requires url", integration.Name, integration.Type)
+		}
+		if integration.RootPath != "" {
+			return fmt.Errorf("integration %q (%s) does not support root_path; storage roots are discovered by its adapter", integration.Name, integration.Type)
+		}
+	default:
+		return fmt.Errorf("integration %q has unsupported type %q", integration.Name, integration.Type)
+	}
+	return nil
+}
+
+// populateDerivedIntegrationFields fills the single-adapter-per-type
+// convenience fields (Radarr, Sonarr, ...) the runtime still reads directly,
+// from Integrations (the only source of truth). Factored out of Load so a
+// live "add integration" flow can refresh them the same way after mutating
+// Integrations, without re-running the whole file loader.
+func (configuration *Config) populateDerivedIntegrationFields() {
+	if integration, ok := configuration.FirstIntegration("radarr"); ok {
+		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	}
+	if integration, ok := configuration.FirstIntegration("sonarr"); ok {
+		configuration.Sonarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	}
+	if integration, ok := configuration.FirstIntegration("jellyfin"); ok {
+		configuration.Jellyfin = Service{URL: integration.URL, APIKey: integration.APIKey}
+	}
+	if integration, ok := configuration.FirstIntegration("seerr"); ok {
+		configuration.Seerr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	}
+	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
+		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
+	}
 }
 
 func (integration Integration) Enabled() bool {
@@ -147,24 +220,11 @@ func Load(path string) (Config, error) {
 	typeCounts := map[string]int{}
 	for integrationIndex := range configuration.Integrations {
 		integration := &configuration.Integrations[integrationIndex]
-		integration.Type = strings.ToLower(strings.TrimSpace(integration.Type))
-		integration.Name = strings.TrimSpace(integration.Name)
-		integration.URL = strings.TrimRight(strings.TrimSpace(integration.URL), "/")
-		integration.RootPath = strings.TrimSpace(integration.RootPath)
-		if integration.Type == "" {
-			return configuration, fmt.Errorf("integrations[%d].type is required", integrationIndex)
+		normalizeIntegration(integration)
+		if err := validateIntegration(*integration, seenNames); err != nil {
+			return configuration, fmt.Errorf("integrations[%d]: %w", integrationIndex, err)
 		}
-		if integration.Name == "" {
-			return configuration, fmt.Errorf("integrations[%d].name is required", integrationIndex)
-		}
-		nameKey := strings.ToLower(integration.Name)
-		if nameKey == "unmanaged" {
-			return configuration, fmt.Errorf("integration name %q is reserved", integration.Name)
-		}
-		if seenNames[nameKey] {
-			return configuration, fmt.Errorf("integration name %q must be unique (case-insensitive)", integration.Name)
-		}
-		seenNames[nameKey] = true
+		seenNames[strings.ToLower(integration.Name)] = true
 		endpoint := integration.URL
 		if endpoint == "" {
 			endpoint = integration.RootPath
@@ -173,17 +233,6 @@ func Load(path string) (Config, error) {
 		// integration does not sever persisted ownership.
 		integration.ID = integrationID(integration.Type, endpoint)
 		typeCounts[integration.Type]++
-		switch integration.Type {
-		case "radarr", "sonarr", "qbittorrent", "jellyfin", "seerr":
-			if integration.URL == "" {
-				return configuration, fmt.Errorf("integration %q (%s) requires url", integration.Name, integration.Type)
-			}
-			if integration.RootPath != "" {
-				return configuration, fmt.Errorf("integration %q (%s) does not support root_path; storage roots are discovered by its adapter", integration.Name, integration.Type)
-			}
-		default:
-			return configuration, fmt.Errorf("integration %q has unsupported type %q", integration.Name, integration.Type)
-		}
 	}
 	// The config/domain now has stable integration instances, but the current
 	// runtime still has one adapter slot per integration type. Fail closed rather
@@ -194,23 +243,7 @@ func Load(path string) (Config, error) {
 			return configuration, fmt.Errorf("multiple %s integration instances are not supported by this runtime yet", integrationType)
 		}
 	}
-	// Populate the single-adapter-per-type fields the current runtime still
-	// reads directly, derived from Integrations (the only source of truth).
-	if integration, ok := configuration.FirstIntegration("radarr"); ok {
-		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
-	}
-	if integration, ok := configuration.FirstIntegration("sonarr"); ok {
-		configuration.Sonarr = Service{URL: integration.URL, APIKey: integration.APIKey}
-	}
-	if integration, ok := configuration.FirstIntegration("jellyfin"); ok {
-		configuration.Jellyfin = Service{URL: integration.URL, APIKey: integration.APIKey}
-	}
-	if integration, ok := configuration.FirstIntegration("seerr"); ok {
-		configuration.Seerr = Service{URL: integration.URL, APIKey: integration.APIKey}
-	}
-	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
-		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
-	}
+	configuration.populateDerivedIntegrationFields()
 	if configuration.Server.Listen == "" {
 		configuration.Server.Listen = ":8088"
 	}
@@ -252,4 +285,78 @@ func Load(path string) (Config, error) {
 		return configuration, fmt.Errorf("storage.critical_usage_percent must be greater than 0 and less than 100")
 	}
 	return configuration, nil
+}
+
+// Save atomically writes configuration back to path: encode, write to a temp
+// file in the same directory, then rename over the original. A crash or a
+// concurrent read mid-write can never observe a corrupt or partial file.
+// Callers that mutate a live Config (e.g. adding an integration) are
+// responsible for their own serialization of concurrent Save calls; this
+// function only guarantees the write itself is atomic.
+func Save(path string, configuration Config) error {
+	data, err := json.MarshalIndent(configuration, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode config: %w", err)
+	}
+	dir := filepath.Dir(path)
+	temp, err := os.CreateTemp(dir, ".config-*.json.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config file: %w", err)
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath) // no-op once the rename below succeeds
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return fmt.Errorf("write temp config file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return fmt.Errorf("sync temp config file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close temp config file: %w", err)
+	}
+	if err := os.Chmod(tempPath, 0o600); err != nil {
+		return fmt.Errorf("chmod temp config file: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	return nil
+}
+
+// AddIntegration validates candidate against the same rules Load applies to
+// an entry parsed from disk (required fields, reserved/duplicate names,
+// supported type, url/root_path exclusivity, one adapter slot per type) and
+// returns configuration with it appended and derived adapter fields
+// refreshed. It does not touch disk; the caller decides whether/how to
+// persist the result (see Save) and whether to do a live connection check
+// before committing to it.
+func AddIntegration(configuration Config, candidate Integration) (Config, error) {
+	normalizeIntegration(&candidate)
+	// Live-adding a root_path-only integration isn't supported by this first
+	// slice; every live-addable type requires url (validateIntegration
+	// already enforces url/root_path exclusivity for these types).
+	candidate.RootPath = ""
+
+	seenNames := make(map[string]bool, len(configuration.Integrations))
+	for _, existing := range configuration.Integrations {
+		seenNames[strings.ToLower(existing.Name)] = true
+	}
+	if err := validateIntegration(candidate, seenNames); err != nil {
+		return configuration, err
+	}
+	for _, existing := range configuration.Integrations {
+		if strings.EqualFold(existing.Type, candidate.Type) {
+			return configuration, fmt.Errorf("a %s integration already exists; multiple instances of the same type are not supported by this runtime yet", candidate.Type)
+		}
+	}
+	// The stable internal ID deliberately excludes Name so renaming an
+	// integration does not sever persisted ownership.
+	candidate.ID = integrationID(candidate.Type, candidate.URL)
+
+	updated := configuration
+	updated.Integrations = append(append([]Integration(nil), configuration.Integrations...), candidate)
+	updated.populateDerivedIntegrationFields()
+	return updated, nil
 }
