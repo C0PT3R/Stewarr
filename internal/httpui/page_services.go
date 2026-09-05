@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"connarr/internal/config"
 	"connarr/internal/inventory"
@@ -12,6 +13,22 @@ import (
 // maximumAddIntegrationFormBytes bounds the add-integration form body the
 // same way maximumRemovalFormBytes bounds removal forms.
 const maximumAddIntegrationFormBytes = 2 << 20
+
+// scheduleIntegrationConsistency runs the same inventory-then-files chain a
+// removal triggers, so adding/editing/removing an integration discovers its
+// storage paths (or reclassifies its files as Unmanaged) right away instead
+// of waiting for the next periodic file reconciliation — the whole point of
+// moving config editing into the app instead of a static file. The quiet
+// period coalesces rapid successive changes (e.g. adding several
+// integrations back to back) into one run rather than piling them up.
+func (server *Server) scheduleIntegrationConsistency(cause string) {
+	if server.tasks == nil {
+		return
+	}
+	if _, err := server.tasks.AdvanceWorkflow("inventory-and-files-consistency", "global", 5*time.Second, 2*time.Minute, cause); err != nil {
+		log.Printf("[http] schedule inventory/files consistency after %s: %v", cause, err)
+	}
+}
 
 type servicesData struct {
 	Services     []inventory.ServiceStatus
@@ -73,9 +90,7 @@ func (server *Server) addIntegration(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if server.tasks != nil {
-		_, _ = server.tasks.RunAsyncApp("inventory")
-	}
+	server.scheduleIntegrationConsistency("Integration added: " + candidate.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -135,9 +150,7 @@ func (server *Server) submitEditIntegration(w http.ResponseWriter, r *http.Reque
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if server.tasks != nil {
-		_, _ = server.tasks.RunAsyncApp("inventory")
-	}
+	server.scheduleIntegrationConsistency("Integration edited: " + updates.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -154,12 +167,11 @@ func (server *Server) removeIntegration(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	if err := server.inv.RemoveIntegration(r.FormValue("id")); err != nil {
+	id := r.FormValue("id")
+	if err := server.inv.RemoveIntegration(id); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if server.tasks != nil {
-		_, _ = server.tasks.RunAsyncApp("inventory")
-	}
+	server.scheduleIntegrationConsistency("Integration removed: " + id)
 	w.WriteHeader(http.StatusNoContent)
 }

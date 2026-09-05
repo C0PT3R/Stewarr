@@ -630,7 +630,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 
 func (server *Server) schedulePostRemovalConsistency(historyID int64) error {
 	_, err := server.tasks.AdvanceWorkflow(
-		"post-removal-consistency",
+		"inventory-and-files-consistency",
 		"global",
 		0,
 		5*time.Minute,

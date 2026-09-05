@@ -151,7 +151,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[scheduler] initialization: %v", err)
 	}
-	if err := taskManager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "post-removal-consistency", Name: "Post-removal consistency", Description: "Restore authoritative inventory and file topology after mutations.", Steps: []string{"inventory", "files"}}); err != nil {
+	if err := taskManager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Name: "Inventory and files consistency", Description: "Restore authoritative inventory and file topology after a mutation (a removal, or an integration being added/edited/removed).", Steps: []string{"inventory", "files"}}); err != nil {
 		log.Fatalf("[scheduler] workflow registration: %v", err)
 	}
 

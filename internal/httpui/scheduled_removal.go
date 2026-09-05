@@ -86,7 +86,7 @@ func (server *Server) recoverScheduledRemovals(database *store.Store) error {
 		if err := server.inv.QueueReconciliation(inventory.ReconciliationScope{Full: true, Reasons: []string{"recovery after interrupted removal"}}); err != nil {
 			return fmt.Errorf("record full consistency recovery scope: %w", err)
 		}
-		if _, err := server.tasks.AdvanceWorkflow("post-removal-consistency", "global", 0, 5*time.Minute, "Recovery after an interrupted removal"); err != nil {
+		if _, err := server.tasks.AdvanceWorkflow("inventory-and-files-consistency", "global", 0, 5*time.Minute, "Recovery after an interrupted removal"); err != nil {
 			return fmt.Errorf("schedule consistency recovery: %w", err)
 		}
 	}

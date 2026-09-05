@@ -22,7 +22,7 @@ func TestPostRemovalConsistencyIsReadyImmediately(t *testing.T) {
 		tasks.Definition{ID: "inventory", Name: "Inventory", Runner: func(context.Context) error { return nil }},
 		tasks.Definition{ID: "files", Name: "Files", Runner: func(context.Context) error { return nil }},
 	)
-	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "post-removal-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{tasks: manager}
@@ -68,7 +68,7 @@ func TestRemovalJournalRecoveryResubmitsOnlySafeQueuedWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "post-removal-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
 		t.Fatal(err)
 	}
 	server := &Server{tasks: manager, inv: inventory.New(config.Config{}, database)}

@@ -150,6 +150,12 @@ This file separates implemented behavior from intended direction. It is not a pr
   explicit `integration_id` end to end so an ambiguous match (the same
   Radarr/Sonarr source ID, or the same torrent infohash, existing in more than
   one configured instance) fails closed instead of silently guessing.
+- Adding, editing, or removing an integration schedules an immediate
+  inventory-then-files consistency pass (the same chain a removal triggers)
+  instead of waiting for the next periodic file reconciliation — the actual
+  point of moving storage-path discovery into the app in the first place:
+  add an integration and its paths show up promptly, without a restart or an
+  hours-long wait.
 
 ### Model and operations
 

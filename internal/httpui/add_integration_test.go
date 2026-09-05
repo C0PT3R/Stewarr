@@ -2,6 +2,7 @@ package httpui
 
 import (
 	"bytes"
+	"context"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"connarr/internal/config"
 	"connarr/internal/inventory"
+	"connarr/internal/tasks"
 )
 
 // multipartIntegrationForm builds a request body shaped exactly like the
@@ -90,6 +92,58 @@ func TestAddIntegrationEndToEndOverHTTP(t *testing.T) {
 	handler.ServeHTTP(servicesRecorder, servicesRequest)
 	if !strings.Contains(servicesRecorder.Body.String(), "Movies") {
 		t.Fatalf("expected the Services page to show the newly added integration live, got:\n%s", servicesRecorder.Body.String())
+	}
+}
+
+// TestAddIntegrationSchedulesStorageDiscovery guards the whole reason live
+// config editing exists: a newly added integration's storage paths must be
+// discovered promptly, not left to wait for the next periodic file
+// reconciliation (which can be hours away). Adding an integration must
+// schedule the same inventory-then-files workflow a removal does.
+func TestAddIntegrationSchedulesStorageDiscovery(t *testing.T) {
+	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"version":"5.0.0"}`))
+	}))
+	defer radarrSrv.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"storage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := inventory.New(cfg, nil)
+	inv.SetConfigPath(configPath)
+
+	manager := tasks.New(
+		tasks.Definition{ID: "inventory", Name: "Inventory", Runner: func(context.Context) error { return nil }},
+		tasks.Definition{ID: "files", Name: "Files", Runner: func(context.Context) error { return nil }},
+	)
+	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inv, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body, contentType := multipartIntegrationForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": radarrSrv.URL, "api_key": "key"})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/services/integrations", body)
+	request.Header.Set("Content-Type", contentType)
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 on success, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	workflows := manager.WorkflowSnapshot()
+	if len(workflows) != 1 {
+		t.Fatalf("expected adding an integration to schedule exactly one inventory-and-files-consistency run, got %#v", workflows)
+	}
+	if workflows[0].DefinitionID != "inventory-and-files-consistency" {
+		t.Fatalf("unexpected workflow definition scheduled: %#v", workflows[0])
 	}
 }
 
