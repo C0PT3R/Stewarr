@@ -20,28 +20,29 @@ import (
 )
 
 type Server struct {
-	inv               *inventory.Service
-	tasks             *tasks.Manager
-	homeTpl           *template.Template
-	storageTpl        *template.Template
-	servicesTpl       *template.Template
-	addIntegrationTpl *template.Template
-	libraryTpl        *template.Template
-	historyTpl        *template.Template
-	profileTpl        *template.Template
-	torrentTpl        *template.Template
-	torrentDetailTpl  *template.Template
-	unmanagedTpl      *template.Template
-	tasksTpl          *template.Template
-	removalTpl        *template.Template
-	operationTpl      *template.Template
-	staticHandler     http.Handler
-	revisions         *revisionHub
-	startOnce         sync.Once
-	admissionMu       sync.Mutex
-	homeMu            sync.Mutex
-	homeRevision      uint64
-	homeCache         homeData
+	inv                *inventory.Service
+	tasks              *tasks.Manager
+	homeTpl            *template.Template
+	storageTpl         *template.Template
+	servicesTpl        *template.Template
+	addIntegrationTpl  *template.Template
+	editIntegrationTpl *template.Template
+	libraryTpl         *template.Template
+	historyTpl         *template.Template
+	profileTpl         *template.Template
+	torrentTpl         *template.Template
+	torrentDetailTpl   *template.Template
+	unmanagedTpl       *template.Template
+	tasksTpl           *template.Template
+	removalTpl         *template.Template
+	operationTpl       *template.Template
+	staticHandler      http.Handler
+	revisions          *revisionHub
+	startOnce          sync.Once
+	admissionMu        sync.Mutex
+	homeMu             sync.Mutex
+	homeRevision       uint64
+	homeCache          homeData
 }
 
 func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Server, error) {
@@ -79,6 +80,10 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 		return nil, err
 	}
 	addIntegrationTemplate, err := parseUITemplate("add_integration.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
+	editIntegrationTemplate, err := parseUITemplate("edit_integration.html", templateFunctions)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +127,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addIntegrationTpl: addIntegrationTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
+	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addIntegrationTpl: addIntegrationTemplate, editIntegrationTpl: editIntegrationTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub()}
 	if taskManager != nil {
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
@@ -150,6 +155,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/services", server.servicesPage)
 	mux.HandleFunc("/services/add", server.addIntegrationForm)
 	mux.HandleFunc("/services/integrations", server.addIntegration)
+	mux.HandleFunc("/services/edit", server.editIntegrationForm)
+	mux.HandleFunc("/services/remove", server.removeIntegration)
 	mux.HandleFunc("/library", server.library)
 	mux.HandleFunc("/library/", server.media)
 	mux.HandleFunc("/media/", server.media)

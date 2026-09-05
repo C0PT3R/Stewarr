@@ -16,7 +16,7 @@
     <div class="services-grid">
       {{range .Services}}
       <div class="card service">
-        <div class="service-title"><span>{{.Name}}</span> <b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b></div>
+        <div class="service-title"><span>{{.Name}}</span> <b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b><a class="card-link" data-overlay-url="/services/edit?id={{.ID}}">Edit</a></div>
         {{if .Message}}<div class="muted">{{.Message}}</div>{{end}}
         {{if not .CheckedAt.IsZero}}<div class="muted">Checked {{fmtUpdated .CheckedAt}}</div>{{end}}
         {{with index $.ServiceRoots .Name}}

@@ -1,7 +1,7 @@
 package config
 
 import (
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -52,21 +52,28 @@ type Integration struct {
 	Password              string `json:"password,omitempty"`
 	RootPath              string `json:"root_path,omitempty"`
 	AllowAutomaticRemoval bool   `json:"allow_automatic_removal"`
-	ID                    string `json:"-"`
+	// ID is a stable, opaque identifier assigned once when the integration is
+	// first added and never recomputed afterward — deliberately independent
+	// of both Name and URL, so renaming an integration or moving it to a new
+	// address (a different host, port, or network entirely) never severs the
+	// ownership already attributed to it (MediaFileRef.IntegrationID,
+	// Torrent.IntegrationID, ...). A config.json written before this field
+	// existed has no id for its integrations; Load assigns one the first
+	// time it sees such an entry and persists it immediately, so the
+	// assignment only ever happens once per integration, not on every load.
+	ID string `json:"id,omitempty"`
 }
 
-func integrationID(integrationType, endpoint string) string {
-	normalizedType := strings.ToLower(strings.TrimSpace(integrationType))
-	normalizedEndpoint := strings.TrimRight(strings.TrimSpace(endpoint), "/")
-	digest := sha256.Sum256([]byte(normalizedType + "\x00" + normalizedEndpoint))
-	return normalizedType + "-" + hex.EncodeToString(digest[:6])
-}
-
-// NewIntegrationID exposes integrationID's stable-ID derivation to callers
-// outside this package (live integration-add flows) without duplicating the
-// hashing scheme Load uses for integrations parsed from disk.
-func NewIntegrationID(integrationType, endpoint string) string {
-	return integrationID(integrationType, endpoint)
+// newIntegrationID generates a fresh, random, opaque ID for a new
+// integration. It is never derived from the integration's own fields (type
+// aside, kept only as a human-readable prefix) so nothing about it needs to
+// stay in sync with a later edit.
+func newIntegrationID(integrationType string) (string, error) {
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("generate integration id: %w", err)
+	}
+	return strings.ToLower(strings.TrimSpace(integrationType)) + "-" + hex.EncodeToString(randomBytes), nil
 }
 
 // normalizeIntegration trims/lowercases the fields Load already normalizes,
@@ -119,18 +126,28 @@ func validateIntegration(integration Integration, seenNames map[string]bool) err
 func (configuration *Config) populateDerivedIntegrationFields() {
 	if integration, ok := configuration.FirstIntegration("radarr"); ok {
 		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	} else {
+		configuration.Radarr = Service{}
 	}
 	if integration, ok := configuration.FirstIntegration("sonarr"); ok {
 		configuration.Sonarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	} else {
+		configuration.Sonarr = Service{}
 	}
 	if integration, ok := configuration.FirstIntegration("jellyfin"); ok {
 		configuration.Jellyfin = Service{URL: integration.URL, APIKey: integration.APIKey}
+	} else {
+		configuration.Jellyfin = Service{}
 	}
 	if integration, ok := configuration.FirstIntegration("seerr"); ok {
 		configuration.Seerr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	} else {
+		configuration.Seerr = Service{}
 	}
 	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
 		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
+	} else {
+		configuration.QBittorrent = QBittorrentService{}
 	}
 }
 
@@ -218,6 +235,7 @@ func Load(path string) (Config, error) {
 	_ = json.Unmarshal(fileContents, &present)
 	seenNames := map[string]bool{}
 	typeCounts := map[string]int{}
+	assignedFreshID := false
 	for integrationIndex := range configuration.Integrations {
 		integration := &configuration.Integrations[integrationIndex]
 		normalizeIntegration(integration)
@@ -225,13 +243,17 @@ func Load(path string) (Config, error) {
 			return configuration, fmt.Errorf("integrations[%d]: %w", integrationIndex, err)
 		}
 		seenNames[strings.ToLower(integration.Name)] = true
-		endpoint := integration.URL
-		if endpoint == "" {
-			endpoint = integration.RootPath
+		if integration.ID == "" {
+			// A config.json written before ID was persisted (or a hand-added
+			// entry) has none yet. Assign one now; the persist below makes
+			// this a one-time event, not something that happens on every load.
+			id, err := newIntegrationID(integration.Type)
+			if err != nil {
+				return configuration, fmt.Errorf("integrations[%d]: %w", integrationIndex, err)
+			}
+			integration.ID = id
+			assignedFreshID = true
 		}
-		// The stable internal ID deliberately excludes Name so renaming an
-		// integration does not sever persisted ownership.
-		integration.ID = integrationID(integration.Type, endpoint)
 		typeCounts[integration.Type]++
 	}
 	// The config/domain now has stable integration instances, but the current
@@ -283,6 +305,11 @@ func Load(path string) (Config, error) {
 	}
 	if configuration.Storage.CriticalUsagePercent >= 100 {
 		return configuration, fmt.Errorf("storage.critical_usage_percent must be greater than 0 and less than 100")
+	}
+	if assignedFreshID {
+		if err := Save(path, configuration); err != nil {
+			return configuration, fmt.Errorf("persist generated integration id: %w", err)
+		}
 	}
 	return configuration, nil
 }
@@ -351,12 +378,78 @@ func AddIntegration(configuration Config, candidate Integration) (Config, error)
 			return configuration, fmt.Errorf("a %s integration already exists; multiple instances of the same type are not supported by this runtime yet", candidate.Type)
 		}
 	}
-	// The stable internal ID deliberately excludes Name so renaming an
-	// integration does not sever persisted ownership.
-	candidate.ID = integrationID(candidate.Type, candidate.URL)
+	id, err := newIntegrationID(candidate.Type)
+	if err != nil {
+		return configuration, err
+	}
+	candidate.ID = id
 
 	updated := configuration
 	updated.Integrations = append(append([]Integration(nil), configuration.Integrations...), candidate)
+	updated.populateDerivedIntegrationFields()
+	return updated, nil
+}
+
+// EditIntegration updates the integration identified by id — Name, URL,
+// APIKey, Username, Password — validated the same way AddIntegration
+// validates a new one. Type and ID are immutable: Type because the adapter
+// class it selects can't meaningfully change in place, and ID because it's
+// the whole point — an edit, including moving the integration to an entirely
+// different URL, must never sever the ownership already attributed to it.
+func EditIntegration(configuration Config, id string, updates Integration) (Config, error) {
+	index := -1
+	for i, existing := range configuration.Integrations {
+		if existing.ID == id {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		return configuration, fmt.Errorf("integration not found")
+	}
+
+	candidate := updates
+	candidate.Type = configuration.Integrations[index].Type
+	candidate.ID = id
+	normalizeIntegration(&candidate)
+	candidate.RootPath = ""
+
+	seenNames := make(map[string]bool, len(configuration.Integrations)-1)
+	for i, existing := range configuration.Integrations {
+		if i == index {
+			continue
+		}
+		seenNames[strings.ToLower(existing.Name)] = true
+	}
+	if err := validateIntegration(candidate, seenNames); err != nil {
+		return configuration, err
+	}
+
+	updated := configuration
+	updated.Integrations = append([]Integration(nil), configuration.Integrations...)
+	updated.Integrations[index] = candidate
+	updated.populateDerivedIntegrationFields()
+	return updated, nil
+}
+
+// RemoveIntegration deletes the integration identified by id. It does not
+// touch anything that integration previously owned — a Media/Torrent ref
+// tagged with this ID simply stops matching any configured integration on
+// the next reconciliation and is reported as Unmanaged from then on, the
+// same way it would be if the integration had never existed.
+func RemoveIntegration(configuration Config, id string) (Config, error) {
+	index := -1
+	for i, existing := range configuration.Integrations {
+		if existing.ID == id {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		return configuration, fmt.Errorf("integration not found")
+	}
+	updated := configuration
+	updated.Integrations = append(append([]Integration(nil), configuration.Integrations[:index]...), configuration.Integrations[index+1:]...)
 	updated.populateDerivedIntegrationFields()
 	return updated, nil
 }

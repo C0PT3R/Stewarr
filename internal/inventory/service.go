@@ -23,6 +23,7 @@ import (
 )
 
 type ServiceStatus struct {
+	ID         string
 	Name       string
 	Configured bool
 	OK         bool
@@ -338,10 +339,11 @@ func (service *Service) StatusSnapshot() []ServiceStatus {
 	out := make([]ServiceStatus, 0, len(service.cfg.Integrations))
 	for _, i := range service.cfg.Integrations {
 		if st, ok := service.statuses[i.Name]; ok {
+			st.ID = i.ID
 			out = append(out, st)
 			continue
 		}
-		out = append(out, ServiceStatus{Name: i.Name, Configured: i.Enabled(), OK: false, Message: "Not checked yet"})
+		out = append(out, ServiceStatus{ID: i.ID, Name: i.Name, Configured: i.Enabled(), OK: false, Message: "Not checked yet"})
 	}
 	return out
 }
@@ -1552,7 +1554,11 @@ func (service *Service) Changes() <-chan struct{} {
 	defer service.mu.RUnlock()
 	return service.changed
 }
-func (service *Service) Config() config.Config { return service.cfg }
+func (service *Service) Config() config.Config {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.cfg
+}
 
 func (service *Service) UnmanagedSnapshot() ([]model.UnmanagedFile, time.Time, error) {
 	service.mu.RLock()

@@ -78,3 +78,88 @@ func (server *Server) addIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type editIntegrationData struct {
+	ID, Type, Name, URL, APIKey, Username, Password string
+}
+
+// editIntegrationForm dispatches by method the same way scheduled removal
+// handlers do: GET returns the pre-filled overlay fragment (also carrying
+// the "Remove integration" action, so a plain Edit link is the only trigger
+// the Services page needs), POST saves the changes.
+func (server *Server) editIntegrationForm(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		server.renderEditIntegrationForm(w, r)
+	case http.MethodPost:
+		server.submitEditIntegration(w, r)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (server *Server) renderEditIntegrationForm(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	var found *config.Integration
+	for _, integration := range server.inv.Config().Integrations {
+		if integration.ID == id {
+			found = &integration
+			break
+		}
+	}
+	if found == nil {
+		http.Error(w, "integration not found", http.StatusNotFound)
+		return
+	}
+	data := editIntegrationData{ID: found.ID, Type: found.Type, Name: found.Name, URL: found.URL, APIKey: found.APIKey, Username: found.Username, Password: found.Password}
+	if err := renderTemplate(w, server.editIntegrationTpl, data); err != nil {
+		log.Printf("[http] render edit-integration overlay: %v", err)
+	}
+}
+
+func (server *Server) submitEditIntegration(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maximumAddIntegrationFormBytes)
+	if err := r.ParseMultipartForm(maximumAddIntegrationFormBytes); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	id := r.FormValue("id")
+	updates := config.Integration{
+		Name:     r.FormValue("name"),
+		URL:      r.FormValue("url"),
+		APIKey:   r.FormValue("api_key"),
+		Username: r.FormValue("username"),
+		Password: r.FormValue("password"),
+	}
+	if err := server.inv.EditIntegration(r.Context(), id, updates); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if server.tasks != nil {
+		_, _ = server.tasks.RunAsyncApp("inventory")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeIntegration lets go of an integration entirely. It is only ever
+// submitted via the edit overlay's own [data-background-submit] form, so
+// like addIntegration/submitEditIntegration the response is a plain status.
+func (server *Server) removeIntegration(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maximumAddIntegrationFormBytes)
+	if err := r.ParseMultipartForm(maximumAddIntegrationFormBytes); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	if err := server.inv.RemoveIntegration(r.FormValue("id")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if server.tasks != nil {
+		_, _ = server.tasks.RunAsyncApp("inventory")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

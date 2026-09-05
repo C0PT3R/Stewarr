@@ -961,6 +961,10 @@ td:has(> a > strong) > a {
   gap: 8px;
   font-weight: 600;
 }
+.service-title .card-link {
+  margin-left: auto;
+  font-weight: normal;
+}
 .service-roots {
   margin: 8px 0 0;
   padding: 0;

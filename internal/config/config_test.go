@@ -239,6 +239,131 @@ func TestAddIntegrationRejectsDuplicateNameAndMissingURL(t *testing.T) {
 	}
 }
 
+func TestLoadAssignsAndPersistsIDOnceForIntegrationsMissingOne(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	// No "id" field at all: the shape of a config.json written before ID was
+	// ever persisted.
+	body := `{"integrations":[{"type":"radarr","name":"Movies","url":"http://radarr:7878"}],"storage":{}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Integrations[0].ID == "" {
+		t.Fatal("expected Load to assign an ID to an integration that has none")
+	}
+	assignedID := first.Integrations[0].ID
+
+	// The assignment must have been persisted, not just held in memory: a
+	// second Load must see the *same* ID, not generate a new one.
+	second, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Integrations[0].ID != assignedID {
+		t.Fatalf("expected the assigned ID to be persisted and stable across loads, got %q then %q", assignedID, second.Integrations[0].ID)
+	}
+}
+
+func TestEditIntegrationChangingURLPreservesID(t *testing.T) {
+	base := Config{Integrations: []Integration{{Type: "radarr", Name: "Movies", URL: "http://old-host:7878", APIKey: "key"}}}
+	added, err := AddIntegration(Config{}, base.Integrations[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalID := added.Integrations[0].ID
+
+	updated, err := EditIntegration(added, originalID, Integration{Name: "Movies", URL: "http://brand-new-universe:7878", APIKey: "newkey"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Integrations) != 1 {
+		t.Fatalf("expected exactly one integration after edit, got %#v", updated.Integrations)
+	}
+	if updated.Integrations[0].ID != originalID {
+		t.Fatalf("expected ID to survive a URL change: got %q, want %q", updated.Integrations[0].ID, originalID)
+	}
+	if updated.Integrations[0].URL != "http://brand-new-universe:7878" || updated.Integrations[0].APIKey != "newkey" {
+		t.Fatalf("expected URL/APIKey to actually change, got %#v", updated.Integrations[0])
+	}
+	if updated.Radarr.URL != "http://brand-new-universe:7878" {
+		t.Fatalf("expected derived Radarr field to reflect the edit, got %#v", updated.Radarr)
+	}
+}
+
+func TestEditIntegrationRenamePreservesIDAndRejectsCollision(t *testing.T) {
+	base := Config{Integrations: []Integration{
+		{Type: "radarr", Name: "Movies", URL: "http://radarr:7878"},
+		{Type: "sonarr", Name: "Series", URL: "http://sonarr:8989"},
+	}}
+	loaded, err := AddIntegration(Config{}, base.Integrations[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err = AddIntegration(loaded, base.Integrations[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var movieID string
+	for _, i := range loaded.Integrations {
+		if i.Type == "radarr" {
+			movieID = i.ID
+		}
+	}
+
+	renamed, err := EditIntegration(loaded, movieID, Integration{Name: "Films", URL: "http://radarr:7878"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, i := range renamed.Integrations {
+		if i.Type == "radarr" && (i.Name != "Films" || i.ID != movieID) {
+			t.Fatalf("expected rename to keep ID and change Name, got %#v", i)
+		}
+	}
+
+	if _, err := EditIntegration(loaded, movieID, Integration{Name: "Series", URL: "http://radarr:7878"}); err == nil {
+		t.Fatal("expected renaming to collide with the other integration's name to be rejected")
+	}
+}
+
+func TestEditIntegrationRejectsUnknownID(t *testing.T) {
+	base := Config{Integrations: []Integration{{Type: "radarr", Name: "Movies", URL: "http://radarr:7878", ID: "radarr-abc"}}}
+	if _, err := EditIntegration(base, "does-not-exist", Integration{Name: "Movies", URL: "http://radarr:7878"}); err == nil {
+		t.Fatal("expected editing an unknown ID to fail")
+	}
+}
+
+func TestRemoveIntegrationDeletesAndResetsDerivedField(t *testing.T) {
+	added, err := AddIntegration(Config{}, Integration{Type: "radarr", Name: "Movies", URL: "http://radarr:7878", APIKey: "key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added.Radarr.URL == "" {
+		t.Fatal("test setup: expected Radarr derived field to be populated before removal")
+	}
+	id := added.Integrations[0].ID
+
+	removed, err := RemoveIntegration(added, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(removed.Integrations) != 0 {
+		t.Fatalf("expected the integration to be removed, got %#v", removed.Integrations)
+	}
+	if removed.Radarr != (Service{}) {
+		t.Fatalf("expected the derived Radarr field to reset to zero value once its only integration is removed, got %#v", removed.Radarr)
+	}
+}
+
+func TestRemoveIntegrationRejectsUnknownID(t *testing.T) {
+	base := Config{Integrations: []Integration{{Type: "radarr", Name: "Movies", URL: "http://radarr:7878", ID: "radarr-abc"}}}
+	if _, err := RemoveIntegration(base, "does-not-exist"); err == nil {
+		t.Fatal("expected removing an unknown ID to fail")
+	}
+}
+
 func TestValidateIntegrationRejectsDuplicateAndReservedNames(t *testing.T) {
 	seen := map[string]bool{"movies": true}
 	if err := validateIntegration(Integration{Type: "radarr", Name: "Movies", URL: "http://x"}, seen); err == nil {
