@@ -89,6 +89,55 @@ func TestStorageTemplateRendersCleanupActions(t *testing.T) {
 	}
 }
 
+// TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents guards the fix
+// for a real observability gap: a StandaloneTorrent candidate used to
+// render as nothing but its raw release name, giving no way to tell
+// whether removing it would touch any library copy at all. Torrent and
+// media candidates are now shown as two separate, labeled groups (matching
+// the two tiers cleanup.rank() already computes), and each torrent line
+// discloses its association status, whether it's a proven-independent
+// (non-hardlinked) copy, and which media it relates to if any.
+func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := storageData{
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Plan: cleanup.Plan{
+					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 20,
+					Actions: []cleanup.Action{
+						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Show.S03E01.mkv", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, MediaItems: []model.MediaRef{{Title: "Some Show", Year: 2024}}}}, ReclaimableBytes: 10},
+						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
+					},
+				},
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	body := recorder.Body.String()
+	torrentGroupIndex := strings.Index(body, "cleanup-group")
+	if torrentGroupIndex < 0 {
+		t.Fatalf("expected grouped cleanup output, got:\n%s", body)
+	}
+	for _, want := range []string{
+		"Show.S03E01.mkv", "independent copy, not hardlinked to its media", "Some Show (2024)",
+		"Lonely Movie", ">Torrents ", ">Media ",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
+		}
+	}
+	if strings.Index(body, "Torrents") > strings.Index(body, "Lonely Movie") {
+		t.Fatalf("torrent group should render before the media group, got:\n%s", body)
+	}
+}
+
 func TestStorageTemplateRendersNoKnownDevices(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {

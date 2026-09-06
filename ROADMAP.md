@@ -487,6 +487,30 @@ This file separates implemented behavior from intended direction. It is not a pr
   stopped; a per-client `loginLimiter` now adds an escalating lockout
   (15s per failure past a small threshold, capped at 5 minutes) on top of it.
 
+### Storage page cleanup-candidate list and auto-removal groundwork (0.3.2)
+
+- The Storage page's cleanup-candidate list rendered a `StandaloneTorrent`
+  action as nothing but its raw release name, with no way to tell whether
+  removing it would touch any library copy at all. Candidates are now
+  grouped into "Torrents" and "Media" sections (the same two tiers
+  `cleanup.rank()` already computes internally — every torrent candidate
+  before any media/season one), and each torrent line now discloses its
+  association status and whether it's a proven independent (non-hardlinked)
+  copy, plus the related media title if one is known.
+- `runAutoRemovalEvaluation` (still unexposed in the UI — this is
+  groundwork ahead of the 0.4.0 auto-removal milestone) now excludes
+  Unassociated torrents by default, gated by a new
+  `removal.auto_remove_unassociated_torrents` config flag (default false).
+  An Unassociated torrent with no relationship Connarr has ever recorded
+  may simply be something the user downloaded through that client for
+  their own purposes, or from a service Connarr doesn't track — automatic
+  removal has no basis to judge those safe to delete unattended, unlike a
+  torrent it can prove is Superseded or an independent copy of managed
+  media. A torrent that is Unassociated today but carries a
+  `FormerMediaItems` relationship is not treated as unknown by this gate —
+  it was managed once, the same kind of provenance a Superseded torrent
+  already relies on, so it remains eligible like Superseded torrents do.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

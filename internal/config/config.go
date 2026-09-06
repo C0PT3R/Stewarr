@@ -43,6 +43,17 @@ type ValuationConfig struct {
 type RemovalConfig struct {
 	DryRun      bool `json:"dry_run"`
 	AutoEnabled bool `json:"auto_enabled"`
+	// AutoRemoveUnassociatedTorrents gates automatic removal of torrents
+	// Connarr has no owning-media relationship for. Defaults to false: an
+	// Unassociated torrent may simply be something the user downloaded
+	// through that client for their own purposes, or from a service
+	// Connarr doesn't track — automatic removal has no basis to judge those
+	// are safe to delete unattended, unlike a torrent it can prove is
+	// Superseded or an independent copy of managed media. This gate is
+	// separate from and in addition to Service.AllowAutomaticRemoval: that
+	// opts a whole service's torrents into automatic removal at all, this
+	// narrows it further to exclude the specific case of no known owner.
+	AutoRemoveUnassociatedTorrents bool `json:"auto_remove_unassociated_torrents"`
 }
 
 type Service struct {

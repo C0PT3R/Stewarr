@@ -72,7 +72,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -414,6 +414,69 @@ func filePeerOwnerLabel(peer inventory.FilePeer) string {
 		owners = append(owners, "torrent: "+torrent.Name)
 	}
 	return strings.Join(owners, ", ")
+}
+
+// torrentCleanupActions and mediaCleanupActions split a device's cleanup
+// candidates into the same two tiers cleanup.rank() already computes
+// internally (every torrent-only candidate before any media/season one),
+// so the Storage page can present them as two grouped, labeled lists
+// instead of one flat one where the grouping is invisible.
+func torrentCleanupActions(actions []cleanup.Action) []cleanup.Action {
+	filtered := make([]cleanup.Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Kind == cleanup.StandaloneTorrent {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+func mediaCleanupActions(actions []cleanup.Action) []cleanup.Action {
+	filtered := make([]cleanup.Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Kind != cleanup.StandaloneTorrent {
+			filtered = append(filtered, action)
+		}
+	}
+	return filtered
+}
+
+// torrentActionContext describes why a standalone-torrent cleanup candidate
+// is only a torrent action rather than part of a media/season action: its
+// association state, and — the fact that most directly answers "would this
+// touch my library copy" — whether it's a Current torrent proven to be an
+// independent, non-hardlinked copy rather than the same physical file as
+// its media. Includes the related media title when one is known, so a
+// bare release name isn't the only clue to what this actually is.
+func torrentActionContext(t model.Torrent) string {
+	var parts []string
+	switch model.NormalizeTorrentStatus(t.AssociationStatus) {
+	case model.TorrentCurrent:
+		if t.MediaHardlinkKnown && !t.MediaHardlinked {
+			parts = append(parts, "independent copy, not hardlinked to its media")
+		} else {
+			parts = append(parts, "current")
+		}
+	case model.TorrentSuperseded:
+		parts = append(parts, "superseded")
+	default:
+		parts = append(parts, "unassociated")
+	}
+	mediaRefs := t.MediaItems
+	if len(mediaRefs) == 0 {
+		mediaRefs = t.FormerMediaItems
+	}
+	for _, ref := range mediaRefs {
+		if ref.Title == "" {
+			continue
+		}
+		if ref.Year > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%d)", ref.Title, ref.Year))
+		} else {
+			parts = append(parts, ref.Title)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func unixTime(sec int64) string {

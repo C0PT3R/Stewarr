@@ -50,6 +50,52 @@ func TestActionServicesOptedInRequiresEveryInvolvedService(t *testing.T) {
 	}
 }
 
+// TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown guards the
+// distinction between "Connarr has never had any relationship for this
+// torrent at all" (the case automatic removal excludes by default, since it
+// may be a personal download or from an untracked service) and "this
+// torrent was managed once but its relationship is now historical" — the
+// same kind of provenance a Superseded torrent already relies on, not the
+// unknown case this gate targets.
+func TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown(t *testing.T) {
+	cases := []struct {
+		name   string
+		action cleanup.Action
+		want   bool
+	}{
+		{
+			name:   "truly unassociated, no history at all",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentUnassociated}}},
+			want:   true,
+		},
+		{
+			name:   "unassociated today but with a former media relationship",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentUnassociated, FormerMediaItems: []model.MediaRef{{Title: "Old Show"}}}}},
+			want:   false,
+		},
+		{
+			name:   "superseded",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentSuperseded}}},
+			want:   false,
+		},
+		{
+			name:   "current, independent copy",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false}}},
+			want:   false,
+		},
+		{
+			name:   "not a torrent action at all",
+			action: cleanup.Action{Kind: cleanup.StandaloneMedia, Media: model.Media{}},
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		if got := actionIsUnassociatedTorrent(tc.action); got != tc.want {
+			t.Errorf("%s: actionIsUnassociatedTorrent = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestRunAutoRemovalEvaluationNoOpsWhenGloballyDisabled(t *testing.T) {
 	server := &Server{inv: inventory.New(config.Config{Removal: config.RemovalConfig{AutoEnabled: false}}, nil)}
 	if err := server.runAutoRemovalEvaluation(nil); err != nil {

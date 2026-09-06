@@ -12,6 +12,7 @@ import (
 
 	"connarr/internal/cleanup"
 	"connarr/internal/config"
+	"connarr/internal/model"
 	"connarr/internal/store"
 	"connarr/internal/tasks"
 )
@@ -23,7 +24,10 @@ const autoRemovalEvalInterval = 15 * time.Minute
 // cross-domain Cleanup plan and submits removal requests for every Action
 // whose services have all opted in. It is a no-op unless the global
 // switch is on; both it and every per-service opt-in default to false,
-// so a fresh or upgraded install does nothing automatically.
+// so a fresh or upgraded install does nothing automatically. Unassociated
+// torrents are additionally excluded by default regardless of opt-in,
+// since Connarr has no owning-media relationship to judge them safe to
+// delete unattended — see actionIsUnassociatedTorrent.
 func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	if server.inv == nil || server.tasks == nil {
 		return nil
@@ -52,6 +56,9 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 			continue
 		}
 		for _, action := range plan.Actions {
+			if actionIsUnassociatedTorrent(action) && !cfg.Removal.AutoRemoveUnassociatedTorrents {
+				continue
+			}
 			if !actionServicesOptedIn(action, serviceByID) {
 				continue
 			}
@@ -66,6 +73,28 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// actionIsUnassociatedTorrent reports whether action is a StandaloneTorrent
+// candidate with no owning-media relationship, current or historical — as
+// opposed to one Connarr can prove is Superseded, a Current but independent
+// (non-hardlinked) copy of managed media, or simply Unassociated today but
+// with a FormerMediaItems relationship on record (it was managed once; that
+// is provenance Superseded torrents also rely on, not the unknown case this
+// guards). The unknown case this excludes by default is a torrent Connarr
+// has never had any relationship for at all — it may simply be something
+// the user downloaded through that client for their own purposes, or from a
+// service Connarr doesn't track; automatic removal has no basis to judge
+// those safe to delete unattended.
+func actionIsUnassociatedTorrent(action cleanup.Action) bool {
+	if action.Kind != cleanup.StandaloneTorrent || len(action.Torrents) == 0 {
+		return false
+	}
+	torrent := action.Torrents[0]
+	if len(torrent.FormerMediaItems) > 0 {
+		return false
+	}
+	return model.NormalizeTorrentStatus(torrent.AssociationStatus) == model.TorrentUnassociated
 }
 
 // actionServicesOptedIn reports whether every service an Action

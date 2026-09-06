@@ -895,6 +895,17 @@ td:has(> a > strong) > a {
   list-style: none;
   font-size: 12.5px;
 }
+.cleanup-group {
+  margin-top: 10px;
+}
+.cleanup-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--muted);
+}
 .cleanup-actions {
   margin: 6px 0 0;
   padding: 0;

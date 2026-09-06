@@ -49,9 +49,24 @@
           {{if gt .Plan.NeedBytes 0}}
             <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
             {{if .Plan.Actions}}
-            <ul class="cleanup-actions">
-              {{range .Plan.Actions}}<li>{{if eq .Kind "bundle"}}{{.Media.Title}}{{if .Season}} · Season {{.Season.Number}}{{end}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "media"}}{{.Media.Title}}{{else if eq .Kind "season"}}{{.Media.Title}} · Season {{.Season.Number}}{{else}}{{(index .Torrents 0).Name}}{{end}} · {{human .ReclaimableBytes}}</li>{{end}}
-            </ul>
+            {{$torrentActions := torrentCleanupActions .Plan.Actions}}
+            {{$mediaActions := mediaCleanupActions .Plan.Actions}}
+            {{if $torrentActions}}
+            <div class="cleanup-group">
+              <h4>Torrents <span class="count">{{len $torrentActions}}</span></h4>
+              <ul class="cleanup-actions">
+                {{range $torrentActions}}<li><div class="row-title">{{(index .Torrents 0).Name}}</div><div class="row-meta">{{torrentActionContext (index .Torrents 0)}} · {{human .ReclaimableBytes}}</div></li>{{end}}
+              </ul>
+            </div>
+            {{end}}
+            {{if $mediaActions}}
+            <div class="cleanup-group">
+              <h4>Media <span class="count">{{len $mediaActions}}</span></h4>
+              <ul class="cleanup-actions">
+                {{range $mediaActions}}<li>{{if eq .Kind "bundle"}}{{.Media.Title}}{{if .Season}} · Season {{.Season.Number}}{{end}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "season"}}{{.Media.Title}} · Season {{.Season.Number}}{{else}}{{.Media.Title}}{{end}} · {{human .ReclaimableBytes}}</li>{{end}}
+              </ul>
+            </div>
+            {{end}}
             {{end}}
           {{else}}
             <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
