@@ -1,6 +1,7 @@
 package httpui
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -40,7 +41,12 @@ func (server *Server) setDeviceThreshold(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	// shell.ts's data-background-submit always sends the body as
+	// multipart/form-data (fetch(url, {body: new FormData(form)})), never
+	// urlencoded — r.ParseForm alone never reads a multipart body, so every
+	// field would come back empty here regardless of what was actually
+	// submitted.
+	if err := r.ParseMultipartForm(maximumAddServiceFormBytes); err != nil && !errors.Is(err, http.ErrNotMultipart) {
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}

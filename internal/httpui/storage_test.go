@@ -3,7 +3,6 @@ package httpui
 import (
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,11 +120,17 @@ func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
 	}
 	handler := server.Handler()
 
+	// The real browser form submits via shell.ts's data-background-submit,
+	// which always sends multipart/form-data (fetch + FormData), never
+	// urlencoded. A urlencoded body here would mask the exact bug this once
+	// shipped with: r.ParseForm alone never reads a multipart body, so every
+	// field came back empty and every save failed with "target_usage_percent
+	// must be a number" even though the form was filled in correctly.
 	devicePath := "/data/movies"
-	form := url.Values{"representative_path": {devicePath}, "target_usage_percent": {"80"}, "critical_usage_percent": {"88"}}
+	body, contentType := multipartServiceForm(t, map[string]string{"representative_path": devicePath, "target_usage_percent": "80", "critical_usage_percent": "88"})
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/storage/device-threshold", strings.NewReader(form.Encode()))
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	request := httptest.NewRequest(http.MethodPost, "/storage/device-threshold", body)
+	request.Header.Set("Content-Type", contentType)
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got status=%d body=%q", recorder.Code, recorder.Body.String())
