@@ -925,6 +925,48 @@ func TestGroupRemovalFilesReportsMissingHardlinks(t *testing.T) {
 	}
 }
 
+// TestUnmanagedListingDoesNotDesyncHardlinkCountWhenOnePathIsPending guards
+// against a real bug: the listing page used to filter out any individual
+// path with a pending removal operation before grouping by device/inode.
+// For a hardlinked file, that hid one of the two known paths while Links
+// (read from the filesystem's real nlink) still said 2, producing a false
+// "1 hardlink outside known topology" even though both real paths were
+// intact. The fix hides the whole group instead of desyncing Links from its
+// remaining Paths.
+func TestUnmanagedListingDoesNotDesyncHardlinkCountWhenOnePathIsPending(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	pathA := "/mnt/media/Series/show/episode.mkv"
+	pathB := "/mnt/media/downloads/complete/show/episode.mkv"
+	unmanaged := []model.UnmanagedFile{
+		{Path: pathA, SizeBytes: 100, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},
+		{Path: pathB, SizeBytes: 100, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},
+	}
+	if err := database.PublishReconciliation(1, nil, nil, nil, unmanaged, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"kind": {"unmanaged"}, "path": {pathA}}
+	queuedPayload, err := json.Marshal(queuedRemovalPayload{Command: scheduledRemovalCommand{Form: form}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "started", RequestedKind: "unmanaged", Payload: queuedPayload}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inventory.New(config.Config{}, database), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.unmanagedDownloads(response, httptest.NewRequest(http.MethodGet, "/unmanaged", nil))
+	if bytes.Contains(response.Body.Bytes(), []byte("outside known topology")) {
+		t.Fatalf("listing reported a false missing hardlink while a sibling path removal was pending:\n%s", response.Body.String())
+	}
+}
+
 func TestGroupUnmanagedFilesCollapsesHardlinks(t *testing.T) {
 	items := []model.UnmanagedFile{
 		{Path: "/a", SizeBytes: 54321, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},

@@ -427,6 +427,20 @@ func (projection pendingProjection) filterUnmanaged(items []model.UnmanagedFile)
 	return filtered
 }
 
+// unmanagedPending reports whether any known path of a hardlinked file is
+// pending a removal operation. Hiding only that one path (as filterUnmanaged
+// does) while leaving its siblings visible would desync a group's Links
+// count (read from the filesystem's real nlink) from its remaining known
+// Paths, producing a false "hardlink outside known topology" report.
+func (projection pendingProjection) unmanagedPending(paths []string) bool {
+	for _, path := range paths {
+		if _, pending := projection.Unmanaged[filepath.Clean(path)]; pending {
+			return true
+		}
+	}
+	return false
+}
+
 func (projection pendingProjection) mediaOperation(kind model.MediaType, id int, serviceID string) (operationNotice, bool) {
 	notice, found := projection.Media[mediaOperationKey(kind, id, serviceID)]
 	return notice, found

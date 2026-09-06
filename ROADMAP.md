@@ -428,6 +428,18 @@ This file separates implemented behavior from intended direction. It is not a pr
   when both `selectable` and `selected` are true, so the primary target
   was silently dropped from every actual removal request regardless of
   what the preview showed — the file could never really be deleted.
+- Fixed a fourth bug in the same feature: the Unmanaged listing page could
+  report a hardlinked file as having "1 hardlink outside known topology"
+  even when every one of its real paths was still present and its actual
+  filesystem `nlink` matched the known path count exactly. The listing
+  handler filtered out any individual path with a pending removal
+  operation (`filterUnmanaged`) *before* grouping by device/inode — for a
+  hardlinked file, hiding one known path this way left `Links` (the real,
+  filesystem-read `nlink`) unchanged while the group's remaining `Paths`
+  count dropped by one, manufacturing a "missing" hardlink that never
+  existed. Fixed by grouping first, then dropping the whole physical-file
+  group if any of its known paths has a pending operation, instead of
+  partially hiding one path and desyncing its Links/Paths count.
 
 ## Near-term
 

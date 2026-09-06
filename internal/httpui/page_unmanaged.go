@@ -193,8 +193,19 @@ func (server *Server) unmanagedDownloads(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	raw, updated, scanErr := server.inv.UnmanagedSnapshot()
-	raw = server.pendingProjection().filterUnmanaged(raw)
+	projection := server.pendingProjection()
 	all := groupUnmanagedFiles(raw)
+	live := make([]unmanagedFileGroup, 0, len(all))
+	for _, group := range all {
+		paths := make([]string, len(group.Paths))
+		for i, file := range group.Paths {
+			paths[i] = file.Path
+		}
+		if !projection.unmanagedPending(paths) {
+			live = append(live, group)
+		}
+	}
+	all = live
 	allItems := len(all)
 	var totalBytes, reclaimableBytes, sharedBytes int64
 	for _, f := range all {
