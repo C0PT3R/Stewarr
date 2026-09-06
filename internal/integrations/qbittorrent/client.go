@@ -75,21 +75,17 @@ func (client *Client) login() error {
 	}
 	defer r.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 1024))
-	// The documented success body is "Ok." with a 200, but qBittorrent
-	// authenticates by handing back a SID session cookie regardless of the
-	// exact status/body — some deployments respond 204 with an empty body
-	// on success instead. A real failure (wrong credentials) responds 200
-	// with body "Fails." and never sets SID, so keying off the cookie
-	// can't be fooled into accepting bad credentials the "Ok." check would
-	// have caught.
-	authenticated := false
-	for _, cookie := range r.Cookies() {
-		if cookie.Name == "SID" {
-			authenticated = true
-			break
-		}
-	}
-	if r.StatusCode/100 != 2 || (!authenticated && strings.TrimSpace(string(b)) != "Ok.") {
+	// The documented success body is "Ok." with a 200, but real deployments
+	// diverge from that: some respond 204 with an empty body, and a
+	// qBittorrent instance with "bypass authentication for whitelisted
+	// IPs" enabled (a very common home-lab setup when Connarr and
+	// qBittorrent share a network) never needs to hand back a SID session
+	// cookie either, since every request from that IP is auto-authorized
+	// regardless. The one thing qBittorrent's API actually documents as a
+	// failure signal is the literal body "Fails." on wrong credentials —
+	// that's the only case to reject; treat every other 2xx response as
+	// success rather than matching one specific body/cookie shape.
+	if r.StatusCode/100 != 2 || strings.TrimSpace(string(b)) == "Fails." {
 		return fmt.Errorf("qbittorrent login: %s: %s", r.Status, strings.TrimSpace(string(b)))
 	}
 	return nil

@@ -32,7 +32,7 @@ func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {
 // /api/v2/auth/login with 204 and an empty body instead of the documented
 // 200 "Ok." — login() must accept this since the actual authentication
 // signal is the SID session cookie, not one specific body string.
-func TestValidateAcceptsA204LoginResponseWithSIDCookie(t *testing.T) {
+func TestValidateAcceptsA204EmptyBodyLoginResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/auth/login" {
 			t.Fatalf("unexpected request: %s", r.URL.Path)
@@ -42,15 +42,34 @@ func TestValidateAcceptsA204LoginResponseWithSIDCookie(t *testing.T) {
 	}))
 	defer srv.Close()
 	if err := New("qBittorrent", srv.URL, "user", "pass", "").Validate(); err != nil {
-		t.Fatalf("expected a 204+SID-cookie login to be accepted, got %v", err)
+		t.Fatalf("expected a 204 login with a SID cookie to be accepted, got %v", err)
 	}
 }
 
-// TestValidateRejectsFailedLoginWithoutSIDCookie guards against the above
-// fix accidentally weakening wrong-credentials rejection: qBittorrent
-// responds 200 with body "Fails." on bad credentials and never sets SID,
-// which must still be treated as a failure.
-func TestValidateRejectsFailedLoginWithoutSIDCookie(t *testing.T) {
+// TestValidateAcceptsA204EmptyBodyNoCookieLoginResponse guards a real
+// production case the SID-cookie-based version of this fix still missed:
+// a qBittorrent instance with "bypass authentication for whitelisted IPs"
+// enabled never hands back a session cookie at all — every request from
+// that IP is auto-authorized regardless — yet a successful login attempt
+// still isn't an error.
+func TestValidateAcceptsA204EmptyBodyNoCookieLoginResponse(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/auth/login" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	if err := New("qBittorrent", srv.URL, "user", "pass", "").Validate(); err != nil {
+		t.Fatalf("expected a 204 login with no cookie (auth bypass) to be accepted, got %v", err)
+	}
+}
+
+// TestValidateRejectsFailedLogin guards against the above permissive
+// 2xx-is-success rule accidentally accepting wrong credentials: the one
+// case qBittorrent's API actually documents as a failure is a 200 response
+// with body exactly "Fails.", which must still be rejected.
+func TestValidateRejectsFailedLogin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/auth/login" {
 			_, _ = w.Write([]byte("Fails."))
@@ -60,7 +79,7 @@ func TestValidateRejectsFailedLoginWithoutSIDCookie(t *testing.T) {
 	}))
 	defer srv.Close()
 	if err := New("qBittorrent", srv.URL, "user", "wrong", "").Validate(); err == nil {
-		t.Fatal("expected a failed login (no SID cookie, body \"Fails.\") to be rejected")
+		t.Fatal("expected a failed login (body \"Fails.\") to be rejected")
 	}
 }
 
