@@ -33,12 +33,12 @@ const removal = `<div class="removal-overlay" data-controller="removal" data-rem
 <form id="removal-execute-form" data-removal-target="execute" data-action="submit->removal#submit" method="post" action="/removal/execute"><input type="hidden" name="kind" value="media"><input type="hidden" name="media_type" value="movie"><input type="hidden" name="media_id" value="1"><input type="hidden" name="operation_token" value="browser-token"><div data-removal-target="generatedInputs"></div><p data-removal-target="error" hidden></p></form><div class="actions"><button id="cancel" type="button" data-action="removal#cancel">Cancel</button><button id="confirm" form="removal-execute-form" data-removal-target="submitButton" type="submit">Remove selected</button></div>
 </main></div>`;
 
-const index = `<!doctype html><html><head><script defer src="/assets/vendor/htmx-2.0.10.min.js"></script><script defer src="/assets/vendor/stimulus-3.2.2.umd.js"></script><script defer src="/assets/app.js"></script></head><body data-controller="shell"><button id="open" data-removal-url="/removal/media">Remove</button><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
+const index = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell"><button id="open" data-removal-url="/removal/media">Remove</button><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
 
 // A minimal page carrying the "revisions" controller, matching every real
 // page's <body data-controller="shell revisions">, for the SSE
 // reconnect-leak regression test below.
-const sseIndex = `<!doctype html><html><head><script defer src="/assets/vendor/htmx-2.0.10.min.js"></script><script defer src="/assets/vendor/stimulus-3.2.2.umd.js"></script><script defer src="/assets/app.js"></script></head><body data-controller="shell revisions"><a id="operation-indicator" hidden></a><div id="persistent-notices"></div><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
+const sseIndex = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell revisions"><a id="operation-indicator" hidden></a><div id="persistent-notices"></div><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
 
 const server = createServer(async (request, response) => {
   if (request.url === "/") {

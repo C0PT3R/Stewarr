@@ -214,6 +214,26 @@ This file separates implemented behavior from intended direction. It is not a pr
   new Go test (`TestSSEEndsOnItsOwnAfterMaxLifetime`) and an extended
   browser regression test asserting the retry count climbs and then
   plateaus rather than staying flat or growing forever.
+- Still not the whole story: this app has no TLS in front of it, so
+  browsers only ever talk HTTP/1.1 to it (cleartext HTTP/2 exists, but no
+  mainstream browser will negotiate it for a normal page load — only
+  TLS-based HTTP/2 gets multiplexing), which means every tab is capped at
+  ~6 connections to the origin at once. A single page load already used
+  most of that budget on its own assets (HTML + CSS + 3 separate scripts +
+  the EventSource), so fast navigation between pages — each opening a
+  fresh EventSource on load — could transiently pile an old page's
+  not-yet-closed connection on top of a new page's requests and exceed the
+  cap, independent of the dead-connection issue above. Closed this (0.2.33)
+  two ways: the `revisions` controller now force-closes its EventSource on
+  `pagehide`, which fires synchronously ahead of a full-document
+  navigation's teardown (Stimulus's own `disconnect()` isn't guaranteed to
+  run in time, since the whole document — DOM, JS heap, MutationObserver —
+  gets discarded as part of the navigation itself); and htmx, Stimulus, and
+  the app bundle are now merged into a single `app.js` by
+  `tools/buildassets` instead of three separate `<script>` tags, freeing up
+  two connection slots on every page load. Verified with an isolated
+  Playwright harness proving the old page's SSE connection is observed
+  closed server-side before/at the point the new page's connection opens.
 
 ### Model and operations
 

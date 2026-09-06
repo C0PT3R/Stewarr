@@ -44,6 +44,7 @@ export class RevisionsController extends window.Stimulus.Controller {
   // virtually every page load/refresh. Only messages after the first one
   // reflect a change that actually happened after the page loaded.
   syncedInitialRevision = false;
+  onPageHide!: () => void;
 
   connect(): void {
     this.etag = "";
@@ -55,11 +56,27 @@ export class RevisionsController extends window.Stimulus.Controller {
       if (!document.hidden) this.refreshStatus({ kind: "visibility" });
     };
     document.addEventListener("visibilitychange", this.onVisible);
+    // A full-page navigation tears down this whole document (DOM, JS heap,
+    // Stimulus's own MutationObserver included) as part of the browser's
+    // navigation algorithm — disconnect() below is not guaranteed to run,
+    // or to run early enough, ahead of the new page's own connections
+    // opening. pagehide fires synchronously and reliably before that
+    // teardown, so it's the only place we can be sure the old page's
+    // EventSource is actually closed before it competes with the new
+    // page for one of the browser's ~6 connections-per-origin.
+    this.onPageHide = () => {
+      if (this.events) {
+        this.events.close();
+        this.events = null;
+      }
+    };
+    window.addEventListener("pagehide", this.onPageHide);
     this.connectEvents();
   }
 
   disconnect(): void {
     document.removeEventListener("visibilitychange", this.onVisible);
+    window.removeEventListener("pagehide", this.onPageHide);
     if (this.events) this.events.close();
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

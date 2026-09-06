@@ -38,9 +38,11 @@ func uiStaticHandler() (http.Handler, error) {
 }
 
 func appHead() template.HTML {
+	// htmx and Stimulus are bundled into app.js by tools/buildassets rather
+	// than served as separate <script> tags — every page load already
+	// competes for the browser's ~6-connections-per-origin limit (no TLS,
+	// no HTTP/2 multiplexing here), so one fewer script request matters.
 	return template.HTML(`<link rel="stylesheet" href="/assets/app.css">
-<script defer src="/assets/vendor/htmx-2.0.10.min.js"></script>
-<script defer src="/assets/vendor/stimulus-3.2.2.umd.js"></script>
 <script defer src="/assets/app.js"></script>`)
 }
 
