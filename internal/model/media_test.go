@@ -7,7 +7,7 @@ func TestNormalizeTorrentStatusMigratesLegacyStates(t *testing.T) {
 		"ASSOCIATED":   TorrentCurrent,
 		"OPEN":         TorrentCurrent,
 		"SUPERSEDED":   TorrentSuperseded,
-		"ORPHANED":     TorrentUnassociated,
+		"ORPHANED":     TorrentOrphaned,
 		"UNMATCHED":    TorrentUnassociated,
 		"UNASSOCIATED": TorrentUnassociated,
 		"":             TorrentUnassociated,

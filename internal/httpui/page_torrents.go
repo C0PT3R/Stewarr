@@ -15,30 +15,30 @@ import (
 )
 
 type torrentData struct {
-	Torrents                          []model.Torrent
-	Updated                           time.Time
-	LastErr                           error
-	Refreshing                        bool
-	Current, Superseded, Unassociated int
-	ObsoleteReclaimable               int64
-	ObsoleteKnown                     int
-	TotalItems                        int
-	Page                              int
-	PageSize                          int
-	TotalPages                        int
-	HasPrev, HasNext                  bool
-	PrevURL, NextURL                  string
-	PageLinks                         []navLink
-	SizeLinks                         []navLink
-	Sort, Order                       string
-	SortURLs                          map[string]string
-	AllItems                          int
-	Query                             string
-	StatusFilter                      string
-	ReclaimableFilter                 string
-	ActivityFilter                    string
-	ClearURL                          string
-	HasTorrentClient                  bool
+	Torrents                                    []model.Torrent
+	Updated                                     time.Time
+	LastErr                                     error
+	Refreshing                                  bool
+	Current, Superseded, Orphaned, Unassociated int
+	ObsoleteReclaimable                         int64
+	ObsoleteKnown                               int
+	TotalItems                                  int
+	Page                                        int
+	PageSize                                    int
+	TotalPages                                  int
+	HasPrev, HasNext                            bool
+	PrevURL, NextURL                            string
+	PageLinks                                   []navLink
+	SizeLinks                                   []navLink
+	Sort, Order                                 string
+	SortURLs                                    map[string]string
+	AllItems                                    int
+	Query                                       string
+	StatusFilter                                string
+	ReclaimableFilter                           string
+	ActivityFilter                              string
+	ClearURL                                    string
+	HasTorrentClient                            bool
 }
 
 func validTorrentSort(v string) bool {
@@ -120,7 +120,9 @@ func normalizeTorrentStatusFilter(v string) string {
 		return model.TorrentCurrent
 	case "SUPERSEDED":
 		return model.TorrentSuperseded
-	case "UNASSOCIATED", "ORPHANED", "UNMATCHED":
+	case "ORPHANED":
+		return model.TorrentOrphaned
+	case "UNASSOCIATED", "UNMATCHED":
 		return model.TorrentUnassociated
 	default:
 		return "ANY"
@@ -209,7 +211,7 @@ func (server *Server) torrents(w http.ResponseWriter, r *http.Request) {
 	_, updated, last := server.inv.Snapshot()
 	all := server.pendingProjection().filterTorrents(server.inv.TorrentSnapshot())
 	allItems := len(all)
-	counts := map[string]int{model.TorrentCurrent: 0, model.TorrentSuperseded: 0, model.TorrentUnassociated: 0}
+	counts := map[string]int{model.TorrentCurrent: 0, model.TorrentSuperseded: 0, model.TorrentOrphaned: 0, model.TorrentUnassociated: 0}
 	var obsoleteReclaimable int64
 	obsoleteKnown := 0
 	for i := range all {
@@ -300,7 +302,7 @@ func (server *Server) torrents(w http.ResponseWriter, r *http.Request) {
 	for pg := maxInt(1, page-2); pg <= minInt(pages, page+2); pg++ {
 		links = append(links, navLink{Value: pg, URL: mk(pg, pageSize, sortKey, order)})
 	}
-	d := torrentData{Torrents: all[from:to], Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Current: counts[model.TorrentCurrent], Superseded: counts[model.TorrentSuperseded], Unassociated: counts[model.TorrentUnassociated], ObsoleteKnown: obsoleteKnown, ObsoleteReclaimable: obsoleteReclaimable, TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: pages, HasPrev: page > 1, HasNext: page < pages, PageLinks: links, SizeLinks: sizes, Sort: sortKey, Order: order, SortURLs: sortURLs, Query: r.URL.Query().Get("q"), StatusFilter: statusFilter, ReclaimableFilter: reclaimableFilter, ActivityFilter: activityFilter, ClearURL: "/torrents", HasTorrentClient: len(server.inv.Config().ServicesOfType("qbittorrent")) > 0}
+	d := torrentData{Torrents: all[from:to], Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Current: counts[model.TorrentCurrent], Superseded: counts[model.TorrentSuperseded], Orphaned: counts[model.TorrentOrphaned], Unassociated: counts[model.TorrentUnassociated], ObsoleteKnown: obsoleteKnown, ObsoleteReclaimable: obsoleteReclaimable, TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: pages, HasPrev: page > 1, HasNext: page < pages, PageLinks: links, SizeLinks: sizes, Sort: sortKey, Order: order, SortURLs: sortURLs, Query: r.URL.Query().Get("q"), StatusFilter: statusFilter, ReclaimableFilter: reclaimableFilter, ActivityFilter: activityFilter, ClearURL: "/torrents", HasTorrentClient: len(server.inv.Config().ServicesOfType("qbittorrent")) > 0}
 	if d.HasPrev {
 		d.PrevURL = mk(page-1, pageSize, sortKey, order)
 	}

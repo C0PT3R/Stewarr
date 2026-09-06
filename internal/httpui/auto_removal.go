@@ -76,25 +76,18 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 }
 
 // actionIsUnassociatedTorrent reports whether action is a StandaloneTorrent
-// candidate with no owning-media relationship, current or historical — as
-// opposed to one Connarr can prove is Superseded, a Current but independent
-// (non-hardlinked) copy of managed media, or simply Unassociated today but
-// with a FormerMediaItems relationship on record (it was managed once; that
-// is provenance Superseded torrents also rely on, not the unknown case this
-// guards). The unknown case this excludes by default is a torrent Connarr
-// has never had any relationship for at all — it may simply be something
-// the user downloaded through that client for their own purposes, or from a
-// service Connarr doesn't track; automatic removal has no basis to judge
-// those safe to delete unattended.
+// candidate Connarr has no relationship for at all, current or historical.
+// Superseded and Orphaned torrents both carry known import provenance (a
+// specific replacement, or a former relationship whose media is simply gone)
+// and are not excluded by this gate. Unassociated has none of that — it may
+// simply be something the user downloaded through that client for their own
+// purposes, or from a service Connarr doesn't track; automatic removal has
+// no basis to judge those safe to delete unattended.
 func actionIsUnassociatedTorrent(action cleanup.Action) bool {
 	if action.Kind != cleanup.StandaloneTorrent || len(action.Torrents) == 0 {
 		return false
 	}
-	torrent := action.Torrents[0]
-	if len(torrent.FormerMediaItems) > 0 {
-		return false
-	}
-	return model.NormalizeTorrentStatus(torrent.AssociationStatus) == model.TorrentUnassociated
+	return model.NormalizeTorrentStatus(action.Torrents[0].AssociationStatus) == model.TorrentUnassociated
 }
 
 // actionServicesOptedIn reports whether every service an Action

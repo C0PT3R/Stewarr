@@ -951,7 +951,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 			t.AssociationStatus = model.TorrentSuperseded
 			t.AssociationReason = "A later release was imported for the same Radarr movie or Sonarr episode."
 		case len(prov) > 0:
-			t.AssociationStatus = model.TorrentUnassociated
+			t.AssociationStatus = model.TorrentOrphaned
 			t.AssociationReason = "No current media relationship exists; import history records a former relationship."
 		default:
 			t.AssociationStatus = model.TorrentUnassociated

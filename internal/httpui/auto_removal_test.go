@@ -69,8 +69,12 @@ func TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown(t *testing.T
 			want:   true,
 		},
 		{
-			name:   "unassociated today but with a former media relationship",
-			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentUnassociated, FormerMediaItems: []model.MediaRef{{Title: "Old Show"}}}}},
+			// Orphaned means import provenance exists (FormerMediaItems
+			// records what) but nothing proves a specific replacement — a
+			// distinct, named state from Unassociated precisely so this case
+			// isn't lumped in with "no relationship at all."
+			name:   "orphaned: has a former media relationship, no specific replacement",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AssociationStatus: model.TorrentOrphaned, FormerMediaItems: []model.MediaRef{{Title: "Old Show"}}}}},
 			want:   false,
 		},
 		{

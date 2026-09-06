@@ -12,7 +12,7 @@
     {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
     {{if .HasTorrentClient}}
     <div id="torrent-summary" class="inventory-summary muted" data-reactive-fragment data-live-policy="immediate">
-      <span><b>{{.AllItems}}</b> torrents · <span class=current-status>{{.Current}} current</span> · <span class=superseded>{{.Superseded}} superseded</span> · <span class=unassociated>{{.Unassociated}} unassociated</span></span>{{if gt .ObsoleteKnown 0}}<br><span><b>{{human .ObsoleteReclaimable}}</b> reclaimable across {{.ObsoleteKnown}} torrents</span>{{end}}
+      <span><b>{{.AllItems}}</b> torrents · <span class=current-status>{{.Current}} current</span> · <span class=superseded>{{.Superseded}} superseded</span> · <span class=orphaned>{{.Orphaned}} orphaned</span> · <span class=unassociated>{{.Unassociated}} unassociated</span></span>{{if gt .ObsoleteKnown 0}}<br><span><b>{{human .ObsoleteReclaimable}}</b> reclaimable across {{.ObsoleteKnown}} torrents</span>{{end}}
     </div>
     <div class=card>
       <form class=filters data-auto-filter method=get action="/torrents">
@@ -21,6 +21,9 @@
         <option value="current" {{if eq .StatusFilter "CURRENT"}}selected{{end}}>Current</option>
         <option value="superseded" {{if eq .StatusFilter "SUPERSEDED"}}selected{{end}}>
           Superseded
+        </option>
+        <option value="orphaned" {{if eq .StatusFilter "ORPHANED"}}selected{{end}}>
+          Orphaned
         </option>
         <option value="unassociated" {{if eq .StatusFilter "UNASSOCIATED"}}selected{{end}}>
           Unassociated
@@ -75,7 +78,7 @@
           {{range .Torrents}}
           <tr>
             <td>
-              <span class="status {{if eq .AssociationStatus "CURRENT"}}current-status{{else if eq .AssociationStatus "SUPERSEDED"}}superseded{{else}}unassociated{{end}}">{{.AssociationStatus}}</span>
+              <span class="status {{if eq .AssociationStatus "CURRENT"}}current-status{{else if eq .AssociationStatus "SUPERSEDED"}}superseded{{else if eq .AssociationStatus "ORPHANED"}}orphaned{{else}}unassociated{{end}}">{{.AssociationStatus}}</span>
             </td>
             <td><strong>{{printf "%.1f" .SwarmValue}}</strong></td>
             <td>

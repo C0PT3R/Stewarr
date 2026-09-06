@@ -17,8 +17,8 @@ const (
 	// removing it alone frees its own bytes.
 	StandaloneMedia ActionKind = "media"
 	// StandaloneTorrent is a Torrent that is not part of any HardlinkedBundle
-	// (Superseded, Unassociated, or a proven non-hardlinked Current copy);
-	// removing it alone frees its own bytes.
+	// (Superseded, Orphaned, Unassociated, or a proven non-hardlinked
+	// Current copy); removing it alone frees its own bytes.
 	StandaloneTorrent ActionKind = "torrent"
 	// HardlinkedBundle is a Media item (or one Season of it) plus every
 	// Current torrent physically hardlinked to it. These share an inode and
@@ -68,8 +68,8 @@ type Plan struct {
 }
 
 // rank classifies media and torrents into cleanup Actions and orders them:
-// every Torrent-domain action (Superseded, Unassociated, or a proven
-// non-hardlinked Current copy) sorted ascending by Swarm Value, followed by
+// every Torrent-domain action (Superseded, Orphaned, Unassociated, or a
+// proven non-hardlinked Current copy) sorted ascending by Swarm Value, followed by
 // every Media-domain action (standalone media, or a media bundled with its
 // hardlinked Current torrents) sorted ascending by Retention Value. Media
 // Retention Value and Torrent Swarm Value are deliberately unrelated scores,

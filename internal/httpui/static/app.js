@@ -2804,7 +2804,7 @@ Copyright © 2023 Basecamp, LLC
         if (!response.ok) throw new Error(`status ${response.status}`);
         this.etag = response.headers.get("ETag") || "";
         const data = await response.json();
-        for (const name of ["totalMedia", "movies", "series", "libraryBytes", "totalTorrents", "current", "superseded", "unassociated", "obsoleteReclaimable"]) this.set(name, data[name]);
+        for (const name of ["totalMedia", "movies", "series", "libraryBytes", "totalTorrents", "current", "superseded", "orphaned", "unassociated", "obsoleteReclaimable"]) this.set(name, data[name]);
         const stats = data.stats || {};
         this.set("reclaimedBytes", formatBytes(stats.ReclaimedBytes));
         this.set("runs", stats.Runs || 0);

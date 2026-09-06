@@ -515,6 +515,9 @@ tbody tr:hover {
 .superseded {
   color: #c6a0e8 !important;
 }
+.orphaned {
+  color: #e8b878 !important;
+}
 .unassociated {
   color: #ee9292 !important;
 }

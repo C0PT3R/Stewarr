@@ -25,6 +25,25 @@ type relatedRemovalTorrentGroup struct {
 	Torrents []relatedRemovalTorrent
 }
 
+// relatedTorrentMeta describes why a torrent related to a media removal is
+// shown the way it is: what physically ties it to the media (if anything),
+// or why it's only ever a historical fact rather than proof.
+func relatedTorrentMeta(rt relatedRemovalTorrent) string {
+	if rt.PhysicallyBacks {
+		return "physically backs this media"
+	}
+	switch model.NormalizeTorrentStatus(rt.Torrent.AssociationStatus) {
+	case model.TorrentCurrent:
+		return "current import relationship · not hardlinked"
+	case model.TorrentSuperseded:
+		return "superseded by a later import"
+	case model.TorrentOrphaned:
+		return "historical import relationship · media no longer tracked"
+	default:
+		return "preserved historical relationship"
+	}
+}
+
 type relatedUnmanagedFile struct {
 	Path      string
 	Selected  bool
@@ -169,13 +188,15 @@ func groupRelatedTorrents(torrents []relatedRemovalTorrent) []relatedRemovalTorr
 			label = "Current"
 		case model.TorrentSuperseded:
 			label = "Superseded"
+		case model.TorrentOrphaned:
+			label = "Orphaned"
 		case model.TorrentUnassociated:
 			label = "Unassociated"
 		}
 		groupsByLabel[label] = append(groupsByLabel[label], relatedTorrent)
 	}
-	groups := make([]relatedRemovalTorrentGroup, 0, 3)
-	for _, label := range []string{"Current", "Superseded", "Unassociated", "Other"} {
+	groups := make([]relatedRemovalTorrentGroup, 0, 4)
+	for _, label := range []string{"Current", "Superseded", "Orphaned", "Unassociated", "Other"} {
 		if len(groupsByLabel[label]) > 0 {
 			groups = append(groups, relatedRemovalTorrentGroup{Label: label, Torrents: groupsByLabel[label]})
 		}
@@ -934,12 +955,18 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, servic
 	contextByHash := map[string]relatedRemovalTorrent{}
 	if mediaItem != nil {
 		for _, torrent := range mediaItem.Torrents {
-			status := model.NormalizeTorrentStatus(torrent.AssociationStatus)
-			if status != model.TorrentCurrent && status != model.TorrentSuperseded {
+			// Every torrent Connarr has ever related to this media — Current,
+			// Superseded, or Orphaned — is disclosed and selectable here, so
+			// removing the media can also clean up its old releases in one
+			// action. Only a torrent with no relationship to this media at all
+			// (Unassociated) is excluded. Default selection still comes from
+			// physicalTorrentHashes below: only a torrent proven to physically
+			// back the media is pre-checked, everything else starts unchecked.
+			if model.NormalizeTorrentStatus(torrent.AssociationStatus) == model.TorrentUnassociated {
 				continue
 			}
 			hash := strings.ToLower(torrent.Hash)
-			contextByHash[hash] = relatedRemovalTorrent{Torrent: torrent, Selectable: status == model.TorrentCurrent, PhysicallyBacks: torrent.MediaHardlinked}
+			contextByHash[hash] = relatedRemovalTorrent{Torrent: torrent, Selectable: true, PhysicallyBacks: torrent.MediaHardlinked}
 		}
 	}
 	for hash := range physicalTorrentHashes {

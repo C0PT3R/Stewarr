@@ -26,6 +26,7 @@ type dashboardAPI struct {
 	TotalTorrents       int                       `json:"totalTorrents"`
 	Current             int                       `json:"current"`
 	Superseded          int                       `json:"superseded"`
+	Orphaned            int                       `json:"orphaned"`
 	Unassociated        int                       `json:"unassociated"`
 	ObsoleteReclaimable string                    `json:"obsoleteReclaimable"`
 	ObsoleteKnown       int                       `json:"obsoleteKnown"`
@@ -50,7 +51,7 @@ func (server *Server) apiDashboard(response http.ResponseWriter, request *http.R
 	writeJSON(response, dashboardAPI{
 		Revision:   revision,
 		TotalMedia: data.TotalMedia, Movies: data.Movies, Series: data.Series, LibraryBytes: cleanup.Human(uint64(max64(data.LibraryBytes, 0))),
-		TotalTorrents: data.TotalTorrents, Current: data.Current, Superseded: data.Superseded, Unassociated: data.Unassociated,
+		TotalTorrents: data.TotalTorrents, Current: data.Current, Superseded: data.Superseded, Orphaned: data.Orphaned, Unassociated: data.Unassociated,
 		ObsoleteReclaimable: cleanup.Human(uint64(max64(data.ObsoleteReclaimable, 0))), ObsoleteKnown: data.ObsoleteKnown,
 		Stats: data.Stats, Services: data.Services,
 	})

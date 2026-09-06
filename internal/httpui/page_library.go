@@ -492,13 +492,15 @@ func sortMediaItems(items []model.Media, key, order string) {
 	})
 }
 
-func groupMediaTorrents(items []model.Torrent) (current, superseded, unassociated []model.Torrent) {
+func groupMediaTorrents(items []model.Torrent) (current, superseded, orphaned, unassociated []model.Torrent) {
 	for _, t := range items {
 		switch normalizeTorrentStatus(t.AssociationStatus) {
 		case model.TorrentCurrent:
 			current = append(current, t)
 		case model.TorrentSuperseded:
 			superseded = append(superseded, t)
+		case model.TorrentOrphaned:
+			orphaned = append(orphaned, t)
 		case model.TorrentUnassociated:
 			unassociated = append(unassociated, t)
 		}
@@ -508,6 +510,7 @@ func groupMediaTorrents(items []model.Torrent) (current, superseded, unassociate
 	}
 	byName(current)
 	byName(superseded)
+	byName(orphaned)
 	byName(unassociated)
 	return
 }
@@ -571,7 +574,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		m.Torrents = projection.filterTorrents(m.Torrents)
-		current, superseded, unassociated := groupMediaTorrents(m.Torrents)
+		current, superseded, orphaned, unassociated := groupMediaTorrents(m.Torrents)
 		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.ServiceID, m.SourceID)
 		files := storageView.Files
 		if len(projection.ManagedFiles) > 0 {
@@ -602,6 +605,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 			Refreshing        bool
 			Current           []model.Torrent
 			Superseded        []model.Torrent
+			Orphaned          []model.Torrent
 			Unassociated      []model.Torrent
 			Files             []inventory.FileView
 			FileCount         int
@@ -609,7 +613,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 			FilesErr          error
 			RemoveMedia       inventory.RemovalEstimate
 			RemoveWithCurrent inventory.RemovalEstimate
-		}{m, updated, last, server.inv.IsRefreshing(), current, superseded, unassociated, files, fileCount, filesUpdated, filesErr, storageView.RemoveMedia, storageView.RemoveWithCurrent}
+		}{m, updated, last, server.inv.IsRefreshing(), current, superseded, orphaned, unassociated, files, fileCount, filesUpdated, filesErr, storageView.RemoveMedia, storageView.RemoveWithCurrent}
 		if e := renderTemplate(w, server.profileTpl, data); e != nil {
 			log.Printf("[http] render media profile: %v", e)
 		}

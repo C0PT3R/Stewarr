@@ -26,6 +26,7 @@ type homeData struct {
 	TotalTorrents        int
 	Current              int
 	Superseded           int
+	Orphaned             int
 	Unassociated         int
 	ObsoleteReclaimable  int64
 	ObsoleteKnown        int
@@ -94,6 +95,12 @@ func (server *Server) dashboardSnapshot() homeData {
 			d.Current++
 		case model.TorrentSuperseded:
 			d.Superseded++
+			if t.ReclaimableKnown {
+				d.ObsoleteKnown++
+				d.ObsoleteReclaimable += t.ReclaimableBytes
+			}
+		case model.TorrentOrphaned:
+			d.Orphaned++
 			if t.ReclaimableKnown {
 				d.ObsoleteKnown++
 				d.ObsoleteReclaimable += t.ReclaimableBytes

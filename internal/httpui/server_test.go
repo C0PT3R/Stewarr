@@ -277,7 +277,7 @@ func TestRemovalTemplateUsesFilenamesAndRelationshipGroups(t *testing.T) {
 		Related: []relatedRemovalTorrent{{Torrent: model.Torrent{Hash: "abc", Name: "Current Release", AssociationStatus: model.TorrentCurrent}, Selected: true, Selectable: true}},
 		RelatedGroups: []relatedRemovalTorrentGroup{
 			{Label: "Current", Torrents: []relatedRemovalTorrent{{Torrent: model.Torrent{Hash: "abc", Name: "Current Release", AssociationStatus: model.TorrentCurrent}, Selected: true, Selectable: true, PhysicallyBacks: true, FileCount: 1}}},
-			{Label: "Superseded", Torrents: []relatedRemovalTorrent{{Torrent: model.Torrent{Hash: "old", Name: "Old Release", AssociationStatus: model.TorrentSuperseded}, FileCount: 1}}},
+			{Label: "Superseded", Torrents: []relatedRemovalTorrent{{Torrent: model.Torrent{Hash: "old", Name: "Old Release", AssociationStatus: model.TorrentSuperseded}, Selectable: true, FileCount: 1}}},
 		},
 		RelatedTorrentCount: 2, SelectedTorrentCount: 1, PreservedTorrentCount: 1,
 		MediaType: string(model.Movie), MediaID: 1,
@@ -287,7 +287,7 @@ func TestRemovalTemplateUsesFilenamesAndRelationshipGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := output.String()
-	for _, expected := range []string{"Movie files", "actual-file.mkv", "Media torrents · 2", "1 selected for removal · 1 preserved", "physically backs this media", "preserved historical relationship", "Files and storage", "Remove selected", "data-removal-consequences", "data-removal-storage"} {
+	for _, expected := range []string{"Movie files", "actual-file.mkv", "Media torrents · 2", "1 selected for removal · 1 preserved", "physically backs this media", "superseded by a later import", "Files and storage", "Remove selected", "data-removal-consequences", "data-removal-storage"} {
 		if !bytes.Contains(output.Bytes(), []byte(expected)) {
 			t.Fatalf("removal template does not contain %q: %s", expected, html)
 		}
@@ -546,14 +546,17 @@ func TestGroupMediaTorrents(t *testing.T) {
 		{Hash: "s1", Name: "A old", AssociationStatus: "SUPERSEDED"},
 		{Hash: "u1", Name: "Unknown", AssociationStatus: "UNASSOCIATED"},
 	}
-	current, superseded, unassociated := groupMediaTorrents(items)
+	current, superseded, orphaned, unassociated := groupMediaTorrents(items)
 	if len(current) != 1 || current[0].Hash != "c1" {
 		t.Fatalf("unexpected current torrents: %#v", current)
 	}
 	if len(superseded) != 2 || superseded[0].Hash != "s1" || superseded[1].Hash != "s2" {
 		t.Fatalf("unexpected superseded torrents: %#v", superseded)
 	}
-	if len(unassociated) != 2 || unassociated[0].Hash != "o1" || unassociated[1].Hash != "u1" {
+	if len(orphaned) != 1 || orphaned[0].Hash != "o1" {
+		t.Fatalf("unexpected orphaned torrents: %#v", orphaned)
+	}
+	if len(unassociated) != 1 || unassociated[0].Hash != "u1" {
 		t.Fatalf("unexpected unassociated torrents: %#v", unassociated)
 	}
 }
@@ -572,6 +575,7 @@ func TestProfileTemplateShowsTorrentNamesAndGroups(t *testing.T) {
 		Refreshing   bool
 		Current      []model.Torrent
 		Superseded   []model.Torrent
+		Orphaned     []model.Torrent
 		Unassociated []model.Torrent
 		Files        []model.File
 		FileCount    int
@@ -621,18 +625,18 @@ func TestProfileTemplateRendersFileTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := struct {
-		Media                             model.Media
-		Rank, Total                       int
-		Updated                           time.Time
-		LastErr                           error
-		Refreshing                        bool
-		Current, Superseded, Unassociated []model.Torrent
-		Files                             []inventory.FileView
-		FileCount                         int
-		FilesUpdated                      time.Time
-		FilesErr                          error
-		RemoveMedia                       inventory.RemovalEstimate
-		RemoveWithCurrent                 inventory.RemovalEstimate
+		Media                                       model.Media
+		Rank, Total                                 int
+		Updated                                     time.Time
+		LastErr                                     error
+		Refreshing                                  bool
+		Current, Superseded, Orphaned, Unassociated []model.Torrent
+		Files                                       []inventory.FileView
+		FileCount                                   int
+		FilesUpdated                                time.Time
+		FilesErr                                    error
+		RemoveMedia                                 inventory.RemovalEstimate
+		RemoveWithCurrent                           inventory.RemovalEstimate
 	}{
 		Media: model.Media{Type: model.Movie, SourceID: 1, Title: "Test"}, Total: 1,
 		Files:     []inventory.FileView{{File: model.File{Path: "/media/a.mkv", SizeBytes: 100, Exists: true, IdentityKnown: true, Links: 2}, SharedWith: []inventory.FilePeer{{Path: "/downloads/a.mkv", Torrents: []inventory.TorrentFileOwner{{Hash: "abc", Name: "Release"}}}}}},
@@ -842,15 +846,18 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Related) != 2 {
+	// "old" (Superseded) is now selectable too, alongside Current — every
+	// historical torrent related to this media can be selected for removal,
+	// not just the ones proven Current.
+	if len(plan.Related) != 3 {
 		t.Fatalf("related torrents=%#v", plan.Related)
 	}
 	selectedByHash := map[string]bool{}
 	for _, related := range plan.Related {
 		selectedByHash[related.Torrent.Hash] = related.Selected
 	}
-	if !selectedByHash["linked"] || selectedByHash["copied"] {
-		t.Fatalf("physical Current must default selected and copied Current preserved: %#v", plan.Related)
+	if !selectedByHash["linked"] || selectedByHash["copied"] || selectedByHash["old"] {
+		t.Fatalf("only the physically-backing torrent should default selected: %#v", plan.Related)
 	}
 	if plan.RelatedTorrentCount != 3 || len(plan.RelatedGroups) != 2 {
 		t.Fatalf("media relationship context missing Current/Superseded torrents: count=%d groups=%#v", plan.RelatedTorrentCount, plan.RelatedGroups)
@@ -879,8 +886,8 @@ func TestMediaPlanDefaultsPhysicallyHardlinkedTorrentAndRejectsUnrelatedTorrent(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(revalidated.Related) != 2 || !selectedTorrent(revalidated.Related, "linked") || selectedTorrent(revalidated.Related, "copied") {
-		t.Fatalf("execution revalidation discarded related torrent: %#v", revalidated.Related)
+	if len(revalidated.Related) != 3 || !selectedTorrent(revalidated.Related, "linked") || selectedTorrent(revalidated.Related, "copied") || selectedTorrent(revalidated.Related, "old") {
+		t.Fatalf("execution revalidation discarded related torrent or selected one that wasn't submitted: %#v", revalidated.Related)
 	}
 	if _, err := server.buildMediaRemovalPlan(model.Movie, 1, "", true, map[string]bool{"radarr:9": true}, map[string]bool{"unrelated": true}, map[string]bool{}); err == nil || !strings.Contains(err.Error(), "not current") {
 		t.Fatalf("unrelated torrent selection error=%v", err)

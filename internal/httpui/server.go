@@ -72,7 +72,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "relatedTorrentMeta": relatedTorrentMeta, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -459,6 +459,8 @@ func torrentActionContext(t model.Torrent) string {
 		}
 	case model.TorrentSuperseded:
 		parts = append(parts, "superseded")
+	case model.TorrentOrphaned:
+		parts = append(parts, "orphaned")
 	default:
 		parts = append(parts, "unassociated")
 	}

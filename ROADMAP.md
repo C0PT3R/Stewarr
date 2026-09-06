@@ -505,11 +505,42 @@ This file separates implemented behavior from intended direction. It is not a pr
   may simply be something the user downloaded through that client for
   their own purposes, or from a service Connarr doesn't track — automatic
   removal has no basis to judge those safe to delete unattended, unlike a
-  torrent it can prove is Superseded or an independent copy of managed
-  media. A torrent that is Unassociated today but carries a
-  `FormerMediaItems` relationship is not treated as unknown by this gate —
-  it was managed once, the same kind of provenance a Superseded torrent
-  already relies on, so it remains eligible like Superseded torrents do.
+  torrent it can prove is Superseded or Orphaned (see below). This was
+  originally implemented as a side-check on `FormerMediaItems`; the
+  follow-up below replaced that with a real, named status instead.
+
+### Orphaned torrent status, and selectable historical torrents in media removal (0.3.3)
+
+- Added a fourth torrent relationship status, `Orphaned`, alongside
+  `Current`/`Superseded`/`Unassociated`. Reconciliation previously
+  collapsed two different cases into `Unassociated`: a torrent with no
+  import provenance at all, and a torrent with provenance (a
+  `FormerMediaItems` relationship) but no proof of a specific replacement
+  — e.g. the media it belonged to was removed from Radarr/Sonarr entirely
+  rather than re-imported as a better copy. The second case is now
+  `Orphaned`, its own real status (`internal/inventory/service.go`),
+  distinct from both `Superseded` (a *specific* newer import is known to
+  have replaced it) and `Unassociated` (no relationship at all, historical
+  or otherwise). Every place that branched on the old three states —
+  the media detail page's torrent groups, the Torrents page's counts and
+  status filter, the home dashboard, the Storage page's per-torrent
+  context — now has an explicit fourth case rather than Orphaned silently
+  falling into whichever `default:`/`else` branch happened to catch it
+  (in `groupMediaTorrents`'s case, that used to mean an Orphaned torrent
+  vanished from the media page entirely — no case matched it at all).
+  Auto-removal's Unassociated exclusion (0.3.2, above) now simply checks
+  the status directly, since Orphaned no longer collapses into it.
+- The media removal plan used to disclose only `Current` and `Superseded`
+  torrents related to the media as context, and only `Current` ones were
+  ever selectable — `Superseded` was read-only. Every related torrent
+  except a truly Unassociated one (Current, Superseded, or Orphaned) is
+  now disclosed *and* selectable, so removing a media item can also clean
+  up every old release for it in one action instead of requiring a
+  separate manual torrent removal for each. Default selection is
+  unchanged for the primary case and now applies uniformly: only a
+  torrent proven to physically back the media (hardlinked) is pre-checked;
+  every other related torrent — a Current-but-not-hardlinked copy,
+  Superseded, or Orphaned — starts unchecked but available to select.
 
 ## Near-term
 

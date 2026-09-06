@@ -20,21 +20,35 @@ type Reason struct {
 }
 
 const (
-	TorrentCurrent      = "CURRENT"
-	TorrentSuperseded   = "SUPERSEDED"
+	TorrentCurrent = "CURRENT"
+	// TorrentSuperseded means provenance proves a specific newer import
+	// replaced this exact torrent for the same media (SupersededByHash
+	// records which one).
+	TorrentSuperseded = "SUPERSEDED"
+	// TorrentOrphaned means import provenance exists for this torrent (it
+	// was managed once — FormerMediaItems records what), but nothing
+	// proves it was replaced by a specific newer import; e.g. the media it
+	// belonged to was removed from Radarr/Sonarr entirely.
+	TorrentOrphaned = "ORPHANED"
+	// TorrentUnassociated means Connarr has no import provenance for this
+	// torrent at all — unlike Superseded or Orphaned, there is no known
+	// relationship to lean on, historical or otherwise. It may simply be
+	// something downloaded through that client for personal use, or from
+	// a service Connarr doesn't track.
 	TorrentUnassociated = "UNASSOCIATED"
 )
 
 // NormalizeTorrentStatus migrates legacy cached provenance labels into the
-// current three-state relationship model. "Orphaned" is historical context,
-// not a present torrent state.
+// current four-state relationship model.
 func NormalizeTorrentStatus(status string) string {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "OPEN", "ASSOCIATED", TorrentCurrent:
 		return TorrentCurrent
 	case TorrentSuperseded:
 		return TorrentSuperseded
-	case "ORPHANED", "UNMATCHED", TorrentUnassociated:
+	case TorrentOrphaned:
+		return TorrentOrphaned
+	case "UNMATCHED", TorrentUnassociated:
 		return TorrentUnassociated
 	default:
 		return TorrentUnassociated

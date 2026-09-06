@@ -86,11 +86,11 @@
       {{if .RelatedGroups}}
       <section class="optional">
         <h3>{{if eq (printf "%s" .Plan.Kind) "media"}}Media torrents · {{.RelatedTorrentCount}}{{else}}Related torrents{{end}}</h3>
-        {{if eq (printf "%s" .Plan.Kind) "media"}}<p class="muted">{{.SelectedTorrentCount}} selected for removal · {{.PreservedTorrentCount}} preserved. Current torrents may be selected; Superseded torrents are historical context.</p>{{end}}
+        {{if eq (printf "%s" .Plan.Kind) "media"}}<p class="muted">{{.SelectedTorrentCount}} selected for removal · {{.PreservedTorrentCount}} preserved. Every related torrent may be selected; only the one proven to physically back this media is pre-selected.</p>{{end}}
         {{range .RelatedGroups}}
         <div class="torrent-group" data-linked-scope>
           <h4>{{.Label}}</h4>
-          {{range .Torrents}}<div class="row torrent-action-row">{{if .Selectable}}<label><input data-linked-pick type="checkbox" name="torrent" value="{{.Torrent.Hash}}" {{if .Selected}}checked{{end}}> <strong>{{.Torrent.Name}}</strong></label>{{else}}<strong>{{.Torrent.Name}}</strong>{{end}}<div class="muted linked-meta">{{.FileCount}} file{{if ne .FileCount 1}}s{{end}} · {{human .Torrent.SizeBytes}}{{if .PhysicallyBacks}} · physically backs this media{{else if .Selectable}} · current import relationship · not hardlinked{{else}} · preserved historical relationship{{end}}</div></div>{{end}}
+          {{range .Torrents}}<div class="row torrent-action-row">{{if .Selectable}}<label><input data-linked-pick type="checkbox" name="torrent" value="{{.Torrent.Hash}}" {{if .Selected}}checked{{end}}> <strong>{{.Torrent.Name}}</strong></label>{{else}}<strong>{{.Torrent.Name}}</strong>{{end}}<div class="muted linked-meta">{{.FileCount}} file{{if ne .FileCount 1}}s{{end}} · {{human .Torrent.SizeBytes}} · {{relatedTorrentMeta .}}</div></div>{{end}}
         </div>
         {{end}}
       </section>

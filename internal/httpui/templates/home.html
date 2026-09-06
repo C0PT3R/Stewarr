@@ -48,6 +48,7 @@
         <div class="kv">
           <span>Current</span><b class="current-status" data-dashboard-field="current">{{.Current}}</b>
           <span>Superseded</span><b class="superseded" data-dashboard-field="superseded">{{.Superseded}}</b>
+          <span>Orphaned</span><b class="orphaned" data-dashboard-field="orphaned">{{.Orphaned}}</b>
           <span>Unassociated</span><b class="unassociated" data-dashboard-field="unassociated">{{.Unassociated}}</b>
           {{if gt .ObsoleteKnown 0}}<span>Known reclaimable</span><b data-dashboard-field="obsoleteReclaimable">{{human .ObsoleteReclaimable}}</b>{{end}}
         </div>
