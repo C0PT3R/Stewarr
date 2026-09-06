@@ -55,8 +55,10 @@ func aggregateSeasons(mediaRefs []model.MediaFileRef, files []model.File) map[ow
 		}
 		season.SizeBytes += sizeByPath[filepath.Clean(ref.Path)]
 		season.EpisodeFileCount++
-		if ref.AddedAt.After(season.LastAddedAt) {
-			season.LastAddedAt = ref.AddedAt
+		for _, part := range ref.Parts {
+			if part.AiredAt.After(season.LastAiredAt) {
+				season.LastAiredAt = part.AiredAt
+			}
 		}
 	}
 	out := map[ownerKey][]model.Season{}

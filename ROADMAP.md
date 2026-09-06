@@ -542,6 +542,31 @@ This file separates implemented behavior from intended direction. It is not a pr
   every other related torrent — a Current-but-not-hardlinked copy,
   Superseded, or Orphaned — starts unchecked but available to select.
 
+### Season removal order now tracks air date, not import date (0.3.4)
+
+- Season Retention Value's recency factor came from `LastAddedAt` — when
+  Connarr's library *imported* the season's files — not from when the
+  content itself aired. This barely varies for a show backfilled all at
+  once (every season gets nearly the same import timestamp), so which
+  season looked "most recent" could come down to unrelated noise, letting
+  an early season outrank a genuinely newer one in the removal order.
+  Sonarr's episode API already reports each episode's air date; Connarr
+  just didn't fetch it. Added it (`internal/integrations/sonarr/client.go`
+  now reads `airDateUtc`), threaded it through as
+  `model.MediaFilePart.AiredAt`, and `Season.LastAiredAt` (renamed from
+  `LastAddedAt`, since it's a different fact now) is the max of that
+  across a season's episodes. `applySeasonValues` scores recency from
+  this instead.
+- On top of the corrected signal, added a hard guarantee
+  (`cleanup.enforceSeasonOrder`) as a safety net: within one show, an
+  earlier season can never be selected for removal after a later one,
+  even if their computed values ever tie or invert (missing air-date
+  data, a show that aired out of numeric order). It reassigns each show's
+  own season actions into the exact ranked positions they already occupy
+  after the normal value-based sort — so cross-show removal priority is
+  unaffected — filling those positions by ascending season number instead
+  of by value.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

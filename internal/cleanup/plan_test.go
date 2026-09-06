@@ -152,6 +152,34 @@ func TestBuildRanksSeriesPerSeasonInsteadOfWholeSeries(t *testing.T) {
 	}
 }
 
+// TestBuildEnforcesSeasonOrderEvenWhenValueInverts guards the safety net on
+// top of season Retention Value: an earlier season must never be selected
+// for removal after a later one from the same show, even if their computed
+// values are inverted or tied (e.g. missing/bad air-date data) — a show's
+// most recent content is meant to be kept the longest.
+func TestBuildEnforcesSeasonOrderEvenWhenValueInverts(t *testing.T) {
+	series := model.Media{
+		Type: model.Series, Title: "Show",
+		Seasons: []model.Season{
+			// Season 2 has a *lower* value than season 1 here, on purpose —
+			// this must not let season 2 rank ahead of (be removed before)
+			// season 1 despite that.
+			{Number: 1, ReclaimableKnown: true, ReclaimableBytes: 100, RetentionValue: 50},
+			{Number: 2, ReclaimableKnown: true, ReclaimableBytes: 100, RetentionValue: 1},
+		},
+	}
+	p, err := Build(t.TempDir(), 0, 0, []model.Media{series}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Actions) != 2 {
+		t.Fatalf("expected one action per season, got %#v", p.Actions)
+	}
+	if p.Actions[0].Season.Number != 1 || p.Actions[1].Season.Number != 2 {
+		t.Fatalf("expected season 1 ranked before season 2 regardless of Retention Value, got %#v", p.Actions)
+	}
+}
+
 func TestBuildSkipsProtectedOrUnknownSeasons(t *testing.T) {
 	series := model.Media{
 		Type: model.Series, Title: "Show",

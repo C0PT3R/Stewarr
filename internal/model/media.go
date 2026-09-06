@@ -168,6 +168,10 @@ type MediaFilePart struct {
 	Label        string `json:"label,omitempty"`
 	Order        int    `json:"order,omitempty"`
 	SourcePartID int    `json:"sourcePartId,omitempty"`
+	// AiredAt is this part's (episode's) original broadcast date, when
+	// known — distinct from when the file was added to the library. Zero
+	// for an unaired episode or a source that doesn't report air dates.
+	AiredAt time.Time `json:"airedAt,omitempty"`
 }
 
 type MediaFileRef struct {
@@ -254,9 +258,14 @@ type Media struct {
 
 // Season is a per-season Retention Value slice of a Series Media item.
 type Season struct {
-	Number                 int       `json:"number"`
-	SizeBytes              int64     `json:"sizeBytes"`
-	LastAddedAt            time.Time `json:"lastAddedAt,omitempty"`
+	Number    int   `json:"number"`
+	SizeBytes int64 `json:"sizeBytes"`
+	// LastAiredAt is the most recent original broadcast date among this
+	// season's episodes — this drives season-recency scoring so it tracks
+	// how recently the content itself is, not when Connarr's library
+	// happened to import it (a show backfilled all at once would otherwise
+	// give every season nearly the same import date).
+	LastAiredAt            time.Time `json:"lastAiredAt,omitempty"`
 	EpisodeFileCount       int       `json:"episodeFileCount"`
 	Protected              bool      `json:"protected,omitempty"`
 	ProtectionReason       string    `json:"protectionReason,omitempty"`

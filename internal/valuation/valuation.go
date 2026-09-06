@@ -169,9 +169,10 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 // applySeasonValues assigns each Series season its own Retention Value:
 // series-wide factors (protection, rating, watch state, popularity) apply
 // identically to every season via seriesWideValue/seriesWideReasons, plus
-// one season-specific factor (recency of that season's most recently added
-// episode) and torrent activity scoped to torrents proven hardlinked to that
-// specific season rather than the whole series.
+// one season-specific factor (recency of that season's most recently aired
+// episode — the content's own age, not when it was imported) and torrent
+// activity scoped to torrents proven hardlinked to that specific season
+// rather than the whole series.
 func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWideReasons []model.Reason, configuration config.Config, now time.Time) {
 	for seasonIndex := range mediaItem.Seasons {
 		season := &mediaItem.Seasons[seasonIndex]
@@ -179,10 +180,10 @@ func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWi
 		season.ProtectionReason = mediaItem.ProtectionReason
 		value := seriesWideValue
 		reasons := append([]model.Reason(nil), seriesWideReasons...)
-		if !season.LastAddedAt.IsZero() {
-			points := (1 - clamp(daysSince(season.LastAddedAt)/1095, 0, 1)) * configuration.Valuation.Weights.SeasonRecency
+		if !season.LastAiredAt.IsZero() {
+			points := (1 - clamp(daysSince(season.LastAiredAt)/1095, 0, 1)) * configuration.Valuation.Weights.SeasonRecency
 			value += points
-			reasons = append(reasons, model.Reason{Label: "Season recency", Value: fmt.Sprintf("%.0f days", daysSince(season.LastAddedAt)), Points: points})
+			reasons = append(reasons, model.Reason{Label: "Season recency", Value: fmt.Sprintf("%.0f days since last aired", daysSince(season.LastAiredAt)), Points: points})
 		}
 		if configuration.Valuation.Weights.TorrentActivity != 0 {
 			leechers := 0

@@ -4,9 +4,39 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"connarr/internal/model"
 )
+
+// TestAggregateSeasonsUsesAirDateNotImportDate guards the fix for a real
+// ranking bug: season recency used to come from AddedAt (when Connarr's
+// library imported the file), which barely varies for a show backfilled
+// all at once — letting unrelated noise decide which season looked "most
+// recent." LastAiredAt now comes from each episode's own broadcast date
+// (MediaFilePart.AiredAt), which actually tracks the content's age.
+func TestAggregateSeasonsUsesAirDateNotImportDate(t *testing.T) {
+	importedAllAtOnce := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	season1Aired := time.Date(2015, 3, 1, 0, 0, 0, 0, time.UTC)
+	season2Aired := time.Date(2020, 6, 1, 0, 0, 0, 0, time.UTC)
+	refs := []model.MediaFileRef{
+		{ServiceID: "sonarr-1", MediaID: 1, Source: "sonarr", Path: "/s1e1.mkv", AddedAt: importedAllAtOnce,
+			Parts: []model.MediaFilePart{{Group: "Season 1", Order: 100001, AiredAt: season1Aired}}},
+		{ServiceID: "sonarr-1", MediaID: 1, Source: "sonarr", Path: "/s2e1.mkv", AddedAt: importedAllAtOnce,
+			Parts: []model.MediaFilePart{{Group: "Season 2", Order: 200001, AiredAt: season2Aired}}},
+	}
+	bySeries := aggregateSeasons(refs, nil)
+	seasons := bySeries[ownerKey{ServiceID: "sonarr-1", OwnerID: 1}]
+	if len(seasons) != 2 {
+		t.Fatalf("expected 2 seasons, got %#v", seasons)
+	}
+	if !seasons[0].LastAiredAt.Equal(season1Aired) {
+		t.Fatalf("season 1 LastAiredAt = %v, want %v (not the shared import date %v)", seasons[0].LastAiredAt, season1Aired, importedAllAtOnce)
+	}
+	if !seasons[1].LastAiredAt.Equal(season2Aired) {
+		t.Fatalf("season 2 LastAiredAt = %v, want %v (not the shared import date %v)", seasons[1].LastAiredAt, season2Aired, importedAllAtOnce)
+	}
+}
 
 func TestSeasonScopedHardlinkAttributionAgainstRealFiles(t *testing.T) {
 	root := t.TempDir()

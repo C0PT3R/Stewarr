@@ -178,7 +178,45 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 
 	sort.SliceStable(torrentTier, func(i, j int) bool { return torrentTier[i].Value < torrentTier[j].Value })
 	sort.SliceStable(mediaTier, func(i, j int) bool { return mediaTier[i].Value < mediaTier[j].Value })
+	enforceSeasonOrder(mediaTier)
 	return append(torrentTier, mediaTier...)
+}
+
+// enforceSeasonOrder is a safety net on top of season Retention Value
+// (which now scores recency from each season's own last-aired date, not
+// import time): it guarantees that within one show, an earlier season is
+// never removed after a later one, even if per-season value ever ties or
+// inverts — missing/bad air-date data, or a show that aired out of numeric
+// order, for instance. A show's most recent content is meant to be kept
+// the longest.
+//
+// This reassigns each show's own season actions into the exact ranked
+// positions its members already occupy after the value sort above — so
+// the overall cross-show removal priority (which positions belong to this
+// show at all) is unchanged — but fills those positions by ascending
+// season number instead of by value.
+func enforceSeasonOrder(actions []Action) {
+	positionsByShow := map[string][]int{}
+	for index, action := range actions {
+		if action.Season == nil {
+			continue
+		}
+		key := fmt.Sprintf("%s:%s:%d", action.Media.Type, action.Media.ServiceID, action.Media.SourceID)
+		positionsByShow[key] = append(positionsByShow[key], index)
+	}
+	for _, positions := range positionsByShow {
+		if len(positions) < 2 {
+			continue
+		}
+		seasons := make([]Action, len(positions))
+		for i, position := range positions {
+			seasons[i] = actions[position]
+		}
+		sort.SliceStable(seasons, func(i, j int) bool { return seasons[i].Season.Number < seasons[j].Season.Number })
+		for i, position := range positions {
+			actions[position] = seasons[i]
+		}
+	}
 }
 
 // Build uses Target as the sole storage-reclamation threshold. Critical is

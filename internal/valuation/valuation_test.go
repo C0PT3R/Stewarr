@@ -156,14 +156,14 @@ func TestApplyMediaSeasonsDifferByRecency(t *testing.T) {
 	items := []model.Media{{
 		Type: model.Series, Title: "Show",
 		Seasons: []model.Season{
-			{Number: 1, LastAddedAt: now.AddDate(-3, 0, 0)},
-			{Number: 2, LastAddedAt: now},
+			{Number: 1, LastAiredAt: now.AddDate(-3, 0, 0)},
+			{Number: 2, LastAiredAt: now},
 		},
 	}}
 	ApplyMedia(items, c)
 	old, recent := items[0].Seasons[0], items[0].Seasons[1]
 	if recent.RetentionValue <= old.RetentionValue {
-		t.Fatalf("expected the more recently added season to have higher Retention Value: old=%#v recent=%#v", old, recent)
+		t.Fatalf("expected the more recently aired season to have higher Retention Value: old=%#v recent=%#v", old, recent)
 	}
 }
 

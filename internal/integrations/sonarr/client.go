@@ -135,11 +135,12 @@ type FileRecord struct {
 }
 
 type episodeRecord struct {
-	ID            int    `json:"id"`
-	EpisodeFileID int    `json:"episodeFileId"`
-	SeasonNumber  int    `json:"seasonNumber"`
-	EpisodeNumber int    `json:"episodeNumber"`
-	Title         string `json:"title"`
+	ID            int       `json:"id"`
+	EpisodeFileID int       `json:"episodeFileId"`
+	SeasonNumber  int       `json:"seasonNumber"`
+	EpisodeNumber int       `json:"episodeNumber"`
+	Title         string    `json:"title"`
+	AirDateUtc    time.Time `json:"airDateUtc"`
 }
 
 // Files returns authoritative current episode files. Sonarr's v3 endpoint is
@@ -200,6 +201,7 @@ func (client *Client) Files(seriesIDs []int) ([]FileRecord, error) {
 					parts[e.EpisodeFileID] = append(parts[e.EpisodeFileID], model.MediaFilePart{
 						Group: fmt.Sprintf("Season %d", e.SeasonNumber), Label: label,
 						Order: e.SeasonNumber*100000 + e.EpisodeNumber, SourcePartID: e.ID,
+						AiredAt: e.AirDateUtc,
 					})
 					seasonByFileID[e.EpisodeFileID] = e.SeasonNumber
 				}
