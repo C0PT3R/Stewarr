@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -88,6 +89,11 @@ func main() {
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.SetOutput(io.MultiWriter(os.Stdout, applicationLog))
 	log.Printf("[app] starting %s %s", product.Name, product.Version)
+	// Temporary, for tracking down a real production hang: makes
+	// /debug/pprof/mutex and /debug/pprof/block meaningful instead of empty.
+	// Remove alongside the /debug/pprof/ routes once this is resolved.
+	runtime.SetMutexProfileFraction(5)
+	runtime.SetBlockProfileRate(1_000_000)
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {

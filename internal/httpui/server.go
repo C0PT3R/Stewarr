@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/http/pprof"
 	"strconv"
 	"strings"
 	"sync"
@@ -147,6 +148,17 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 }
 func (server *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	// Temporary diagnostic endpoints for tracking down a real, still-open
+	// production hang (app-wide slow pages with no CPU/disk/memory signal,
+	// surviving an earlier lock-contention fix that didn't resolve it).
+	// /debug/pprof/goroutine?debug=2 dumps every goroutine's stack — captured
+	// during an actual hang, it shows exactly what's blocked and on what,
+	// instead of guessing from reading code. Remove once this is resolved.
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	mux.Handle("/assets/", server.staticHandler)
 	mux.HandleFunc("/ui/events", server.uiEvents)
 	mux.HandleFunc("/ui/status", server.uiStatus)
