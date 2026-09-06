@@ -3,6 +3,8 @@ package httpui
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"mime/multipart"
 	"net/http"
@@ -702,6 +704,48 @@ func TestGroupRemovalFilesMakesUnmanagedTargetSelectable(t *testing.T) {
 	}
 	if strings.Contains(display.ActionLabel, "Preserved") {
 		t.Fatalf("expected the unmanaged target not to be marked Preserved, got %q", display.ActionLabel)
+	}
+}
+
+// TestPrepareRemovalDataMarksUnmanagedTargetSelectable guards a second,
+// separate bug in the same feature: even after groupRemovalFiles correctly
+// marks the primary unmanaged target Selectable for the server-rendered
+// display, prepareRemovalData builds a completely different JSON model that
+// the browser actually uses to decide what gets submitted on "Remove
+// selected" — removal.ts only ever includes a file in the real submission
+// when both file.selectable and file.selected are true (connect(): "files
+// .filter(file => file.selectable && file.selected)"). prepareRemovalData's
+// UnmanagedOwner branch set Always (forcing the live preview to treat it as
+// selected) but never Selectable, so the primary target was silently
+// dropped from every real removal request regardless of what the preview
+// showed — the file could never actually be deleted.
+func TestPrepareRemovalDataMarksUnmanagedTargetSelectable(t *testing.T) {
+	data := removalData{
+		Plan: removal.RemovalPlan{Kind: removal.UnmanagedObject, Files: []removal.FileState{
+			{Path: "/data/downloads/orphan.iso", Owner: removal.UnmanagedOwner, Selected: true, Selectable: true, Exists: true, SizeBytes: 999},
+		}},
+		UnmanagedPaths: []string{"/data/downloads/orphan.iso"},
+	}
+	if err := prepareRemovalData(&data); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(data.SelectionModel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var model removalSelectionModel
+	if err := json.Unmarshal(decoded, &model); err != nil {
+		t.Fatal(err)
+	}
+	if len(model.Files) != 1 {
+		t.Fatalf("expected 1 file in the selection model, got %+v", model.Files)
+	}
+	fact := model.Files[0]
+	if !fact.Selectable {
+		t.Fatalf("expected the primary unmanaged target to be Selectable in the client-side model (browser only submits selectable+selected files), got %+v", fact)
+	}
+	if !fact.Always || fact.ActionName != "path" || fact.ActionValue != "/data/downloads/orphan.iso" {
+		t.Fatalf("expected always=true actionName=path actionValue=/data/downloads/orphan.iso, got %+v", fact)
 	}
 }
 

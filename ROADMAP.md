@@ -418,6 +418,16 @@ This file separates implemented behavior from intended direction. It is not a pr
   the app, and the scan itself isn't scoped to download-client folders at
   all, so the nesting no longer matched anything. Now flat like every
   other top-level page (`/library`, `/torrents`, `/services`, ...).
+- Fixed a third bug in the same feature, separate from the two already
+  found: `groupRemovalFiles` marking the primary target Selectable fixed
+  the *server-rendered* display, but the browser actually decides what
+  gets submitted on "Remove selected" from an entirely different
+  JSON model (`prepareRemovalData`, base64-embedded in the overlay) —
+  and that model's `UnmanagedOwner` branch never set `Selectable` at
+  all. `removal.ts` only ever includes a file in the real submission
+  when both `selectable` and `selected` are true, so the primary target
+  was silently dropped from every actual removal request regardless of
+  what the preview showed — the file could never really be deleted.
 
 ## Near-term
 

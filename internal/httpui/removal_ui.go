@@ -95,7 +95,7 @@ func prepareRemovalData(data *removalData) error {
 			}
 		case removal.UnmanagedOwner:
 			if data.Plan.Kind == removal.UnmanagedObject && primaryUnmanaged[filepath.Clean(file.Path)] {
-				fact.ActionName, fact.ActionValue, fact.Always = "path", file.Path, true
+				fact.ActionName, fact.ActionValue, fact.Always, fact.Selectable = "path", file.Path, true, file.Selectable
 			} else {
 				fact.ActionName, fact.ActionValue = "unmanaged_path", file.Path
 			}
