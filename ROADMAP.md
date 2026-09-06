@@ -473,7 +473,19 @@ This file separates implemented behavior from intended direction. It is not a pr
 - `authGate` fails open when no durable store is available, since sessions
   cannot be persisted at all without one. Every real deployment opens a
   store before constructing the server (`cmd/connarr/main.go`); this only
-  ever applies to handler-level tests built without one.
+  ever applies to handler-level tests built without one — and that bypass
+  now logs a warning the first time it's hit, rather than silently leaving
+  every route unauthenticated with no signal anything is wrong.
+- A post-release review of this feature found and fixed two more gaps: the
+  login handler used to short-circuit past `VerifyPassword`'s bcrypt call
+  whenever the username alone was already wrong, so a wrong username
+  returned near-instantly while a right-username-wrong-password case took
+  bcrypt's cost — a timing side-channel disclosing the admin username
+  without ever guessing its password. Both checks now always run. Separately,
+  `/login` had no limit on repeated attempts beyond bcrypt's own per-attempt
+  cost, so a scripted credential-stuffing run was only slowed, never
+  stopped; a per-client `loginLimiter` now adds an escalating lockout
+  (15s per failure past a small threshold, capped at 5 minutes) on top of it.
 
 ## Near-term
 

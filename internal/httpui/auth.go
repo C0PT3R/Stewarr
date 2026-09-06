@@ -3,8 +3,12 @@ package httpui
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"fmt"
+	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -15,6 +19,83 @@ const (
 	// multi-tenant service where a short session limits blast radius.
 	sessionDuration = 30 * 24 * time.Hour
 )
+
+// loginLimiter throttles repeated failed login attempts per client address.
+// Bcrypt's own per-attempt cost already slows brute-forcing, but does
+// nothing to stop a sustained scripted run over hours; this adds an
+// escalating lockout on top of it. It is intentionally in-memory and
+// per-process — Connarr has one admin account and one process, so nothing
+// durable is lost by resetting on restart.
+type loginLimiter struct {
+	mu    sync.Mutex
+	state map[string]*loginAttemptState
+}
+
+type loginAttemptState struct {
+	failures    int
+	lockedUntil time.Time
+}
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{state: map[string]*loginAttemptState{}}
+}
+
+// locked reports whether key is currently locked out, and for how much
+// longer.
+func (limiter *loginLimiter) locked(key string) (time.Duration, bool) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	state := limiter.state[key]
+	if state == nil {
+		return 0, false
+	}
+	if remaining := time.Until(state.lockedUntil); remaining > 0 {
+		return remaining, true
+	}
+	return 0, false
+}
+
+// recordFailure counts one failed attempt and, past a small threshold,
+// starts an escalating lockout (15s per failure past the threshold, capped
+// at 5 minutes) rather than an unlimited-attempt password oracle.
+func (limiter *loginLimiter) recordFailure(key string) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	state := limiter.state[key]
+	if state == nil {
+		state = &loginAttemptState{}
+		limiter.state[key] = state
+	}
+	state.failures++
+	const freeAttempts = 4
+	if state.failures > freeAttempts {
+		backoff := time.Duration(state.failures-freeAttempts) * 15 * time.Second
+		if backoff > 5*time.Minute {
+			backoff = 5 * time.Minute
+		}
+		state.lockedUntil = time.Now().Add(backoff)
+	}
+}
+
+// recordSuccess clears key's failure history after a correct login.
+func (limiter *loginLimiter) recordSuccess(key string) {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	delete(limiter.state, key)
+}
+
+// clientLoginKey identifies the caller for login throttling. It strips the
+// port from RemoteAddr since the same browser reconnects on a new one every
+// request; behind a reverse proxy every client shares one address (and
+// therefore one lockout bucket), which is an acceptable tradeoff for a
+// single-admin app rather than trusting a spoofable forwarded-for header.
+func clientLoginKey(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
 
 func newSessionToken() (string, error) {
 	random := make([]byte, 32)
@@ -75,10 +156,16 @@ func (server *Server) startSession(w http.ResponseWriter, r *http.Request) error
 // It fails open when no durable store is available (Store() nil) because
 // sessions cannot be persisted at all without one — every real deployment
 // opens a store before constructing Server (see cmd/connarr/main.go), so
-// this only ever applies to handler-level tests built without one.
+// this only ever applies to handler-level tests built without one. That
+// bypass is loud, not silent: the first request it affects logs a warning,
+// so a future caller that unexpectedly ends up here in a real deployment
+// has a visible signal something is wrong rather than a quietly open door.
 func (server *Server) authGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if server.inv == nil || server.inv.Store() == nil {
+			server.authBypassWarned.Do(func() {
+				log.Printf("[http] WARNING: no durable store configured — authentication is disabled for every route")
+			})
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -180,10 +267,24 @@ func (server *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
-	if !strings.EqualFold(username, cfg.Auth.Username) || !cfg.VerifyPassword(password) {
+	key := clientLoginKey(r)
+	if remaining, locked := server.loginLimiter.locked(key); locked {
+		_ = renderTemplate(w, server.loginTpl, loginPageData{Username: username, Error: fmt.Sprintf("Too many attempts. Try again in %d seconds.", int(remaining.Seconds())+1)})
+		return
+	}
+	// Both checks always run, even when the username is already known to be
+	// wrong: short-circuiting past VerifyPassword's bcrypt comparison would
+	// make a wrong username return near-instantly while a right-username-
+	// wrong-password takes bcrypt's cost — a timing side-channel that
+	// discloses the admin username without ever guessing its password.
+	usernameCorrect := strings.EqualFold(username, cfg.Auth.Username)
+	passwordCorrect := cfg.VerifyPassword(password)
+	if !usernameCorrect || !passwordCorrect {
+		server.loginLimiter.recordFailure(key)
 		_ = renderTemplate(w, server.loginTpl, loginPageData{Username: username, Error: "Incorrect username or password."})
 		return
 	}
+	server.loginLimiter.recordSuccess(key)
 	if err := server.startSession(w, r); err != nil {
 		http.Error(w, "signed in, but the session could not be started: "+err.Error(), http.StatusInternalServerError)
 		return

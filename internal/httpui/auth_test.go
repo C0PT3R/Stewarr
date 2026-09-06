@@ -1,6 +1,8 @@
 package httpui
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -234,9 +236,86 @@ func TestChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 }
 
+// TestLoginLockoutAfterRepeatedFailures guards the escalating lockout added
+// on top of bcrypt's own per-attempt cost: past a small threshold of failed
+// attempts, a request is rejected before it ever reaches VerifyPassword —
+// even when it now supplies the correct password.
+func TestLoginLockoutAfterRepeatedFailures(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+
+	for i := 0; i < 5; i++ {
+		response := postForm(t, handler, "/login", url.Values{"username": {"admin"}, "password": {"wrong"}}, nil)
+		if !strings.Contains(response.Body.String(), "Incorrect username or password") {
+			t.Fatalf("attempt %d body=%q", i, response.Body.String())
+		}
+	}
+	lockedOut := postForm(t, handler, "/login", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}}, nil)
+	if !strings.Contains(lockedOut.Body.String(), "Too many attempts") {
+		t.Fatalf("expected a lockout even with the correct password after repeated failures, got body=%q", lockedOut.Body.String())
+	}
+	if sessionCookieFrom(lockedOut) != nil {
+		t.Fatal("a locked-out attempt must not issue a session even with the right password")
+	}
+}
+
+// TestLoginLockoutCountsWrongUsernameTheSameAsWrongPassword is a black-box
+// proxy for the fix to a real timing side-channel: the login handler used
+// to short-circuit on a wrong username before ever calling VerifyPassword,
+// so a wrong username returned near-instantly while a right-username-
+// wrong-password case took bcrypt's cost — letting an attacker confirm the
+// admin username by timing alone. Both branches now run the same password
+// comparison and record the same failure, which this test checks the only
+// way observable from outside: a wrong username must count toward the same
+// lockout as a wrong password, not be exempt from it.
+func TestLoginLockoutCountsWrongUsernameTheSameAsWrongPassword(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+
+	for i := 0; i < 5; i++ {
+		postForm(t, handler, "/login", url.Values{"username": {"not-admin"}, "password": {"whatever"}}, nil)
+	}
+	lockedOut := postForm(t, handler, "/login", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}}, nil)
+	if !strings.Contains(lockedOut.Body.String(), "Too many attempts") {
+		t.Fatalf("wrong-username attempts should count toward the same lockout as wrong-password ones, got body=%q", lockedOut.Body.String())
+	}
+}
+
 func TestAssetsAndHealthzBypassAuthGate(t *testing.T) {
 	handler, _ := newAuthTestServer(t)
 	if response := getPath(t, handler, "/healthz", nil); response.Code != http.StatusOK {
 		t.Fatalf("/healthz status=%d", response.Code)
+	}
+}
+
+// TestAuthGateWarnsOnceWhenBypassingWithoutAStore guards against the
+// fail-open path for a server built without a durable store being silent.
+// It can't be persisted-store-safe (there's nothing to persist a session
+// to), so every real deployment always opens one first — this path exists
+// only for handler-level tests — but if it were ever hit unexpectedly in a
+// real deployment, a loud, once-per-process log line is the difference
+// between "every route is unauthenticated and nobody knows" and a visible
+// signal something is misconfigured.
+func TestAuthGateWarnsOnceWhenBypassingWithoutAStore(t *testing.T) {
+	var output bytes.Buffer
+	originalWriter := log.Writer()
+	log.SetOutput(&output)
+	defer log.SetOutput(originalWriter)
+
+	inv := inventory.New(config.Config{}, nil)
+	server, err := New(inv, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	for i := 0; i < 3; i++ {
+		if response := getPath(t, handler, "/", nil); response.Code != http.StatusOK {
+			t.Fatalf("request %d status=%d", i, response.Code)
+		}
+	}
+	occurrences := strings.Count(output.String(), "authentication is disabled")
+	if occurrences != 1 {
+		t.Fatalf("expected exactly one warning across repeated requests, got %d in log: %q", occurrences, output.String())
 	}
 }
