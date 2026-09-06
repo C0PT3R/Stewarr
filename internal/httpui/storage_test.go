@@ -110,7 +110,7 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 20,
 					Actions: []cleanup.Action{
 						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Show.S03E01.mkv", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, MediaItems: []model.MediaRef{{Title: "Some Show", Year: 2024}}}}, ReclaimableBytes: 10},
-						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
+						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie", ServiceName: "Movies 4K"}, ReclaimableBytes: 10},
 					},
 				},
 			},
@@ -127,7 +127,7 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Show.S03E01.mkv", "independent copy, not hardlinked to its media", "Some Show (2024)",
-		"Lonely Movie", ">Torrents ", ">Media ",
+		"Lonely Movie", "Movies 4K", ">Torrents ", ">Media ",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
