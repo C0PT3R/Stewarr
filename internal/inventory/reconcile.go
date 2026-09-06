@@ -557,17 +557,13 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	}
 	service.mu.RLock()
 	generationCurrent := service.generation == generation
+	tc := append([]model.Torrent(nil), service.torrents...)
+	mc := cloneMedia(service.items)
+	cfg := service.cfg
 	service.mu.RUnlock()
 	if !generationCurrent {
 		return service.setFilesError(fmt.Errorf("inventory changed during file reconciliation; result discarded"))
 	}
-	service.mu.Lock()
-	if service.generation != generation {
-		service.mu.Unlock()
-		return service.setFilesError(fmt.Errorf("inventory changed while file reconciliation was being committed; result discarded"))
-	}
-	tc := append([]model.Torrent(nil), service.torrents...)
-	mc := cloneMedia(service.items)
 	relationshipsStarted := time.Now()
 	applyTorrentFileEstimates(tc, files, torrentRefs)
 	applyTorrentMediaHardlinks(tc, mc, files, mediaRefs, torrentRefs)
@@ -575,16 +571,27 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	attachSeasons(mc, mediaRefs, files)
 	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
-	valuation.ApplyTorrents(tc, service.cfg)
-	valuation.ApplyMedia(mc, service.cfg)
+	valuation.ApplyTorrents(tc, cfg)
+	valuation.ApplyMedia(mc, cfg)
 	metrics["relationships"] = time.Since(relationshipsStarted).Round(time.Millisecond)
 	stageStarted = time.Now()
+	// publishMu serializes this generation-check-then-write sequence against
+	// every other reconciliation publisher (full/delta/targeted), so two
+	// publishers can never interleave — without holding mu (which every page
+	// load needs just to read cached state) across the database write
+	// itself. A single slow write must never stall the whole app.
+	service.publishMu.Lock()
+	defer service.publishMu.Unlock()
+	service.mu.RLock()
+	generationCurrent = service.generation == generation
+	service.mu.RUnlock()
+	if !generationCurrent {
+		return service.setFilesError(fmt.Errorf("inventory changed while file reconciliation was being committed; result discarded"))
+	}
 	if service.db != nil {
-		// Keep the generation check and its complete durable publication under the
-		// Service lock. Inventory cannot advance generation between validation and
-		// commit, and SQLite receives either every projection or none of them.
 		if e := service.db.PublishReconciliation(generation, files, mediaRefs, torrentRefs, unmanagedFiles, tc, mc); e != nil {
 			err := fmt.Errorf("persist reconciled generation: %w", e)
+			service.mu.Lock()
 			service.filesErr = err
 			service.reliability.FileModel = "stale"
 			service.mu.Unlock()
@@ -592,6 +599,11 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		}
 	}
 	now := time.Now()
+	service.mu.Lock()
+	if service.generation != generation {
+		service.mu.Unlock()
+		return service.setFilesError(fmt.Errorf("inventory changed while file reconciliation was being committed; result discarded"))
+	}
 	service.files = files
 	service.mediaFileRefs = mediaRefs
 	service.torrentFileRefs = torrentRefs

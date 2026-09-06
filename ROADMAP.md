@@ -165,6 +165,18 @@ This file separates implemented behavior from intended direction. It is not a pr
   Add/Edit integration forms show only the credential fields the selected
   type actually uses (an API key, or a username+password, never both).
 
+### App-wide slowness during reconciliation publishing (0.2.29)
+
+- Fixed a serious pre-existing bug: reconcileFiles, the inline delta
+  reconciliation inside Refresh, and reconcileTargeted all held the
+  in-memory state lock (the one every page load needs just to read cached
+  data) for the entire duration of a database write. Any one of these
+  publishing — which happens routinely, not just on a rare full scan —
+  stalled every page in the app for as long as that write took, with no
+  corresponding CPU/disk/memory signal to explain it. A dedicated lock now
+  serializes reconciliation publishers against each other without ever being
+  held by a reader, so a slow write no longer blocks anything but itself.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and

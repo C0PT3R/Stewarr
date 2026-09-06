@@ -77,7 +77,15 @@ type Service struct {
 	hasEnrichmentFingerprint bool
 	statuses                 map[string]ServiceStatus
 	reconciliationMu         sync.Mutex
-	changed                  chan struct{}
+	// publishMu serializes concurrent reconciliation publishers (full, delta,
+	// and targeted can all run from different goroutines) against each
+	// other, WITHOUT being held during the database write itself — mu (the
+	// RWMutex nearly every page load needs just to read cached state) must
+	// never be held across I/O, or a single slow write stalls the entire
+	// app. publishMu only prevents two publishers from interleaving; readers
+	// never touch it.
+	publishMu sync.Mutex
+	changed   chan struct{}
 	// rad/son/qb are keyed by config.Integration.ID: Radarr, Sonarr, and
 	// qBittorrent are commonly run as more than one instance (separate
 	// quality-tier libraries, a seedbox alongside a local client). Jellyfin
@@ -755,27 +763,45 @@ func (service *Service) Refresh(ctx context.Context) error {
 		service.reliability.Valuation = service.cfg.Jellyfin.URL == "" && service.cfg.Seerr.URL == ""
 		service.reliability.Message = "Media inventory changed; enrichment must complete before automatic removal planning."
 	}
+	publishGeneration := service.generation
+	preWriteTopologyVersion := service.fileTopologyVersion
+	service.mu.Unlock()
+
+	// The database write (when there's a file-topology delta to persist)
+	// happens outside mu — a slow write must never stall every other page's
+	// reads. publishMu only serializes this against other reconciliation
+	// publishers (full/targeted can run concurrently in other goroutines).
+	dbWriteFailed := false
+	if topology != nil && service.db != nil {
+		service.publishMu.Lock()
+		if e := service.db.PublishReconciliationDelta(store.ReconciliationDelta{
+			Paths: topology.affectedPaths, Files: topology.filesToInsert, MediaOwners: topology.mediaOwners, MediaRefs: topology.mediaRefsToInsert,
+			RemovedTorrentHashes: topology.removedTorrentHashes, TorrentRefs: topology.torrentRefsToInsert, Unmanaged: topology.unmanagedToInsert,
+			Torrents: append([]model.Torrent(nil), baseTorrents...), Media: cloneMedia(all), Generation: publishGeneration,
+		}); e != nil {
+			log.Printf("[inventory] persist inline file topology reconciliation: %v; file topology will report stale until the next full reconciliation", e)
+			topology = nil
+			dbWriteFailed = true
+		}
+		service.publishMu.Unlock()
+	}
+
+	service.mu.Lock()
+	if topology != nil && service.fileTopologyVersion != preWriteTopologyVersion {
+		// A concurrent files reconciliation published while our write was in
+		// flight. Its facts are newer than ours; discard rather than overwrite.
+		topology = nil
+	}
 	if topology != nil {
-		if service.db != nil {
-			if e := service.db.PublishReconciliationDelta(store.ReconciliationDelta{
-				Paths: topology.affectedPaths, Files: topology.filesToInsert, MediaOwners: topology.mediaOwners, MediaRefs: topology.mediaRefsToInsert,
-				RemovedTorrentHashes: topology.removedTorrentHashes, TorrentRefs: topology.torrentRefsToInsert, Unmanaged: topology.unmanagedToInsert,
-				Torrents: append([]model.Torrent(nil), baseTorrents...), Media: cloneMedia(all), Generation: service.generation,
-			}); e != nil {
-				log.Printf("[inventory] persist inline file topology reconciliation: %v; file topology will report stale until the next full reconciliation", e)
-				service.reliability.FileModel = "stale"
-				topology = nil
-			}
-		}
-		if topology != nil {
-			service.files, service.mediaFileRefs, service.torrentFileRefs = topology.files, topology.mediaRefs, topology.torrentRefs
-			now := time.Now()
-			service.unmanaged, service.unmanagedUpdated, service.unmanagedErr = topology.unmanaged, now, nil
-			service.filesUpdated, service.filesErr = now, nil
-			service.reliability.FileModel = "reliable"
-			service.fileGeneration = service.generation
-			service.fileTopologyVersion++
-		}
+		service.files, service.mediaFileRefs, service.torrentFileRefs = topology.files, topology.mediaRefs, topology.torrentRefs
+		now := time.Now()
+		service.unmanaged, service.unmanagedUpdated, service.unmanagedErr = topology.unmanaged, now, nil
+		service.filesUpdated, service.filesErr = now, nil
+		service.reliability.FileModel = "reliable"
+		service.fileGeneration = service.generation
+		service.fileTopologyVersion++
+	} else if dbWriteFailed {
+		service.reliability.FileModel = "stale"
 	}
 	service.items = cloneMedia(all)
 	service.torrents = append([]model.Torrent(nil), baseTorrents...)
@@ -807,18 +833,23 @@ func (service *Service) Refresh(ctx context.Context) error {
 	}
 
 	if len(service.cfg.IntegrationsOfType("qbittorrent")) == 0 {
-		service.mu.Lock()
-		applyMediaFileEstimates(all, service.files, service.mediaFileRefs)
-		attachSeasons(all, service.mediaFileRefs, service.files)
-		applySeasonFileEstimates(all, service.files, service.mediaFileRefs)
-		valuation.ApplyMedia(all, service.cfg)
+		service.mu.RLock()
+		files, mediaFileRefs, cfg := service.files, service.mediaFileRefs, service.cfg
 		generation := service.generation
+		service.mu.RUnlock()
+		applyMediaFileEstimates(all, files, mediaFileRefs)
+		attachSeasons(all, mediaFileRefs, files)
+		applySeasonFileEstimates(all, files, mediaFileRefs)
+		valuation.ApplyMedia(all, cfg)
 		if service.db != nil {
-			if e := service.db.PublishInventory(generation, nil, nil, all); e != nil {
-				service.mu.Unlock()
-				return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", e))
+			service.publishMu.Lock()
+			err := service.db.PublishInventory(generation, nil, nil, all)
+			service.publishMu.Unlock()
+			if err != nil {
+				return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", err))
 			}
 		}
+		service.mu.Lock()
 		service.items = cloneMedia(all)
 		service.torrents = nil
 		service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr)
@@ -972,12 +1003,22 @@ func (service *Service) Refresh(ctx context.Context) error {
 	// setStageTiming locks service.mu itself, and it is already held here.
 	service.stageTimings["relationships merge"] = time.Since(relationshipsMergeStarted)
 	generation := service.generation
+	service.mu.Unlock()
+
+	// The database write happens outside mu — a slow write must never stall
+	// every other page's reads. publishMu only serializes this against other
+	// reconciliation publishers (full/targeted/delta can run concurrently in
+	// other goroutines); it is never held by a reader.
 	if service.db != nil {
-		if e := service.db.PublishInventory(generation, torrentRIDs, torrentList, all); e != nil {
-			service.mu.Unlock()
-			return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", e))
+		service.publishMu.Lock()
+		err := service.db.PublishInventory(generation, torrentRIDs, torrentList, all)
+		service.publishMu.Unlock()
+		if err != nil {
+			return service.persistenceFail(fmt.Errorf("persist inventory generation: %w", err))
 		}
 	}
+
+	service.mu.Lock()
 	service.items = cloneMedia(all)
 	service.torrents = torrentList
 	service.updated = time.Now()

@@ -246,15 +246,6 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 
 	service.mu.RLock()
 	generationCurrent := service.generation == generation
-	service.mu.RUnlock()
-	if !generationCurrent {
-		return service.promoteTargeted(ctx, "generation_changed")
-	}
-	service.mu.Lock()
-	if service.generation != generation {
-		service.mu.Unlock()
-		return service.promoteTargeted(ctx, "generation_changed")
-	}
 	tc := make([]model.Torrent, 0, len(service.torrents))
 	for _, torrent := range service.torrents {
 		if !removedHashes[strings.ToLower(torrent.Hash)] {
@@ -262,6 +253,11 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 		}
 	}
 	mc := cloneMedia(service.items)
+	cfg := service.cfg
+	service.mu.RUnlock()
+	if !generationCurrent {
+		return service.promoteTargeted(ctx, "generation_changed")
+	}
 	ownerSizes := map[string]int64{}
 	for _, f := range radFetches {
 		for _, file := range f.files {
@@ -285,10 +281,25 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	attachSeasons(mc, mediaRefs, files)
 	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
-	valuation.ApplyTorrents(tc, service.cfg)
-	valuation.ApplyMedia(mc, service.cfg)
+	valuation.ApplyTorrents(tc, cfg)
+	valuation.ApplyMedia(mc, cfg)
 
 	stageStarted = time.Now()
+	// publishMu serializes this generation-check-then-write sequence against
+	// every other reconciliation publisher, without holding mu (which every
+	// page load needs just to read cached state) across the database write.
+	service.publishMu.Lock()
+	service.mu.RLock()
+	generationCurrent = service.generation == generation
+	service.mu.RUnlock()
+	if !generationCurrent {
+		// promoteTargeted recurses into ReconcileFiles, which itself acquires
+		// publishMu — release it first, or this self-deadlocks (and, since
+		// publishMu would then never unlock, every other reconciliation
+		// publisher would hang behind it forever too).
+		service.publishMu.Unlock()
+		return service.promoteTargeted(ctx, "generation_changed")
+	}
 	if service.db != nil {
 		owners := make([]store.MediaIdentity, 0, len(scope.Owners))
 		for _, owner := range scope.Owners {
@@ -306,11 +317,19 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 			RemovedTorrentHashes: mapKeys(removedHashes), Unmanaged: updatedUnmanaged,
 			Torrents: tc, Media: mc, Generation: generation, ScopeMetadataKey: reconciliationScopeKey,
 		}); err != nil {
+			service.mu.Lock()
 			service.filesErr = fmt.Errorf("persist targeted reconciliation: %w", err)
 			service.reliability.FileModel = "stale"
 			service.mu.Unlock()
+			service.publishMu.Unlock()
 			return service.filesErr
 		}
+	}
+	service.mu.Lock()
+	if service.generation != generation {
+		service.mu.Unlock()
+		service.publishMu.Unlock()
+		return service.promoteTargeted(ctx, "generation_changed")
 	}
 	now := time.Now()
 	service.files, service.mediaFileRefs, service.torrentFileRefs = files, mediaRefs, torrentRefs
@@ -329,6 +348,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	service.baseFingerprint = inventoryFingerprint(mc, tc)
 	service.hasBaseFingerprint = true
 	service.mu.Unlock()
+	service.publishMu.Unlock()
 	tasks.AddMetric(ctx, "publish", time.Since(stageStarted).Round(time.Millisecond))
 	tasks.AddMetric(ctx, "total", time.Since(started).Round(time.Millisecond))
 	service.setStageTiming("file reconciliation", started)
