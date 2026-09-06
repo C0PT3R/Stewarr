@@ -66,10 +66,10 @@ func appChrome(active string) string {
 		}
 		chrome.WriteString(`<a` + classAttribute + ariaCurrent + ` href="` + link.URL + `">` + link.Label + `</a>`)
 	}
-	chrome.WriteString(`</nav><a id="operation-indicator" class="operation-indicator" href="/history" hidden></a></header>
+	chrome.WriteString(`</nav><a id="operation-indicator" class="operation-indicator" href="/tasks" hidden></a></header>
 <aside id="updates-available" class="updates-available" hidden data-controller="updates"><button type="button" data-action="updates#apply">Updates available</button></aside>
 <div id="persistent-notices" class="persistent-notices" aria-live="polite"></div>
-<div id="removal-modal" class="modal-root"></div>
+<div id="modal-root" class="modal-root"></div>
 <div id="ui-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>`)
 	return chrome.String()
 }

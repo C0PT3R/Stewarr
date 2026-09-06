@@ -33,7 +33,7 @@ interface PhysicalGroup {
   facts: RemovalFile[];
 }
 
-interface RemovalModalRoot extends HTMLElement {
+interface ModalRoot extends HTMLElement {
   _connarrOpener?: HTMLElement;
 }
 
@@ -78,7 +78,7 @@ export class RemovalController extends window.Stimulus.Controller {
     document.body.classList.add("modal-open");
     this.updateGroupStates();
     this.calculate();
-    requestAnimationFrame(() => (this.element.querySelector(".removal-dialog") as HTMLElement | null)?.focus());
+    requestAnimationFrame(() => (this.element.querySelector(".modal-dialog") as HTMLElement | null)?.focus());
   }
 
   disconnect(): void {
@@ -87,7 +87,7 @@ export class RemovalController extends window.Stimulus.Controller {
 
   cancel(): void {
     if (this.busy) return;
-    const root = document.getElementById("removal-modal") as RemovalModalRoot | null;
+    const root = document.getElementById("modal-root") as ModalRoot | null;
     const opener = root?._connarrOpener;
     root?.replaceChildren();
     document.body.classList.remove("modal-open");
@@ -302,7 +302,7 @@ export class RemovalController extends window.Stimulus.Controller {
   }
 
   cancelAfterAcceptance(): void {
-    const root = document.getElementById("removal-modal");
+    const root = document.getElementById("modal-root");
     root?.replaceChildren();
     document.body.classList.remove("modal-open");
   }

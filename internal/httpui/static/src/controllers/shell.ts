@@ -1,6 +1,6 @@
 import { announce, dispatchRevision } from "../shared";
 
-interface RemovalModalRoot extends HTMLElement {
+interface ModalRoot extends HTMLElement {
   _connarrOpener?: HTMLElement;
 }
 
@@ -169,7 +169,7 @@ export class ShellController extends window.Stimulus.Controller {
         if (thenOverlayURL) {
           this.openOverlay(thenOverlayURL, button || form);
         } else {
-          const insideModal = form.closest("#removal-modal");
+          const insideModal = form.closest("#modal-root");
           if (insideModal) {
             insideModal.replaceChildren();
             document.body.classList.remove("modal-open");
@@ -197,7 +197,7 @@ export class ShellController extends window.Stimulus.Controller {
   async testServiceConnection(button: HTMLElement): Promise<void> {
     const form = button.closest("form");
     if (!form) return;
-    const hint = form.closest(".removal-dialog")?.querySelector<HTMLElement>("[data-service-step-hint]");
+    const hint = form.closest(".modal-dialog")?.querySelector<HTMLElement>("[data-service-step-hint]");
     const errorTarget = form.querySelector<HTMLElement>("[data-modal-error]");
     if (errorTarget) errorTarget.hidden = true;
     (button as HTMLButtonElement).disabled = true;
@@ -334,9 +334,9 @@ export class ShellController extends window.Stimulus.Controller {
   async openOverlay(url: string, opener: HTMLElement): Promise<void> {
     if (this.modalRequest) this.modalRequest.abort();
     this.modalRequest = new AbortController();
-    const root = document.getElementById("removal-modal") as RemovalModalRoot | null;
+    const root = document.getElementById("modal-root") as ModalRoot | null;
     if (!root) return;
-    root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading…</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
+    root.innerHTML = '<div class="modal-overlay"><main class="modal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading…</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
     root.dataset.openerId = opener.id || "";
     root._connarrOpener = opener;
     document.body.classList.add("modal-open");
@@ -356,7 +356,7 @@ export class ShellController extends window.Stimulus.Controller {
       if (serviceType) this.syncServiceFields(serviceType);
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
-      root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
+      root.innerHTML = `<div class="modal-overlay"><main class="modal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
       root.querySelector(".bad")!.textContent = `Unavailable: ${(error as Error).message}`;
     } finally {
       this.modalRequest = null;
@@ -364,7 +364,7 @@ export class ShellController extends window.Stimulus.Controller {
   }
 
   closeModal(): void {
-    const root = document.getElementById("removal-modal") as RemovalModalRoot | null;
+    const root = document.getElementById("modal-root") as ModalRoot | null;
     if (!root) return;
     const opener = root._connarrOpener;
     root.replaceChildren();

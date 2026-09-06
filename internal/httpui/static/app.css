@@ -48,7 +48,7 @@
 .modal-root:empty {
   display: none;
 }
-.removal-overlay {
+.modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.72);
@@ -58,7 +58,7 @@
   padding: 24px;
   z-index: 1000;
 }
-.removal-dialog {
+.modal-dialog {
   width: min(1100px, 96vw);
   max-height: min(90vh, 900px);
   overflow: hidden;
@@ -70,19 +70,19 @@
   padding: 20px;
   box-shadow: 0 20px 80px #000;
 }
-.removal-dialog .top {
+.modal-dialog .top {
   display: flex;
   justify-content: space-between;
   gap: 16px;
   align-items: start;
   flex: 0 0 auto;
 }
-.removal-scroll {
+.modal-scroll {
   overflow: auto;
   min-height: 0;
   padding-right: 8px;
 }
-.removal-dialog .summary {
+.modal-dialog .summary {
   display: flex;
   gap: 40px;
   flex-wrap: wrap;
@@ -91,15 +91,15 @@
   border-bottom: 1px solid #333;
   margin: 14px 0;
 }
-.removal-dialog .big {
+.modal-dialog .big {
   font-size: 24px;
   font-weight: 800;
 }
-.removal-dialog .row {
+.modal-dialog .row {
   padding: 9px 0;
   border-bottom: 1px solid #2d2d2d;
 }
-.removal-dialog .actions {
+.modal-dialog .actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
@@ -108,14 +108,14 @@
   border-top: 1px solid #333;
   flex: 0 0 auto;
 }
-.removal-dialog .actions button {
+.modal-dialog .actions button {
   padding: 9px 14px;
   border-radius: 7px;
   border: 1px solid #555;
   background: #222;
   color: #eee;
 }
-.removal-dialog .actions button:disabled {
+.modal-dialog .actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -206,14 +206,14 @@
 .storage-guidance p {
   margin: 3px 0;
 }
-.removal-dialog .danger {
+.modal-dialog .danger {
   background: #722 !important;
   border-color: #933 !important;
 }
-.removal-dialog .simulate {
+.modal-dialog .simulate {
   background: #604d13 !important;
 }
-.removal-dialog .dry {
+.modal-dialog .dry {
   display: inline-block;
   padding: 5px 8px;
   border: 1px solid #9b7b24;
@@ -221,16 +221,16 @@
   color: #ffcf66;
   font-weight: 700;
 }
-.removal-dialog .hardlink {
+.modal-dialog .hardlink {
   color: #9fd3ff;
   font-weight: 600;
 }
-.removal-dialog details {
+.modal-dialog details {
   margin-top: 18px;
   border-top: 1px solid #333;
   padding-top: 12px;
 }
-.removal-dialog summary {
+.modal-dialog summary {
   cursor: pointer;
   font-weight: 700;
 }
@@ -245,7 +245,7 @@
   z-index: 1200;
 }
 
-.removal-dialog {
+.modal-dialog {
   box-sizing: border-box;
 }
 
@@ -514,92 +514,92 @@ tbody tr:hover {
 .unassociated {
   color: #ee9292 !important;
 }
-.removal-overlay {
+.modal-overlay {
   background: rgba(3, 7, 10, 0.78);
   backdrop-filter: blur(5px);
 }
-.removal-dialog {
+.modal-dialog {
   background: var(--surface-raised);
   border-color: #3a4855;
   padding: 22px 24px;
   box-shadow: 0 28px 90px rgba(0, 0, 0, 0.72),
     0 0 0 1px rgba(255, 255, 255, 0.025);
 }
-.removal-dialog .top h2 {
+.modal-dialog .top h2 {
   color: var(--accent-strong);
   font-size: 25px;
 }
-.removal-dialog h3 {
+.modal-dialog h3 {
   color: #cbd8e3;
   font-size: 17px;
 }
-.removal-dialog strong,
-.removal-dialog b {
+.modal-dialog strong,
+.modal-dialog b {
   color: inherit;
 }
-.removal-dialog .summary {
+.modal-dialog .summary {
   background: var(--surface-soft);
   border: 1px solid var(--border) !important;
   border-radius: 9px;
   padding: 12px 14px;
   margin: 16px 0;
 }
-.removal-dialog .summary .big {
+.modal-dialog .summary .big {
   font-size: 18px;
   font-weight: 700;
   color: #dce7ef;
 }
-.removal-dialog .optional {
+.modal-dialog .optional {
   background: rgba(10, 16, 21, 0.34);
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   padding: 4px 14px 10px;
   margin: 14px 0;
 }
-.removal-dialog .row,
-.removal-dialog details {
+.modal-dialog .row,
+.modal-dialog details {
   border-color: var(--border) !important;
 }
-.removal-dialog .row label {
+.modal-dialog .row label {
   color: #dce3e9;
 }
-.removal-dialog .linked-meta {
+.modal-dialog .linked-meta {
   margin-left: 26px;
   color: var(--muted) !important;
 }
-.removal-dialog details {
+.modal-dialog details {
   background: rgba(10, 16, 21, 0.26);
   border: 1px solid var(--border) !important;
   border-radius: 9px;
   padding: 11px 14px;
   margin-top: 16px;
 }
-.removal-dialog details summary {
+.modal-dialog details summary {
   color: #cbd8e3;
 }
-.removal-dialog .file-path {
+.modal-dialog .file-path {
   color: #c5d0da;
 }
-.removal-dialog .file-path strong {
+.modal-dialog .file-path strong {
   color: var(--accent-strong);
 }
-.removal-dialog .actions button {
+.modal-dialog .actions button {
   background: #202a34;
   color: var(--text);
   border-color: #44515e;
 }
-.removal-dialog .danger {
+.modal-dialog .danger {
   background: #8d3034 !important;
   border-color: #b7474c !important;
 }
-.removal-dialog .danger:hover {
+.modal-dialog .danger:hover {
   background: #a1393e !important;
 }
-.removal-dialog .simulate {
+.modal-dialog .simulate {
   background: #725b1d !important;
   border-color: #9a7a28 !important;
 }
-.removal-dialog .hardlink {
+.modal-dialog .hardlink {
   color: var(--accent-strong);
 }
 .removal-calculating {
@@ -608,7 +608,7 @@ tbody tr:hover {
   opacity: 0;
   transition: opacity 0.12s;
 }
-.removal-dialog[data-calculating="true"] .removal-calculating {
+.modal-dialog[data-calculating="true"] .removal-calculating {
   height: auto;
   opacity: 1;
   margin: -8px 0 10px;
@@ -659,13 +659,13 @@ td:has(> a > strong) > a {
 .path {
   max-width: min(720px, 48vw) !important;
 }
-.removal-dialog .optional .row > .muted {
+.modal-dialog .optional .row > .muted {
   margin-left: 26px;
 }
-.removal-dialog details .mono {
+.modal-dialog details .mono {
   color: #c5d0da;
 }
-.removal-dialog details .mono strong {
+.modal-dialog details .mono strong {
   color: var(--accent-strong);
 }
 @media (max-width: 760px) {
@@ -683,23 +683,23 @@ td:has(> a > strong) > a {
     margin-left: 0;
     width: 100%;
   }
-  .removal-overlay {
+  .modal-overlay {
     padding: 8px;
   }
-  .removal-dialog {
+  .modal-dialog {
     box-sizing: border-box;
     width: 100%;
     height: calc(100vh - 16px);
     max-height: none;
     padding: 16px;
   }
-  .removal-dialog .actions {
+  .modal-dialog .actions {
     margin-top: 8px;
   }
   .managed-file {
     margin-left: 18px;
   }
-  .removal-dialog .linked-meta {
+  .modal-dialog .linked-meta {
     margin-left: 0 !important;
   }
 }
@@ -1049,6 +1049,25 @@ a {
 .card-link {
   font-size: 13px;
   white-space: nowrap;
+}
+/* Every Home dashboard card links to exactly one place ("View"), so the
+   whole card acts as that link — the visible "View" text stays as the
+   affordance, but its clickable/tappable area (a "stretched link", via
+   ::after) covers the entire card, not just that small piece of text.
+   Scoped to #home-dashboard since .card/.card-link are reused elsewhere
+   (filter cards, empty states, Services page buttons) that must not
+   become full-card links. */
+#home-dashboard .card {
+  position: relative;
+  transition: background-color 0.12s ease;
+}
+#home-dashboard .card:hover {
+  background: var(--surface-raised, #232323) !important;
+}
+#home-dashboard .card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 .empty-state {
   text-align: center;

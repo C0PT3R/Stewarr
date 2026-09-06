@@ -2,6 +2,7 @@ import { dispatchRevision } from "../shared";
 
 interface RevisionInvalidation {
   kind?: string;
+  revision?: number;
 }
 
 interface StatusNotice {
@@ -37,13 +38,15 @@ export class RevisionsController extends window.Stimulus.Controller {
   reconnectAttempts = 0;
   onVisible!: () => void;
   // A newly opened EventSource always immediately replays whatever revision
-  // is already current, so the connection's very first "revision" message
-  // merely restates what this page's HTML was just rendered with — not
-  // something that changed since. Without this flag that replay looked
-  // identical to a live change, so "Updates available" would appear on
-  // virtually every page load/refresh. Only messages after the first one
-  // reflect a change that actually happened after the page loaded.
-  syncedInitialRevision = false;
+  // is already current — not just on the page's very first connection, but
+  // on every reconnect too (the server's own periodic rotation, or a
+  // flaky network path retrying every few seconds). That replay carries
+  // whatever revision number the server last published, so without
+  // tracking it a routine reconnect looks identical to a genuine live
+  // change and re-triggers "Updates available" for nothing actually new.
+  // null means "nothing processed yet this page load"; only a strictly
+  // higher revision number than the last one seen counts as real.
+  lastRevision: number | null = null;
   onPageHide!: () => void;
 
   connect(): void {
@@ -51,7 +54,7 @@ export class RevisionsController extends window.Stimulus.Controller {
     this.pollTimer = null;
     this.reconnectTimer = null;
     this.reconnectAttempts = 0;
-    this.syncedInitialRevision = false;
+    this.lastRevision = null;
     this.onVisible = () => {
       if (!document.hidden) this.refreshStatus({ kind: "visibility" });
     };
@@ -153,9 +156,17 @@ export class RevisionsController extends window.Stimulus.Controller {
       const status: StatusResponse = await response.json();
       this.renderStatus(status);
       const isPushInvalidation = invalidation.kind !== "poll" && invalidation.kind !== "visibility";
-      if (isPushInvalidation && !this.syncedInitialRevision) {
-        this.syncedInitialRevision = true;
-        return;
+      if (isPushInvalidation) {
+        if (this.lastRevision === null) {
+          // The first SSE message of this page load always just replays
+          // whatever the page was already rendered with, not a real change.
+          if (typeof invalidation.revision === "number") this.lastRevision = invalidation.revision;
+          return;
+        }
+        if (typeof invalidation.revision === "number") {
+          if (invalidation.revision <= this.lastRevision) return;
+          this.lastRevision = invalidation.revision;
+        }
       }
       const sourceKind = invalidation.kind === "poll" || invalidation.kind === "visibility" ? status.kind : invalidation.kind;
       dispatchRevision({ ...status, kind: sourceKind || status.kind });

@@ -339,6 +339,32 @@ This file separates implemented behavior from intended direction. It is not a pr
   selections without becoming the primary UI.
 - PUID/PGID-friendly Docker deployment and centralized Connarr product identity.
 
+### Overlay/UI polish (0.2.41-0.2.42)
+
+- Overlay dialogs now size to their actual content instead of always
+  filling ~90% of the viewport height, capping/scrolling internally only
+  when content genuinely needs it.
+- The shared overlay CSS/DOM naming (`.removal-overlay`/`.removal-dialog`/
+  `.removal-scroll`, `#removal-modal`) is renamed to `.modal-overlay`/
+  `.modal-dialog`/`.modal-scroll`/`#modal-root` — it backs every overlay
+  in the app (removal, add/edit service, service setup progress), not
+  just removals, and the old name was misleading.
+- The scan-in-progress indicator in the top nav now links to `/tasks`
+  instead of `/history`, since `/history` only shows completed operations.
+- Fixed a real regression from the earlier SSE connection-pool fix: every
+  EventSource reconnect (the server's own periodic rotation, or a flaky
+  connection retrying) replays the current revision, which was only ever
+  suppressed on a page's very first connection — later reconnects treated
+  that replay as a genuine change and could resurface "Updates available"
+  on Library/Torrents with nothing actually new to show. Fixed by
+  tracking the actual revision number instead of a one-time flag, so only
+  a strictly newer revision counts as real.
+- Each Home dashboard card links to exactly one place ("View"), so the
+  whole card is now the click target (a "stretched link" via `::after`,
+  scoped to `#home-dashboard` since `.card`/`.card-link` are reused
+  elsewhere for things that must not become full-card links), with a
+  hover highlight to signal it.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

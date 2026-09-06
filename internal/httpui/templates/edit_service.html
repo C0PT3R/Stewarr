@@ -1,12 +1,12 @@
-<div class="removal-overlay">
-  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-service-title" tabindex="-1">
+<div class="modal-overlay">
+  <main class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-service-title" tabindex="-1">
     <div class="top">
       <div>
         <h2 id="edit-service-title">Edit service</h2>
         <div class="muted">Connarr checks the connection before saving it. Moving it to a new URL keeps everything it already owns.</div>
       </div>
     </div>
-    <div class="removal-scroll">
+    <div class="modal-scroll">
       <form data-background-submit method="post" action="/services/edit">
         <input type="hidden" name="id" value="{{.ID}}">
         <div class="field-stack">

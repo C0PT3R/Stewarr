@@ -1,8 +1,8 @@
-<div class="removal-overlay"
+<div class="modal-overlay"
      data-controller="removal"
      data-removal-model-value="{{.SelectionModel}}"
      data-action="click->removal#backdrop">
-  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="removal-title" tabindex="-1">
+  <main class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="removal-title" tabindex="-1">
     <div class="top">
       <div>
         <h2 id="removal-title">
@@ -14,7 +14,7 @@
       </div>
       {{if .Plan.DryRun}}<span class="dry">DRY RUN</span>{{end}}
     </div>
-    <div class="removal-scroll">
+    <div class="modal-scroll">
     {{if .Plan.DryRun}}<p class="warn">Dry run — nothing will be removed.</p>{{end}}
 
     <div data-removal-consequences>

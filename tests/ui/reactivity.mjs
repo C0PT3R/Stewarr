@@ -26,19 +26,19 @@ const model = Buffer.from(JSON.stringify({
   ]
 })).toString("base64");
 
-const removal = `<div class="removal-overlay" data-controller="removal" data-removal-model-value="${model}" data-action="click->removal#backdrop">
-<main class="removal-dialog" role="dialog" aria-modal="true" tabindex="-1"><div class="top"><div><h2 id="removal-title">Remove media</h2><div class="muted">Movie</div></div></div>
+const removal = `<div class="modal-overlay" data-controller="removal" data-removal-model-value="${model}" data-action="click->removal#backdrop">
+<main class="modal-dialog" role="dialog" aria-modal="true" tabindex="-1"><div class="top"><div><h2 id="removal-title">Remove media</h2><div class="muted">Movie</div></div></div>
 <div data-removal-consequences><div class="summary"><div><div class="muted">Storage reclaimed</div><div class="big" data-removal-target="reclaimed">0 B</div><div data-removal-target="selectedSummary"></div></div></div><div data-removal-target="guidance" hidden><strong data-removal-target="guidanceTitle"></strong><p data-removal-target="guidanceAction"></p></div><div data-removal-target="warnings"></div></div>
 <form data-removal-target="selection" data-action="change->removal#selectionChanged"><input id="media-pick" data-managed-pick data-physical-pick data-physical-key="1:2" type="checkbox" checked><input id="torrent-pick" data-linked-pick type="checkbox" name="torrent" value="abc"></form>
 <form id="removal-execute-form" data-removal-target="execute" data-action="submit->removal#submit" method="post" action="/removal/execute"><input type="hidden" name="kind" value="media"><input type="hidden" name="media_type" value="movie"><input type="hidden" name="media_id" value="1"><input type="hidden" name="operation_token" value="browser-token"><div data-removal-target="generatedInputs"></div><p data-removal-target="error" hidden></p></form><div class="actions"><button id="cancel" type="button" data-action="removal#cancel">Cancel</button><button id="confirm" form="removal-execute-form" data-removal-target="submitButton" type="submit">Remove selected</button></div>
 </main></div>`;
 
-const index = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell"><button id="open" data-removal-url="/removal/media">Remove</button><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
+const index = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell"><button id="open" data-removal-url="/removal/media">Remove</button><div id="modal-root"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
 
 // A minimal page carrying the "revisions" controller, matching every real
 // page's <body data-controller="shell revisions">, for the SSE
 // reconnect-leak regression test below.
-const sseIndex = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell revisions"><a id="operation-indicator" hidden></a><div id="persistent-notices"></div><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
+const sseIndex = `<!doctype html><html><head><script defer src="/assets/app.js"></script></head><body data-controller="shell revisions"><a id="operation-indicator" hidden></a><div id="persistent-notices"></div><div id="modal-root"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
 
 const server = createServer(async (request, response) => {
   if (request.url === "/") {
@@ -115,9 +115,9 @@ function assert(condition, message) {
 try {
   await page.goto(`http://127.0.0.1:${address.port}/`);
   await page.click("#open");
-  await page.waitForSelector(".removal-dialog");
+  await page.waitForSelector(".modal-dialog");
   const dialogIdentity = await page.evaluate(() => {
-    const dialog = document.querySelector(".removal-dialog");
+    const dialog = document.querySelector(".modal-dialog");
     dialog.dataset.identity = crypto.randomUUID();
     return dialog.dataset.identity;
   });
@@ -125,23 +125,23 @@ try {
   assert(await page.textContent('[data-removal-target="reclaimed"]') === "4.00 KiB", "selection did not calculate reclaimed bytes locally");
   assert(await page.isChecked("#media-pick"), "physical media selection did not synchronize with the torrent action");
   assert(planRequests === 1, `selection made ${planRequests} removal-plan requests`);
-  assert(await page.getAttribute(".removal-dialog", "data-identity") === dialogIdentity, "selection replaced the dialog DOM");
+  assert(await page.getAttribute(".modal-dialog", "data-identity") === dialogIdentity, "selection replaced the dialog DOM");
   await page.click("#cancel");
-  await page.waitForSelector(".removal-dialog", { state: "detached" });
+  await page.waitForSelector(".modal-dialog", { state: "detached" });
 
   await page.click("#open");
-  await page.waitForSelector(".removal-dialog");
+  await page.waitForSelector(".modal-dialog");
   await page.check("#torrent-pick");
   await page.keyboard.press("Escape");
-  await page.waitForSelector(".removal-dialog", { state: "detached" });
+  await page.waitForSelector(".modal-dialog", { state: "detached" });
 
   await page.click("#open");
-  await page.waitForSelector(".removal-dialog");
+  await page.waitForSelector(".modal-dialog");
   await page.evaluate(() => {
     document.getElementById("confirm").click();
     document.getElementById("confirm").click();
   });
-  await page.waitForSelector(".removal-dialog", { state: "detached" });
+  await page.waitForSelector(".modal-dialog", { state: "detached" });
   assert(executeRequests === 1, `duplicate confirmation submitted ${executeRequests} operations`);
   assert(planRequests === 3, `unexpected plan request count ${planRequests}`);
 

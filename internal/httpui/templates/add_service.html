@@ -1,12 +1,12 @@
-<div class="removal-overlay">
-  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-service-title" tabindex="-1">
+<div class="modal-overlay">
+  <main class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-service-title" tabindex="-1">
     <div class="top">
       <div>
         <h2 id="add-service-title">{{.Title}}</h2>
         <div class="muted" data-service-step-hint>Connarr checks the connection before showing the rest.</div>
       </div>
     </div>
-    <div class="removal-scroll">
+    <div class="modal-scroll">
       <form data-background-submit-then-overlay="/services/consistency-progress" method="post" action="/services/create">
         <div class="field-stack">
           <label for="service-type">Type<select id="service-type" name="type" required data-service-type>

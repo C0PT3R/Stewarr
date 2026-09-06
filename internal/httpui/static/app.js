@@ -2638,20 +2638,22 @@ Copyright © 2023 Basecamp, LLC
       // a few minutes.
       this.reconnectAttempts = 0;
       // A newly opened EventSource always immediately replays whatever revision
-      // is already current, so the connection's very first "revision" message
-      // merely restates what this page's HTML was just rendered with — not
-      // something that changed since. Without this flag that replay looked
-      // identical to a live change, so "Updates available" would appear on
-      // virtually every page load/refresh. Only messages after the first one
-      // reflect a change that actually happened after the page loaded.
-      this.syncedInitialRevision = false;
+      // is already current — not just on the page's very first connection, but
+      // on every reconnect too (the server's own periodic rotation, or a
+      // flaky network path retrying every few seconds). That replay carries
+      // whatever revision number the server last published, so without
+      // tracking it a routine reconnect looks identical to a genuine live
+      // change and re-triggers "Updates available" for nothing actually new.
+      // null means "nothing processed yet this page load"; only a strictly
+      // higher revision number than the last one seen counts as real.
+      this.lastRevision = null;
     }
     connect() {
       this.etag = "";
       this.pollTimer = null;
       this.reconnectTimer = null;
       this.reconnectAttempts = 0;
-      this.syncedInitialRevision = false;
+      this.lastRevision = null;
       this.onVisible = () => {
         if (!document.hidden) this.refreshStatus({ kind: "visibility" });
       };
@@ -2724,9 +2726,15 @@ Copyright © 2023 Basecamp, LLC
         const status = await response.json();
         this.renderStatus(status);
         const isPushInvalidation = invalidation.kind !== "poll" && invalidation.kind !== "visibility";
-        if (isPushInvalidation && !this.syncedInitialRevision) {
-          this.syncedInitialRevision = true;
-          return;
+        if (isPushInvalidation) {
+          if (this.lastRevision === null) {
+            if (typeof invalidation.revision === "number") this.lastRevision = invalidation.revision;
+            return;
+          }
+          if (typeof invalidation.revision === "number") {
+            if (invalidation.revision <= this.lastRevision) return;
+            this.lastRevision = invalidation.revision;
+          }
         }
         const sourceKind = invalidation.kind === "poll" || invalidation.kind === "visibility" ? status.kind : invalidation.kind;
         dispatchRevision({ ...status, kind: sourceKind || status.kind });
@@ -2962,7 +2970,7 @@ Copyright © 2023 Basecamp, LLC
           if (thenOverlayURL) {
             this.openOverlay(thenOverlayURL, button || form);
           } else {
-            const insideModal = form.closest("#removal-modal");
+            const insideModal = form.closest("#modal-root");
             if (insideModal) {
               insideModal.replaceChildren();
               document.body.classList.remove("modal-open");
@@ -2989,7 +2997,7 @@ Copyright © 2023 Basecamp, LLC
     async testServiceConnection(button) {
       const form = button.closest("form");
       if (!form) return;
-      const hint = form.closest(".removal-dialog")?.querySelector("[data-service-step-hint]");
+      const hint = form.closest(".modal-dialog")?.querySelector("[data-service-step-hint]");
       const errorTarget = form.querySelector("[data-modal-error]");
       if (errorTarget) errorTarget.hidden = true;
       button.disabled = true;
@@ -3115,9 +3123,9 @@ Copyright © 2023 Basecamp, LLC
     async openOverlay(url, opener) {
       if (this.modalRequest) this.modalRequest.abort();
       this.modalRequest = new AbortController();
-      const root = document.getElementById("removal-modal");
+      const root = document.getElementById("modal-root");
       if (!root) return;
-      root.innerHTML = '<div class="removal-overlay"><main class="removal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading\u2026</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
+      root.innerHTML = '<div class="modal-overlay"><main class="modal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading\u2026</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
       root.dataset.openerId = opener.id || "";
       root._connarrOpener = opener;
       document.body.classList.add("modal-open");
@@ -3132,14 +3140,14 @@ Copyright © 2023 Basecamp, LLC
         if (serviceType) this.syncServiceFields(serviceType);
       } catch (error) {
         if (error.name === "AbortError") return;
-        root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
+        root.innerHTML = `<div class="modal-overlay"><main class="modal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;
         root.querySelector(".bad").textContent = `Unavailable: ${error.message}`;
       } finally {
         this.modalRequest = null;
       }
     }
     closeModal() {
-      const root = document.getElementById("removal-modal");
+      const root = document.getElementById("modal-root");
       if (!root) return;
       const opener = root._connarrOpener;
       root.replaceChildren();
@@ -3165,14 +3173,14 @@ Copyright © 2023 Basecamp, LLC
       document.body.classList.add("modal-open");
       this.updateGroupStates();
       this.calculate();
-      requestAnimationFrame(() => this.element.querySelector(".removal-dialog")?.focus());
+      requestAnimationFrame(() => this.element.querySelector(".modal-dialog")?.focus());
     }
     disconnect() {
       document.removeEventListener("keydown", this.escapeHandler);
     }
     cancel() {
       if (this.busy) return;
-      const root = document.getElementById("removal-modal");
+      const root = document.getElementById("modal-root");
       const opener = root?._connarrOpener;
       root?.replaceChildren();
       document.body.classList.remove("modal-open");
@@ -3375,7 +3383,7 @@ Copyright © 2023 Basecamp, LLC
       }
     }
     cancelAfterAcceptance() {
-      const root = document.getElementById("removal-modal");
+      const root = document.getElementById("modal-root");
       root?.replaceChildren();
       document.body.classList.remove("modal-open");
     }
