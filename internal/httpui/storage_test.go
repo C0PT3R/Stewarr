@@ -67,6 +67,11 @@ func TestStorageTemplateRendersCleanupActions(t *testing.T) {
 						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Old Release"}}, ReclaimableBytes: 10},
 						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
 						{Kind: cleanup.HardlinkedBundle, Media: model.Media{Title: "Bundled Movie"}, Torrents: []model.Torrent{{Name: "Bundled Release"}}, ReclaimableBytes: 10},
+						// A StandaloneSeason action has no Torrents at all — this
+						// guards a real crash where the template's catch-all
+						// "else" branch assumed every non-bundle/non-media action
+						// was a torrent and indexed into an empty Torrents slice.
+						{Kind: cleanup.StandaloneSeason, Media: model.Media{Title: "Some Show"}, Season: &model.Season{Number: 3}, ReclaimableBytes: 10},
 					},
 				},
 			},
@@ -77,7 +82,7 @@ func TestStorageTemplateRendersCleanupActions(t *testing.T) {
 		t.Fatalf("render storage template: %v", err)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"Old Release", "Lonely Movie", "Bundled Movie + 1 hardlinked torrent(s)", "3 action(s) selected"} {
+	for _, want := range []string{"Old Release", "Lonely Movie", "Bundled Movie + 1 hardlinked torrent(s)", "Some Show · Season 3", "4 action(s) selected"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
 		}
