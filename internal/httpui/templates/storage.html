@@ -39,6 +39,13 @@
             <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
           </ul>
           <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</div>
+          <form class="device-threshold-form" data-background-submit method="post" action="/storage/device-threshold">
+            <input type="hidden" name="representative_path" value="{{.Storage.RepresentativePath}}">
+            <label>Target %<input name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.TargetUsagePercent}}"></label>
+            <label>Critical %<input name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.CriticalUsagePercent}}"></label>
+            <button type="submit">Save thresholds</button>
+            <span data-modal-error hidden class="bad"></span>
+          </form>
           {{if gt .Plan.NeedBytes 0}}
             <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
             {{if .Plan.Actions}}

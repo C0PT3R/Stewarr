@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -103,33 +102,6 @@ func (server *Server) testServiceConnection(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deviceForPath answers step 2's root-path field: which device (if any
-// already known) that path resolves to, and its current thresholds — used
-// to prefill the threshold inputs, or show "new device, defaults 90/95".
-func (server *Server) deviceForPath(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	path := r.URL.Query().Get("path")
-	if strings.TrimSpace(path) == "" {
-		http.Error(w, "path is required", http.StatusBadRequest)
-		return
-	}
-	representative, isNewDevice, err := server.inv.DeviceForPath(path)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	target, critical := server.inv.Config().ThresholdsFor(representative)
-	writeJSON(w, map[string]any{
-		"representativePath":   representative,
-		"isNewDevice":          isNewDevice,
-		"targetUsagePercent":   target,
-		"criticalUsagePercent": critical,
-	})
-}
-
 // addService validates and live-activates one new service. It is
 // only ever submitted via the overlay's [data-background-submit] fetch, so
 // the response is a plain status: 204 on success (the caller closes the
@@ -152,46 +124,13 @@ func (server *Server) addService(w http.ResponseWriter, r *http.Request) {
 		APIKey:   r.FormValue("api_key"),
 		Username: r.FormValue("username"),
 		Password: r.FormValue("password"),
-		RootPath: r.FormValue("root_path"),
 	}
 	if err := server.inv.AddService(r.Context(), candidate); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	server.applySubmittedDeviceThreshold(r, candidate.RootPath)
 	server.scheduleServiceConsistency("Service added: " + candidate.Name)
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// applySubmittedDeviceThreshold resolves the device server-side again
-// (never trusting the client's cached device-for-path lookup from step 2)
-// and persists the submitted thresholds if present. Absent/unparseable
-// values are a no-op — step 2 always sends them, but a bare root path with
-// no threshold change intended must not overwrite an existing entry with
-// zeros.
-func (server *Server) applySubmittedDeviceThreshold(r *http.Request, rootPath string) {
-	if strings.TrimSpace(rootPath) == "" {
-		return
-	}
-	targetRaw, criticalRaw := r.FormValue("target_usage_percent"), r.FormValue("critical_usage_percent")
-	if targetRaw == "" || criticalRaw == "" {
-		return
-	}
-	target, err := strconv.ParseFloat(targetRaw, 64)
-	if err != nil {
-		return
-	}
-	critical, err := strconv.ParseFloat(criticalRaw, 64)
-	if err != nil {
-		return
-	}
-	representative, _, err := server.inv.DeviceForPath(rootPath)
-	if err != nil {
-		return
-	}
-	if err := server.inv.SetDeviceThreshold(representative, target, critical); err != nil {
-		log.Printf("[http] set device threshold for %s: %v", representative, err)
-	}
 }
 
 type editServiceData struct {

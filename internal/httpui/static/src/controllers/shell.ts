@@ -11,7 +11,6 @@ export class ShellController extends window.Stimulus.Controller {
   onInput!: (event: Event) => void;
   onChange!: (event: Event) => void;
   onSubmit!: (event: Event) => void;
-  onFocusOut!: (event: FocusEvent) => void;
   onRevision!: (event: CustomEvent) => void;
   onApply!: () => void;
   onAccepted!: () => void;
@@ -23,7 +22,6 @@ export class ShellController extends window.Stimulus.Controller {
     this.onInput = event => this.filterInput(event);
     this.onChange = event => this.filterChange(event);
     this.onSubmit = event => this.submit(event);
-    this.onFocusOut = event => this.focusOut(event);
     this.onRevision = event => this.revision(event.detail || {});
     this.onApply = () => this.refreshFragments(true);
     this.onAccepted = () => this.refreshFragments(true);
@@ -31,7 +29,6 @@ export class ShellController extends window.Stimulus.Controller {
     document.addEventListener("input", this.onInput);
     document.addEventListener("change", this.onChange);
     document.addEventListener("submit", this.onSubmit);
-    document.addEventListener("focusout", this.onFocusOut);
     document.addEventListener("connarr:revision", this.onRevision as EventListener);
     document.addEventListener("connarr:apply-updates", this.onApply);
     document.addEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -42,7 +39,6 @@ export class ShellController extends window.Stimulus.Controller {
     document.removeEventListener("input", this.onInput);
     document.removeEventListener("change", this.onChange);
     document.removeEventListener("submit", this.onSubmit);
-    document.removeEventListener("focusout", this.onFocusOut);
     document.removeEventListener("connarr:revision", this.onRevision as EventListener);
     document.removeEventListener("connarr:apply-updates", this.onApply);
     document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -194,8 +190,10 @@ export class ShellController extends window.Stimulus.Controller {
   }
 
   // Step 1 of the service setup overlay: a live connection check with
-  // nothing saved yet. Only on success does step 2 (root path, device
-  // thresholds) become visible and the real "Add service" submit appear.
+  // nothing saved yet. Only on success does the real "Add service" submit
+  // appear — storage roots are always discovered by the service's own
+  // adapter after saving, never entered by hand, so there is no step 2
+  // field to reveal here.
   async testServiceConnection(button: HTMLElement): Promise<void> {
     const form = button.closest("form");
     if (!form) return;
@@ -208,12 +206,10 @@ export class ShellController extends window.Stimulus.Controller {
     try {
       const response = await fetch("/services/test", { method: "POST", body: new FormData(form) });
       if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-      const step2 = form.querySelector<HTMLElement>("[data-service-step2]");
-      if (step2) step2.hidden = false;
       const submitButton = form.querySelector<HTMLElement>("[data-service-submit]");
       if (submitButton) submitButton.hidden = false;
       button.hidden = true;
-      if (hint) hint.textContent = "Connection verified. Set a root path and save to finish.";
+      if (hint) hint.textContent = "Connection verified. Save to finish.";
     } catch (error) {
       if (errorTarget) {
         errorTarget.textContent = (error as Error).message;
@@ -224,36 +220,6 @@ export class ShellController extends window.Stimulus.Controller {
     } finally {
       (button as HTMLButtonElement).disabled = false;
       button.textContent = originalLabel;
-    }
-  }
-
-  focusOut(event: FocusEvent): void {
-    const target = event.target as HTMLElement;
-    if (target.matches("[data-service-root-path]")) {
-      this.lookupDeviceForPath(target as HTMLInputElement);
-    }
-  }
-
-  // Prefills step 2's threshold fields from whatever device the entered
-  // root path resolves to (an existing device's current thresholds, or the
-  // 90/95 defaults for a brand-new one) so the user isn't guessing values
-  // for a device Connarr already knows about.
-  async lookupDeviceForPath(input: HTMLInputElement): Promise<void> {
-    const path = input.value.trim();
-    const form = input.closest("form");
-    if (!path || !form) return;
-    const hint = form.querySelector<HTMLElement>("[data-service-device-hint]");
-    try {
-      const response = await fetch(`/services/device-for-path?path=${encodeURIComponent(path)}`);
-      if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-      const data = await response.json();
-      const target = form.querySelector<HTMLInputElement>("#service-target-percent");
-      const critical = form.querySelector<HTMLInputElement>("#service-critical-percent");
-      if (target) target.value = String(data.targetUsagePercent);
-      if (critical) critical.value = String(data.criticalUsagePercent);
-      if (hint) hint.textContent = data.isNewDevice ? "New device — using default thresholds." : "Matches an existing device — showing its current thresholds.";
-    } catch (_) {
-      if (hint) hint.textContent = "";
     }
   }
 

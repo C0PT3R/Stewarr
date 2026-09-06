@@ -235,7 +235,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   Playwright harness proving the old page's SSE connection is observed
   closed server-side before/at the point the new page's connection opens.
 
-### Terminology rename, per-device thresholds, and a staged service setup overlay (0.2.34)
+### Terminology rename, per-device thresholds, and a two-step service setup (0.2.34-0.2.35)
 
 - "Integration" is renamed to "service" everywhere: Go identifiers
   (`config.Service`, `Media.ServiceID`/`ServiceName`/`ServiceType`,
@@ -251,21 +251,19 @@ This file separates implemented behavior from intended direction. It is not a pr
   applied to every storage device to a per-device setting
   (`Storage.DeviceThresholds`, keyed by a device's stable representative
   path — `config.ThresholdsFor`/`SetDeviceThreshold`), closing the
-  long-standing "Near-term" item of the same name. A new
-  `inventory.Service.DeviceForPath` resolves a not-yet-saved service's root
-  path to an existing device (so editing thresholds from any service
-  sharing that device converges to the same entry) or reports it as a new
-  one.
-- The Add service overlay is now a progressive two-step form instead of one
-  atomic save: a "Test connection" step runs a real, non-persisting
-  connection check (`inventory.Service.TestServiceConnection`) before
-  revealing the root path and per-device threshold fields, which only then
-  get submitted together. A separate GET-fragment design for step 2 was
-  considered and rejected during implementation — it would have put API
-  keys and passwords in a URL (query string, server logs, browser history);
-  the shipped design reveals the extra fields in place within the same
-  form instead.
-- Saving a service now opens a third, automatic step: a progress view
+  long-standing "Near-term" item of the same name. Editable directly from
+  the Storage page, once a device actually exists — an earlier version of
+  this work tried to collect a root path and thresholds during the
+  Add-service overlay itself, before any of a service's storage roots are
+  known, but storage roots are always discovered by each service's own
+  adapter and `validateService` rejects a hand-entered `root_path` outright
+  for every real service type. Thresholds only ever make sense to set
+  *after* discovery, never during initial setup.
+- The Add service overlay now runs a real, non-persisting connection check
+  (`inventory.Service.TestServiceConnection`) before revealing the actual
+  "Add service" submit button, instead of testing and saving in one atomic
+  step — cheap, real feedback before committing anything.
+- Saving a service now opens a second, automatic step: a progress view
   showing which stage of the inventory-and-files-consistency workflow is
   running (`/services/consistency-status`, backed by the task manager's
   existing per-workflow step tracking — no new progress-reporting

@@ -1,11 +1,16 @@
 package httpui
 
 import (
+	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"connarr/internal/cleanup"
+	"connarr/internal/config"
 	"connarr/internal/inventory"
 	"connarr/internal/model"
 )
@@ -91,5 +96,47 @@ func TestStorageTemplateRendersNoKnownDevices(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "No storage devices are known yet") {
 		t.Fatalf("expected empty-state message, got:\n%s", recorder.Body.String())
+	}
+}
+
+// TestSetDeviceThresholdPersistsFromStoragePage guards the actual fix for
+// setting per-device thresholds after storage roots are discovered by a
+// service's own adapter, rather than during add-service before any root
+// path is even known (root_path can never be entered for a real service
+// type — validateService rejects it outright).
+func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"storage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := inventory.New(cfg, nil)
+	inv.SetConfigPath(configPath)
+	server, err := New(inv, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	devicePath := "/data/movies"
+	form := url.Values{"representative_path": {devicePath}, "target_usage_percent": {"80"}, "critical_usage_percent": {"88"}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/storage/device-threshold", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	reloaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, critical := reloaded.ThresholdsFor(devicePath)
+	if target != 80 || critical != 88 {
+		t.Fatalf("expected the submitted thresholds to be persisted for %s, got %v/%v", devicePath, target, critical)
 	}
 }

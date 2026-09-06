@@ -90,31 +90,6 @@ func (service *Service) KnownStorageDevicePaths() []string {
 	return out
 }
 
-// DeviceForPath resolves a path (typically a service's RootPath, entered
-// live and not yet reconciled) to a known physical device. If path's device
-// number matches an already-known group's, representativePath is that
-// group's existing representative — the caller should treat this as "the
-// same device," not a new one, so a threshold configured through one
-// service's overlay is visible/editable from any other service sharing that
-// device. Otherwise isNewDevice is true and path itself is returned, since
-// once this service is saved it will become that device's own first known
-// root.
-func (service *Service) DeviceForPath(path string) (representativePath string, isNewDevice bool, err error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		return "", false, err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "", false, fmt.Errorf("stat %s: not a syscall.Stat_t", path)
-	}
-	groups, _ := service.knownDeviceRoots()
-	if group, exists := groups[uint64(stat.Dev)]; exists {
-		return group.representative, false, nil
-	}
-	return path, true, nil
-}
-
 // deviceGroups additionally snapshots file-level data for the full
 // StorageDevices/MediaByDevice aggregation; unlike knownDeviceRoots it is not
 // meant for frequent polling.

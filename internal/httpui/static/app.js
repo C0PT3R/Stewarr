@@ -2823,7 +2823,6 @@ Copyright © 2023 Basecamp, LLC
       this.onInput = (event) => this.filterInput(event);
       this.onChange = (event) => this.filterChange(event);
       this.onSubmit = (event) => this.submit(event);
-      this.onFocusOut = (event) => this.focusOut(event);
       this.onRevision = (event) => this.revision(event.detail || {});
       this.onApply = () => this.refreshFragments(true);
       this.onAccepted = () => this.refreshFragments(true);
@@ -2831,7 +2830,6 @@ Copyright © 2023 Basecamp, LLC
       document.addEventListener("input", this.onInput);
       document.addEventListener("change", this.onChange);
       document.addEventListener("submit", this.onSubmit);
-      document.addEventListener("focusout", this.onFocusOut);
       document.addEventListener("connarr:revision", this.onRevision);
       document.addEventListener("connarr:apply-updates", this.onApply);
       document.addEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -2841,7 +2839,6 @@ Copyright © 2023 Basecamp, LLC
       document.removeEventListener("input", this.onInput);
       document.removeEventListener("change", this.onChange);
       document.removeEventListener("submit", this.onSubmit);
-      document.removeEventListener("focusout", this.onFocusOut);
       document.removeEventListener("connarr:revision", this.onRevision);
       document.removeEventListener("connarr:apply-updates", this.onApply);
       document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -2985,8 +2982,10 @@ Copyright © 2023 Basecamp, LLC
       }
     }
     // Step 1 of the service setup overlay: a live connection check with
-    // nothing saved yet. Only on success does step 2 (root path, device
-    // thresholds) become visible and the real "Add service" submit appear.
+    // nothing saved yet. Only on success does the real "Add service" submit
+    // appear — storage roots are always discovered by the service's own
+    // adapter after saving, never entered by hand, so there is no step 2
+    // field to reveal here.
     async testServiceConnection(button) {
       const form = button.closest("form");
       if (!form) return;
@@ -2999,12 +2998,10 @@ Copyright © 2023 Basecamp, LLC
       try {
         const response = await fetch("/services/test", { method: "POST", body: new FormData(form) });
         if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-        const step2 = form.querySelector("[data-service-step2]");
-        if (step2) step2.hidden = false;
         const submitButton = form.querySelector("[data-service-submit]");
         if (submitButton) submitButton.hidden = false;
         button.hidden = true;
-        if (hint) hint.textContent = "Connection verified. Set a root path and save to finish.";
+        if (hint) hint.textContent = "Connection verified. Save to finish.";
       } catch (error) {
         if (errorTarget) {
           errorTarget.textContent = error.message;
@@ -3015,34 +3012,6 @@ Copyright © 2023 Basecamp, LLC
       } finally {
         button.disabled = false;
         button.textContent = originalLabel;
-      }
-    }
-    focusOut(event) {
-      const target = event.target;
-      if (target.matches("[data-service-root-path]")) {
-        this.lookupDeviceForPath(target);
-      }
-    }
-    // Prefills step 2's threshold fields from whatever device the entered
-    // root path resolves to (an existing device's current thresholds, or the
-    // 90/95 defaults for a brand-new one) so the user isn't guessing values
-    // for a device Connarr already knows about.
-    async lookupDeviceForPath(input) {
-      const path = input.value.trim();
-      const form = input.closest("form");
-      if (!path || !form) return;
-      const hint = form.querySelector("[data-service-device-hint]");
-      try {
-        const response = await fetch(`/services/device-for-path?path=${encodeURIComponent(path)}`);
-        if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-        const data = await response.json();
-        const target = form.querySelector("#service-target-percent");
-        const critical = form.querySelector("#service-critical-percent");
-        if (target) target.value = String(data.targetUsagePercent);
-        if (critical) critical.value = String(data.criticalUsagePercent);
-        if (hint) hint.textContent = data.isNewDevice ? "New device \u2014 using default thresholds." : "Matches an existing device \u2014 showing its current thresholds.";
-      } catch (_) {
-        if (hint) hint.textContent = "";
       }
     }
     syncUnmanagedSelection() {
