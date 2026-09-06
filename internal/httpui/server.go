@@ -38,6 +38,9 @@ type Server struct {
 	tasksTpl           *template.Template
 	removalTpl         *template.Template
 	operationTpl       *template.Template
+	setupTpl           *template.Template
+	loginTpl           *template.Template
+	settingsTpl        *template.Template
 	staticHandler      http.Handler
 	revisions          *revisionHub
 	startOnce          sync.Once
@@ -135,11 +138,23 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
+	setupTemplate, err := parseUITemplate("setup.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
+	loginTemplate, err := parseUITemplate("login.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
+	settingsTemplate, err := parseUITemplate("settings.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
 	staticHandler, err := uiStaticHandler()
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addServiceTpl: addServiceTemplate, editServiceTpl: editServiceTemplate, serviceProgressTpl: serviceProgressTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub(), sseMaxLifetime: 3 * time.Minute}
+	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addServiceTpl: addServiceTemplate, editServiceTpl: editServiceTemplate, serviceProgressTpl: serviceProgressTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, setupTpl: setupTemplate, loginTpl: loginTemplate, settingsTpl: settingsTemplate, staticHandler: staticHandler, revisions: newRevisionHub(), sseMaxLifetime: 3 * time.Minute}
 	if taskManager != nil {
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
@@ -206,7 +221,12 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/refresh", server.refresh)
 	mux.HandleFunc("/api/plan", server.plan)
 	mux.HandleFunc("/healthz", func(response http.ResponseWriter, _ *http.Request) { _, _ = response.Write([]byte("ok")) })
-	return sameOriginWrites(mux)
+	mux.HandleFunc("/setup", server.setupPage)
+	mux.HandleFunc("/login", server.loginPage)
+	mux.HandleFunc("/logout", server.logout)
+	mux.HandleFunc("/settings", server.settingsPage)
+	mux.HandleFunc("/settings/password", server.changePassword)
+	return server.authGate(sameOriginWrites(mux))
 }
 
 func (server *Server) planningReliable(r inventory.Reliability) bool {

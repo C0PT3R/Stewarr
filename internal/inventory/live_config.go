@@ -282,3 +282,35 @@ func validateServiceConnection(ctx context.Context, svc config.Service) error {
 		return fmt.Errorf("unsupported service type %q", svc.Type)
 	}
 }
+
+// SetCredentials idempotently persists the single admin account's
+// username/password (bcrypt-hashed by config.SetCredentials). Used for both
+// first-run setup and later password changes — like SetDeviceThreshold this
+// isn't a live-service concept, so no connection check or client
+// (de)activation happens here.
+func (service *Service) SetCredentials(username, password string) error {
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	if service.configPath == "" {
+		return fmt.Errorf("live config editing is unavailable: no config file path is set")
+	}
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	updatedCfg, err := config.SetCredentials(currentCfg, username, password)
+	if err != nil {
+		return err
+	}
+
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
+
+	service.mu.Lock()
+	service.cfg = updatedCfg
+	service.mu.Unlock()
+	return nil
+}

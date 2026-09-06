@@ -119,6 +119,39 @@ func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	}
 }
 
+func TestSetCredentialsHashesPasswordAndVerifyPasswordChecksIt(t *testing.T) {
+	var c Config
+	if c.VerifyPassword("anything") {
+		t.Fatal("no account exists yet; VerifyPassword must not accept anything")
+	}
+	updated, err := SetCredentials(c, "  Admin  ", "correct-horse-battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Auth.Username != "Admin" {
+		t.Fatalf("username = %q, want trimmed \"Admin\"", updated.Auth.Username)
+	}
+	if updated.Auth.PasswordHash == "" || updated.Auth.PasswordHash == "correct-horse-battery" {
+		t.Fatalf("password must be hashed, not stored as-is: %q", updated.Auth.PasswordHash)
+	}
+	if !updated.VerifyPassword("correct-horse-battery") {
+		t.Fatal("VerifyPassword rejected the correct password")
+	}
+	if updated.VerifyPassword("wrong-password") {
+		t.Fatal("VerifyPassword accepted the wrong password")
+	}
+}
+
+func TestSetCredentialsRejectsEmptyUsernameAndShortPassword(t *testing.T) {
+	var c Config
+	if _, err := SetCredentials(c, "   ", "correct-horse-battery"); err == nil {
+		t.Fatal("expected an error for an empty username")
+	}
+	if _, err := SetCredentials(c, "admin", "short"); err == nil {
+		t.Fatal("expected an error for a too-short password")
+	}
+}
+
 func TestRemovalDryRunDefaultsTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")

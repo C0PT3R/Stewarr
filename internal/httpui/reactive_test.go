@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -175,8 +176,19 @@ func TestRemovalAdmissionReturnsImmediatelyAndIsIdempotent(t *testing.T) {
 	if err := database.SaveTorrents([]model.Torrent{{Hash: "ABC123", Name: "Release", AssociationStatus: model.TorrentUnassociated}}); err != nil {
 		t.Fatal(err)
 	}
-	var configuration config.Config
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	// removal.dry_run=false: this test exercises a real (non-dry-run)
+	// removal actually reaching admission/history — config.Load otherwise
+	// defaults dry_run to true, which pendingProjection deliberately ignores.
+	if err := os.WriteFile(configPath, []byte(`{"storage":{},"removal":{"dry_run":false}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	service := inventory.New(configuration, database)
+	service.SetConfigPath(configPath)
 	manager, err := tasks.NewPersistent(database)
 	if err != nil {
 		t.Fatal(err)
@@ -186,6 +198,7 @@ func TestRemovalAdmissionReturnsImmediatelyAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := server.Handler()
+	sessionCookie := loginForTest(t, handler)
 
 	post := func() *httptest.ResponseRecorder {
 		var body bytes.Buffer
@@ -203,6 +216,7 @@ func TestRemovalAdmissionReturnsImmediatelyAndIsIdempotent(t *testing.T) {
 		request := httptest.NewRequest(http.MethodPost, "/removal/execute", &body)
 		request.Header.Set("Content-Type", writer.FormDataContentType())
 		request.Header.Set("Accept", "application/json")
+		request.AddCookie(sessionCookie)
 		response := httptest.NewRecorder()
 		done := make(chan struct{})
 		go func() {

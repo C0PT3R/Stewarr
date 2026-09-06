@@ -25,6 +25,29 @@ import (
 	"connarr/internal/tasks"
 )
 
+// loginForTest drives a server's real first-run setup flow (POST /setup)
+// to create an admin account and returns the session cookie it issues, so
+// a Handler()-level test exercising a server backed by a real store (which
+// authGate now requires a session for) can act as a signed-in browser.
+func loginForTest(t *testing.T, handler http.Handler) *http.Cookie {
+	t.Helper()
+	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}
+	request := httptest.NewRequest(http.MethodPost, "/setup", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("test setup login failed: status=%d body=%q", response.Code, response.Body.String())
+	}
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == sessionCookieName {
+			return cookie
+		}
+	}
+	t.Fatal("test setup login did not issue a session cookie")
+	return nil
+}
+
 func TestRemovalSubmissionParsesBrowserMultipartForm(t *testing.T) {
 	var body bytes.Buffer
 	formWriter := multipart.NewWriter(&body)

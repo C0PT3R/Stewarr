@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Sign in · {{appName}}</title>
+    {{head}}
+  </head>
+  <body>
+    <div class="auth-page">
+      <main class="card auth-card">
+        <h1>{{appName}}</h1>
+        <p class="muted">Sign in to continue.</p>
+        {{if .Error}}<p class="bad">{{.Error}}</p>{{end}}
+        <form method="post" action="/login">
+          <div class="field-stack">
+            <label for="login-username">Username<input id="login-username" name="username" required autofocus autocomplete="username" value="{{.Username}}"></label>
+            <label for="login-password">Password<input id="login-password" name="password" type="password" required autocomplete="current-password"></label>
+          </div>
+          <button type="submit">Sign in</button>
+        </form>
+      </main>
+    </div>
+  </body>
+</html>

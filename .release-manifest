@@ -22,6 +22,8 @@ internal/filetopology/topology_test.go
 internal/httpui/add_service_test.go
 internal/httpui/edit_remove_service_test.go
 internal/httpui/api.go
+internal/httpui/auth.go
+internal/httpui/auth_test.go
 internal/httpui/auto_removal.go
 internal/httpui/auto_removal_test.go
 internal/httpui/home_test.go
@@ -70,8 +72,11 @@ internal/httpui/templates/edit_service.html
 internal/httpui/templates/history.html
 internal/httpui/templates/home.html
 internal/httpui/templates/library.html
+internal/httpui/templates/login.html
 internal/httpui/templates/service_progress.html
 internal/httpui/templates/services.html
+internal/httpui/templates/settings.html
+internal/httpui/templates/setup.html
 internal/httpui/templates/storage.html
 internal/httpui/templates/media.html
 internal/httpui/templates/operation.html

@@ -719,6 +719,13 @@ td:has(> a > strong) > a {
   font-size: 13px;
   text-decoration: none;
 }
+.signout-form {
+  margin-left: 10px;
+}
+.signout-button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
 .updates-available {
   position: sticky;
   top: 10px;
@@ -984,6 +991,36 @@ td:has(> a > strong) > a {
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 28px;
+}
+.auth-card h1 {
+  margin: 0 0 4px;
+  font-size: 1.3em;
+}
+.auth-card .muted {
+  margin: 0 0 20px;
+}
+.auth-card .field-stack {
+  gap: 16px;
+}
+.auth-card input {
+  width: 100%;
+}
+.auth-card button[type="submit"] {
+  width: 100%;
+  margin-top: 4px;
 }
 
 .field-stack {

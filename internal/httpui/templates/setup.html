@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Set up {{appName}}</title>
+    {{head}}
+  </head>
+  <body>
+    <div class="auth-page">
+      <main class="card auth-card">
+        <h1>Welcome to {{appName}}</h1>
+        <p class="muted">Create the admin account used to sign in. There is only ever one — no invitations, no roles.</p>
+        {{if .Error}}<p class="bad">{{.Error}}</p>{{end}}
+        <form method="post" action="/setup">
+          <div class="field-stack">
+            <label for="setup-username">Username<input id="setup-username" name="username" required autofocus autocomplete="username" value="{{.Username}}"></label>
+            <label for="setup-password">Password<input id="setup-password" name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+            <label for="setup-confirm">Confirm password<input id="setup-confirm" name="confirm" type="password" required minlength="8" autocomplete="new-password"></label>
+          </div>
+          <button type="submit">Create account</button>
+        </form>
+      </main>
+    </div>
+  </body>
+</html>

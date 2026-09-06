@@ -54,6 +54,7 @@ func appChrome(active string) string {
 		{"unmanaged", "Unmanaged", "/unmanaged"},
 		{"tasks", "Tasks", "/tasks"},
 		{"history", "History", "/history"},
+		{"settings", "Settings", "/settings"},
 	}
 	var chrome strings.Builder
 	chrome.WriteString(`<header class="appbar"><a class="appbrand" href="/">` + product.Name + `</a><nav class="appnav" aria-label="Primary">`)
@@ -66,7 +67,7 @@ func appChrome(active string) string {
 		}
 		chrome.WriteString(`<a` + classAttribute + ariaCurrent + ` href="` + link.URL + `">` + link.Label + `</a>`)
 	}
-	chrome.WriteString(`</nav><a id="operation-indicator" class="operation-indicator" href="/tasks" hidden></a></header>
+	chrome.WriteString(`</nav><a id="operation-indicator" class="operation-indicator" href="/tasks" hidden></a><form class="signout-form" method="post" action="/logout"><button type="submit" class="signout-button">Sign out</button></form></header>
 <aside id="updates-available" class="updates-available" hidden data-controller="updates"><button type="button" data-action="updates#apply">Updates available</button></aside>
 <div id="persistent-notices" class="persistent-notices" aria-live="polite"></div>
 <div id="modal-root" class="modal-root"></div>

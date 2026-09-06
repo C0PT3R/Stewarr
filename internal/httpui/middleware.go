@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// sameOriginWrites is a deployment-safety guard, not authentication. Connarr
-// remains intended for a trusted private network during the 0.1.x series.
+// sameOriginWrites is a CSRF-style deployment-safety guard, layered
+// underneath — not instead of — the session-based login enforced by
+// authGate (see auth.go).
 func sameOriginWrites(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {

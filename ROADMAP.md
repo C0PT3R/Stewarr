@@ -441,6 +441,40 @@ This file separates implemented behavior from intended direction. It is not a pr
   group if any of its known paths has a pending operation, instead of
   partially hiding one path and desyncing its Links/Paths count.
 
+### Authentication (0.3.0)
+
+- Connarr had no authentication at all — only `sameOriginWrites`, a
+  CSRF-style guard, not an identity check. 0.3.0 adds a single-admin login
+  gate in front of every route (`authGate`, `internal/httpui/auth.go`).
+  There is deliberately no multi-user support, roles, or invitations —
+  Connarr remains a private single-deployment app for one person.
+- Credentials (`config.Auth{Username, PasswordHash}`) live in `config.json`
+  like every other secret; the password is bcrypt-hashed, never stored or
+  logged in plain text. An empty `Auth.Username` is the "no account yet"
+  signal — Connarr has no default/backdoor account.
+- First run shows a one-time setup screen (`/setup`) to create the admin
+  account, instead of requiring a hand-edited config file or CLI step.
+  There is no separate password-reset flow: like many apps in the *arr
+  ecosystem, erasing the `auth` key from `config.json` and restarting puts
+  Connarr back into first-run setup.
+- Sessions are server-side (a `sessions` table: token/created/expires),
+  not JWTs — revoking one is a `DELETE`, not a client-side expectation.
+  Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` when the request
+  (directly or via `X-Forwarded-Proto`) is actually HTTPS. Sessions are
+  deliberately long-lived (30 days): this is a private app meant to stay
+  signed in on the devices you actually use, not a multi-tenant service
+  where a short session limits blast radius.
+- A Settings page (`/settings`) lets the password be changed without
+  editing the config file. Changing it revokes every other session
+  (`DeleteAllSessions`) — a credential rotation should actually lock out
+  a device you no longer trust, not just accept a new password while
+  leaving old sessions valid — while re-establishing one for the browser
+  that made the change, so that browser isn't logged out too.
+- `authGate` fails open when no durable store is available, since sessions
+  cannot be persisted at all without one. Every real deployment opens a
+  store before constructing the server (`cmd/connarr/main.go`); this only
+  ever applies to handler-level tests built without one.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type ValueWeights struct {
@@ -218,10 +220,53 @@ type Config struct {
 		MinTorrentRatio   float64  `json:"min_torrent_ratio"`
 		KeepTorrentTags   []string `json:"keep_torrent_tags"`
 	} `json:"protection"`
-	Valuation       ValuationConfig `json:"valuation"`
-	Removal         RemovalConfig   `json:"removal"`
-	RefreshInterval time.Duration   `json:"-"`
-	RequestGrace    time.Duration   `json:"-"`
+	Valuation ValuationConfig `json:"valuation"`
+	Removal   RemovalConfig   `json:"removal"`
+	// Auth holds the single admin account's credentials. An empty Username
+	// means no account has been created yet — the app's first-run setup
+	// screen is the only route reachable until SetCredentials is called.
+	// There is deliberately no separate "reset" flow: erasing this field
+	// from config.json (and restarting) puts the app back into first-run
+	// setup, the same pattern used across the *arr ecosystem.
+	Auth            Auth          `json:"auth"`
+	RefreshInterval time.Duration `json:"-"`
+	RequestGrace    time.Duration `json:"-"`
+}
+
+type Auth struct {
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+}
+
+// SetCredentials replaces the admin account's username/password, hashing the
+// password with bcrypt. Used both for first-run setup and for changing the
+// password later — the caller is responsible for verifying any existing
+// password before calling this with a new one.
+func SetCredentials(configuration Config, username, password string) (Config, error) {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return configuration, fmt.Errorf("username must not be empty")
+	}
+	if len(password) < 8 {
+		return configuration, fmt.Errorf("password must be at least 8 characters")
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return configuration, fmt.Errorf("hash password: %w", err)
+	}
+	updated := configuration
+	updated.Auth = Auth{Username: username, PasswordHash: string(hash)}
+	return updated, nil
+}
+
+// VerifyPassword reports whether password matches the admin account's
+// stored hash. It also reports false (without error) when no account has
+// been created yet, so callers never need a separate existence check first.
+func (configuration Config) VerifyPassword(password string) bool {
+	if configuration.Auth.PasswordHash == "" {
+		return false
+	}
+	return bcrypt.CompareHashAndPassword([]byte(configuration.Auth.PasswordHash), []byte(password)) == nil
 }
 
 type Connection struct {

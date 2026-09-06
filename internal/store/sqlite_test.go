@@ -472,3 +472,73 @@ func TestStartedRemovalCanBeFinalizedOrRecovered(t *testing.T) {
 		t.Fatalf("events=%#v", xs)
 	}
 }
+
+func TestSessionCreateValidateAndDelete(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if valid, err := db.SessionValid("unknown-token"); err != nil || valid {
+		t.Fatalf("unknown token: valid=%v err=%v", valid, err)
+	}
+	if err := db.CreateSession("live-token", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if valid, err := db.SessionValid("live-token"); err != nil || !valid {
+		t.Fatalf("live token: valid=%v err=%v", valid, err)
+	}
+	if err := db.DeleteSession("live-token"); err != nil {
+		t.Fatal(err)
+	}
+	if valid, err := db.SessionValid("live-token"); err != nil || valid {
+		t.Fatalf("deleted token: valid=%v err=%v", valid, err)
+	}
+}
+
+// TestExpiredSessionIsRejectedAndPruned guards the actual point of storing
+// an expiry: a session past it must stop being accepted, and checking it
+// should clean the stale row up rather than leaving it to accumulate.
+func TestExpiredSessionIsRejectedAndPruned(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.CreateSession("expired-token", time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if valid, err := db.SessionValid("expired-token"); err != nil || valid {
+		t.Fatalf("expired token: valid=%v err=%v", valid, err)
+	}
+	// SessionValid should have deleted it as a side effect of finding it
+	// expired; a second check must not error on a now-missing row.
+	if valid, err := db.SessionValid("expired-token"); err != nil || valid {
+		t.Fatalf("re-checked expired token: valid=%v err=%v", valid, err)
+	}
+}
+
+func TestDeleteAllSessionsClearsEveryOne(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "connarr.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.CreateSession("a", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession("b", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteAllSessions(); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"a", "b"} {
+		if valid, err := db.SessionValid(token); err != nil || valid {
+			t.Fatalf("token %q: valid=%v err=%v", token, valid, err)
+		}
+	}
+}
