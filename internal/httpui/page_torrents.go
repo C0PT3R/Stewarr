@@ -317,14 +317,14 @@ func (server *Server) torrentDetail(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	integrationID := strings.TrimSpace(r.URL.Query().Get("integration_id"))
+	serviceID := strings.TrimSpace(r.URL.Query().Get("service_id"))
 	if notice, pending := server.pendingProjection().torrentOperation(hash); pending {
 		server.renderOperation(w, operationPageData{Active: "torrents", FragmentID: "torrent-detail", Label: notice.Label, Notice: notice, BackURL: "/torrents", BackLabel: "Torrents"})
 		return
 	}
 	_, updated, last := server.inv.Snapshot()
-	torrent, detailErr := server.inv.TorrentDetail(hash, integrationID)
-	if integrationID == "" && detailErr != nil && strings.Contains(strings.ToLower(detailErrString(detailErr)), "more than one configured instance") {
+	torrent, detailErr := server.inv.TorrentDetail(hash, serviceID)
+	if serviceID == "" && detailErr != nil && strings.Contains(strings.ToLower(detailErrString(detailErr)), "more than one configured instance") {
 		http.Error(w, detailErr.Error(), http.StatusConflict)
 		return
 	}

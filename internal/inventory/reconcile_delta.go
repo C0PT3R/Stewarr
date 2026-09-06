@@ -36,7 +36,7 @@ func (d inventoryDelta) empty() bool {
 }
 
 func mediaKey(m model.Media) string {
-	return fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)
+	return fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)
 }
 
 // computeInventoryDelta diffs the previous and freshly fetched base catalogs
@@ -56,16 +56,16 @@ func computeInventoryDelta(oldMedia, newMedia []model.Media, oldTorrents, newTor
 	for key, m := range newByKey {
 		old, existed := oldByKey[key]
 		if !existed {
-			delta.newOwners = append(delta.newOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
+			delta.newOwners = append(delta.newOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, ServiceID: m.ServiceID})
 			continue
 		}
 		if filepath.Clean(old.Path) != filepath.Clean(m.Path) || old.SizeBytes != m.SizeBytes {
-			delta.changedOwners = append(delta.changedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
+			delta.changedOwners = append(delta.changedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, ServiceID: m.ServiceID})
 		}
 	}
 	for key, m := range oldByKey {
 		if _, exists := newByKey[key]; !exists {
-			delta.removedOwners = append(delta.removedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, IntegrationID: m.IntegrationID})
+			delta.removedOwners = append(delta.removedOwners, ReconciliationOwner{Type: m.Type, ID: m.SourceID, ServiceID: m.ServiceID})
 		}
 	}
 
@@ -135,7 +135,7 @@ type deltaFileTopology struct {
 // reconcileInventoryDelta re-verifies file topology for exactly the media and
 // torrents an inventoryDelta identifies as new, changed, or removed. It walks
 // only those items' own directories and queries only their owning
-// integration for their file list, so its cost scales with the size of the
+// service for their file list, so its cost scales with the size of the
 // delta rather than the whole library — unlike a full files reconciliation,
 // which re-walks every configured root. It does no relationship/valuation
 // computation and does not publish anything; the caller (Refresh) merges the
@@ -171,16 +171,16 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	movieIDsByInstance := map[string][]int{}
 	seriesIDsByInstance := map[string][]int{}
 	for _, owner := range replacedOwners {
-		ownerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = true
+		ownerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.ServiceID, owner.ID)] = true
 		if owner.Type == model.Movie {
-			movieIDsByInstance[owner.IntegrationID] = append(movieIDsByInstance[owner.IntegrationID], owner.ID)
+			movieIDsByInstance[owner.ServiceID] = append(movieIDsByInstance[owner.ServiceID], owner.ID)
 		} else {
-			seriesIDsByInstance[owner.IntegrationID] = append(seriesIDsByInstance[owner.IntegrationID], owner.ID)
+			seriesIDsByInstance[owner.ServiceID] = append(seriesIDsByInstance[owner.ServiceID], owner.ID)
 		}
 	}
 	removedOwnerSet := map[string]bool{}
 	for _, owner := range delta.removedOwners {
-		removedOwnerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = true
+		removedOwnerSet[fmt.Sprintf("%s:%s:%d", owner.Type, owner.ServiceID, owner.ID)] = true
 	}
 
 	replacedTorrentHashes := append(append([]string{}, delta.newTorrentHashes...), delta.changedTorrentHashes...)
@@ -194,56 +194,56 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	}
 
 	service.mu.RLock()
-	radInstances := service.cfg.IntegrationsOfType("radarr")
-	sonInstances := service.cfg.IntegrationsOfType("sonarr")
-	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	radInstances := service.cfg.ServicesOfType("radarr")
+	sonInstances := service.cfg.ServicesOfType("sonarr")
+	qbInstances := service.cfg.ServicesOfType("qbittorrent")
 	radClients := service.rad
 	sonClients := service.son
 	qbClients := service.qb
 	service.mu.RUnlock()
-	radInstanceByID := map[string]config.Integration{}
-	for _, integration := range radInstances {
-		radInstanceByID[integration.ID] = integration
+	radInstanceByID := map[string]config.Service{}
+	for _, svc := range radInstances {
+		radInstanceByID[svc.ID] = svc
 	}
-	sonInstanceByID := map[string]config.Integration{}
-	for _, integration := range sonInstances {
-		sonInstanceByID[integration.ID] = integration
+	sonInstanceByID := map[string]config.Service{}
+	for _, svc := range sonInstances {
+		sonInstanceByID[svc.ID] = svc
 	}
-	qbInstanceByID := map[string]config.Integration{}
-	for _, integration := range qbInstances {
-		qbInstanceByID[integration.ID] = integration
+	qbInstanceByID := map[string]config.Service{}
+	for _, svc := range qbInstances {
+		qbInstanceByID[svc.ID] = svc
 	}
 
 	newTorrentsByInstance := map[string]map[string]model.Torrent{}
 	for _, t := range newTorrents {
-		if newTorrentsByInstance[t.IntegrationID] == nil {
-			newTorrentsByInstance[t.IntegrationID] = map[string]model.Torrent{}
+		if newTorrentsByInstance[t.ServiceID] == nil {
+			newTorrentsByInstance[t.ServiceID] = map[string]model.Torrent{}
 		}
-		newTorrentsByInstance[t.IntegrationID][strings.ToLower(t.Hash)] = t
+		newTorrentsByInstance[t.ServiceID][strings.ToLower(t.Hash)] = t
 	}
 
 	type radarrFilesFetch struct {
-		integrationID string
-		files         []radarr.FileRecord
-		err           error
+		svcID string
+		files []radarr.FileRecord
+		err   error
 	}
 	type sonarrFilesFetch struct {
-		integrationID string
-		files         []sonarr.FileRecord
-		err           error
+		svcID string
+		files []sonarr.FileRecord
+		err   error
 	}
 	type qbittorrentFilesFetch struct {
-		integrationID string
-		files         map[string][]qbittorrent.File
-		err           error
+		svcID string
+		files map[string][]qbittorrent.File
+		err   error
 	}
 	radFetches := make([]radarrFilesFetch, 0, len(movieIDsByInstance))
 	for id := range movieIDsByInstance {
-		radFetches = append(radFetches, radarrFilesFetch{integrationID: id})
+		radFetches = append(radFetches, radarrFilesFetch{svcID: id})
 	}
 	sonFetches := make([]sonarrFilesFetch, 0, len(seriesIDsByInstance))
 	for id := range seriesIDsByInstance {
-		sonFetches = append(sonFetches, sonarrFilesFetch{integrationID: id})
+		sonFetches = append(sonFetches, sonarrFilesFetch{svcID: id})
 	}
 	scopedTorrentsByInstance := map[string]map[string]model.Torrent{}
 	for hash := range torrentHashSet {
@@ -258,7 +258,7 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	}
 	qbFetches := make([]qbittorrentFilesFetch, 0, len(scopedTorrentsByInstance))
 	for id := range scopedTorrentsByInstance {
-		qbFetches = append(qbFetches, qbittorrentFilesFetch{integrationID: id})
+		qbFetches = append(qbFetches, qbittorrentFilesFetch{svcID: id})
 	}
 
 	var wait sync.WaitGroup
@@ -266,38 +266,38 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	for i := range radFetches {
 		go func(i int) {
 			defer wait.Done()
-			id := radFetches[i].integrationID
+			id := radFetches[i].svcID
 			radFetches[i].files, radFetches[i].err = radClients[id].WithContext(ctx).Files(movieIDsByInstance[id])
 		}(i)
 	}
 	for i := range sonFetches {
 		go func(i int) {
 			defer wait.Done()
-			id := sonFetches[i].integrationID
+			id := sonFetches[i].svcID
 			sonFetches[i].files, sonFetches[i].err = sonClients[id].WithContext(ctx).Files(seriesIDsByInstance[id])
 		}(i)
 	}
 	for i := range qbFetches {
 		go func(i int) {
 			defer wait.Done()
-			id := qbFetches[i].integrationID
+			id := qbFetches[i].svcID
 			qbFetches[i].files, qbFetches[i].err = qbClients[id].WithContext(ctx).AllFiles(scopedTorrentsByInstance[id])
 		}(i)
 	}
 	wait.Wait()
 	for _, f := range radFetches {
 		if f.err != nil {
-			return result, fmt.Errorf("radarr (%s) files: %w", radInstanceByID[f.integrationID].Name, f.err)
+			return result, fmt.Errorf("radarr (%s) files: %w", radInstanceByID[f.svcID].Name, f.err)
 		}
 	}
 	for _, f := range sonFetches {
 		if f.err != nil {
-			return result, fmt.Errorf("sonarr (%s) files: %w", sonInstanceByID[f.integrationID].Name, f.err)
+			return result, fmt.Errorf("sonarr (%s) files: %w", sonInstanceByID[f.svcID].Name, f.err)
 		}
 	}
 	for _, f := range qbFetches {
 		if f.err != nil {
-			return result, fmt.Errorf("qbittorrent (%s) files: %w", qbInstanceByID[f.integrationID].Name, f.err)
+			return result, fmt.Errorf("qbittorrent (%s) files: %w", qbInstanceByID[f.svcID].Name, f.err)
 		}
 	}
 
@@ -305,28 +305,28 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 	mediaRootByOwnerKey := make(map[ownerKey]string, len(newMedia))
 	for _, m := range newMedia {
 		mediaRootByKey[mediaKey(m)] = m.Path
-		mediaRootByOwnerKey[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}] = m.Path
+		mediaRootByOwnerKey[ownerKey{ServiceID: m.ServiceID, OwnerID: m.SourceID}] = m.Path
 	}
 	var replacementMediaRefs []model.MediaFileRef
 	for _, f := range radFetches {
-		replacementMediaRefs = append(replacementMediaRefs, radarrMediaRefs(radInstanceByID[f.integrationID], f.files, mediaRootByOwnerKey)...)
+		replacementMediaRefs = append(replacementMediaRefs, radarrMediaRefs(radInstanceByID[f.svcID], f.files, mediaRootByOwnerKey)...)
 	}
 	for _, f := range sonFetches {
-		replacementMediaRefs = append(replacementMediaRefs, sonarrMediaRefs(sonInstanceByID[f.integrationID], f.files, mediaRootByOwnerKey)...)
+		replacementMediaRefs = append(replacementMediaRefs, sonarrMediaRefs(sonInstanceByID[f.svcID], f.files, mediaRootByOwnerKey)...)
 	}
 
 	var replacementTorrentRefs []model.TorrentFileRef
 	for _, f := range qbFetches {
-		integration := qbInstanceByID[f.integrationID]
+		svc := qbInstanceByID[f.svcID]
 		for hash, xs := range f.files {
-			t, ok := scopedTorrentsByInstance[f.integrationID][hash]
+			t, ok := scopedTorrentsByInstance[f.svcID][hash]
 			if !ok {
 				continue
 			}
 			for _, x := range xs {
 				p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
 				replacementTorrentRefs = append(replacementTorrentRefs, model.TorrentFileRef{
-					IntegrationID: integration.ID, IntegrationName: integration.Name,
+					ServiceID: svc.ID, ServiceName: svc.Name,
 					Client: t.Client, Hash: hash, FileIndex: x.Index, Path: p,
 				})
 			}
@@ -406,7 +406,7 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 
 	mediaRefs := make([]model.MediaFileRef, 0, len(oldMediaRefs)+len(replacementMediaRefs))
 	for _, ref := range oldMediaRefs {
-		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)
+		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.ServiceID, ref.MediaID)
 		if ownerSet[key] || removedOwnerSet[key] {
 			continue
 		}

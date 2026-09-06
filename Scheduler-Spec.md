@@ -238,7 +238,7 @@ Claims are acquired atomically in canonical name order before runner preflight
 and retained until the runner exits. Partial acquisition is forbidden.
 
 Resource names and meanings belong to application composition. Example claims
-might describe inventory publication, file-topology publication, integration
+might describe inventory publication, file-topology publication, service
 API pressure, or the owner/filesystem mutation boundary. The scheduler treats
 them as opaque strings.
 

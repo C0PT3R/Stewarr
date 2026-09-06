@@ -12,8 +12,8 @@ import (
 )
 
 // StorageDevice reports one physical storage device known from the last file
-// reconciliation's integration-discovered roots, with real filesystem usage
-// alongside Connarr's own attribution of claimed bytes by integration. The
+// reconciliation's service-discovered roots, with real filesystem usage
+// alongside Connarr's own attribution of claimed bytes by service. The
 // two are kept separate rather than forced to agree: OtherBytes is whatever
 // real usage Connarr's claims do not account for, preserved as Unknown
 // rather than guessed away.
@@ -31,11 +31,11 @@ type StorageDevice struct {
 	OtherBytes         uint64
 }
 
-// ClaimedSegment is one integration's share of a device's used bytes, sorted
-// by integration name for deterministic rendering.
+// ClaimedSegment is one service's share of a device's used bytes, sorted
+// by service name for deterministic rendering.
 type ClaimedSegment struct {
-	Integration string
-	Bytes       uint64
+	Service string
+	Bytes   uint64
 }
 
 type deviceGroup struct {
@@ -45,7 +45,7 @@ type deviceGroup struct {
 }
 
 // knownDeviceRoots groups the storage roots discovered by the last
-// successful file reconciliation by physical device (multiple integration
+// successful file reconciliation by physical device (multiple service
 // roots can share one disk). It touches no file-level data, only a stat of
 // each already-known root path, so it is cheap enough to call on a short
 // interval purely to detect capacity changes.
@@ -90,6 +90,31 @@ func (service *Service) KnownStorageDevicePaths() []string {
 	return out
 }
 
+// DeviceForPath resolves a path (typically a service's RootPath, entered
+// live and not yet reconciled) to a known physical device. If path's device
+// number matches an already-known group's, representativePath is that
+// group's existing representative — the caller should treat this as "the
+// same device," not a new one, so a threshold configured through one
+// service's overlay is visible/editable from any other service sharing that
+// device. Otherwise isNewDevice is true and path itself is returned, since
+// once this service is saved it will become that device's own first known
+// root.
+func (service *Service) DeviceForPath(path string) (representativePath string, isNewDevice bool, err error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", false, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "", false, fmt.Errorf("stat %s: not a syscall.Stat_t", path)
+	}
+	groups, _ := service.knownDeviceRoots()
+	if group, exists := groups[uint64(stat.Dev)]; exists {
+		return group.representative, false, nil
+	}
+	return path, true, nil
+}
+
 // deviceGroups additionally snapshots file-level data for the full
 // StorageDevices/MediaByDevice aggregation; unlike knownDeviceRoots it is not
 // meant for frequent polling.
@@ -104,7 +129,7 @@ func (service *Service) deviceGroups() (groups map[uint64]*deviceGroup, order []
 }
 
 // StorageDevices reports one entry per physical device, with real filesystem
-// usage and Connarr's own attribution of claimed bytes by integration.
+// usage and Connarr's own attribution of claimed bytes by service.
 func (service *Service) StorageDevices() []StorageDevice {
 	groups, order, files, mediaRefs, torrentRefs := service.deviceGroups()
 	if len(groups) == 0 {
@@ -114,13 +139,13 @@ func (service *Service) StorageDevices() []StorageDevice {
 	mediaOwner := map[string]string{}
 	for _, ref := range mediaRefs {
 		if _, claimed := mediaOwner[ref.Path]; !claimed {
-			mediaOwner[ref.Path] = ref.IntegrationName
+			mediaOwner[ref.Path] = ref.ServiceName
 		}
 	}
 	torrentOwner := map[string]string{}
 	for _, ref := range torrentRefs {
 		if _, claimed := torrentOwner[ref.Path]; !claimed {
-			torrentOwner[ref.Path] = ref.IntegrationName
+			torrentOwner[ref.Path] = ref.ServiceName
 		}
 	}
 
@@ -201,7 +226,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 		var claimedTotal uint64
 		for _, name := range claimedNames {
 			bytes := claimedByDevice[device][name]
-			result.Claimed = append(result.Claimed, ClaimedSegment{Integration: name, Bytes: bytes})
+			result.Claimed = append(result.Claimed, ClaimedSegment{Service: name, Bytes: bytes})
 			claimedTotal += bytes
 		}
 		if result.Available && result.TotalBytes > 0 {
@@ -235,7 +260,7 @@ func (service *Service) MediaByDevice(items []model.Media) map[string][]model.Me
 	}
 	deviceByMediaKey := map[string]uint64{}
 	for _, ref := range mediaRefs {
-		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)
+		key := fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.ServiceID, ref.MediaID)
 		if _, known := deviceByMediaKey[key]; known {
 			continue
 		}
@@ -245,7 +270,7 @@ func (service *Service) MediaByDevice(items []model.Media) map[string][]model.Me
 	}
 	out := map[string][]model.Media{}
 	for _, item := range items {
-		device, ok := deviceByMediaKey[fmt.Sprintf("%s:%s:%d", item.Type, item.IntegrationID, item.SourceID)]
+		device, ok := deviceByMediaKey[fmt.Sprintf("%s:%s:%d", item.Type, item.ServiceID, item.SourceID)]
 		if !ok {
 			continue
 		}
@@ -301,19 +326,19 @@ func (service *Service) TorrentsByDevice(items []model.Torrent) map[string][]mod
 	return out
 }
 
-// IntegrationRootPaths returns, for each integration currently contributing a
+// ServiceRootPaths returns, for each service currently contributing a
 // storage root, the root path(s) the last file reconciliation
-// configured/discovered for it — keyed by the integration's display name so
-// the Storage/Services pages can show each integration's own paths alongside
+// configured/discovered for it — keyed by the service's display name so
+// the Storage/Services pages can show each service's own paths alongside
 // its usage/connection status.
-func (service *Service) IntegrationRootPaths() map[string][]string {
+func (service *Service) ServiceRootPaths() map[string][]string {
 	service.mu.RLock()
 	roots := append([]storageRoot(nil), service.storageRoots...)
 	service.mu.RUnlock()
 
 	seen := map[string]map[string]bool{}
 	for _, root := range roots {
-		name := root.Integration.Name
+		name := root.Service.Name
 		if name == "" {
 			continue
 		}

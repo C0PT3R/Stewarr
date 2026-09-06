@@ -11,7 +11,7 @@
     <main id="torrent-detail" data-reactive-fragment data-live-policy="immediate">
       <div style="display:flex;align-items:center;gap:12px">
         <h1 class=page-title style="flex:1">{{.Torrent.Name}}</h1>
-        <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}&integration_id={{.Torrent.IntegrationID}}">🗑</button>
+        <button class=trash title="Remove" data-removal-url="/removal/torrent?hash={{.Torrent.Hash}}&service_id={{.Torrent.ServiceID}}">🗑</button>
       </div>
       <div style="margin:0 24px">
         {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
@@ -53,11 +53,11 @@
       </div>
       {{end}}{{if .Torrent.MediaItems}}
       <div class=card>
-        <strong>Current media{{if gt (len .Torrent.MediaItems) 1}} items{{end}}</strong><br>{{range .Torrent.MediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}?integration_id={{.IntegrationID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}
+        <strong>Current media{{if gt (len .Torrent.MediaItems) 1}} items{{end}}</strong><br>{{range .Torrent.MediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}?service_id={{.ServiceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}
       </div>
       {{else if .Torrent.FormerMediaItems}}
       <div class=card>
-        <strong>Historical media relationship</strong><br>{{range .Torrent.FormerMediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}?integration_id={{.IntegrationID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}{{if .Torrent.SupersededByHash}}<span class=muted>Superseded by torrent hash <span class=mono>{{.Torrent.SupersededByHash}}</span></span>{{end}}
+        <strong>Historical media relationship</strong><br>{{range .Torrent.FormerMediaItems}}{{if .Title}}<a href="/library/{{.Type}}/{{.SourceID}}?service_id={{.ServiceID}}">{{.Title}} {{if .Year}}({{.Year}}){{end}}</a>{{else}}<span>Former {{.Type}} {{.SourceID}} <span class=muted>(no longer managed)</span></span>{{end}}<br>{{end}}{{if .Torrent.SupersededByHash}}<span class=muted>Superseded by torrent hash <span class=mono>{{.Torrent.SupersededByHash}}</span></span>{{end}}
       </div>
       {{end}}{{if .FilesErr}}
       <div class=card>

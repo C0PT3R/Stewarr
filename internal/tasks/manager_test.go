@@ -396,7 +396,7 @@ func TestRetryUsesInjectedClock(t *testing.T) {
 		return nil
 	}})
 	startManager(t, manager)
-	receipt, _ := manager.Submit(Request{TaskID: "retry", Durable: true, Cause: "integration unavailable", RequiredCoverage: 17})
+	receipt, _ := manager.Submit(Request{TaskID: "retry", Durable: true, Cause: "service unavailable", RequiredCoverage: 17})
 	if receive(t, started) != 1 {
 		t.Fatal("first attempt missing")
 	}
@@ -416,7 +416,7 @@ func TestRetryUsesInjectedClock(t *testing.T) {
 	}
 	trigger, _ := manager.Trigger(receipt.TriggerID)
 	execution, _ := manager.Execution(result.ExecutionID)
-	if trigger.Cause != "integration unavailable" || trigger.RequiredCoverage != 17 || execution.Coverage != 17 || execution.Attempt != 2 {
+	if trigger.Cause != "service unavailable" || trigger.RequiredCoverage != 17 || execution.Coverage != 17 || execution.Attempt != 2 {
 		t.Fatalf("retry lost scheduling facts: trigger=%#v execution=%#v", trigger, execution)
 	}
 }

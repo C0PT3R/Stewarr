@@ -141,7 +141,7 @@ func sampleStorage(path string) (storageFingerprint, bool) {
 }
 
 // sampleAllStorage stats every currently known storage device's
-// representative path. It never calls an integration or walks a
+// representative path. It never calls a service or walks a
 // filesystem, so it is safe on a short polling interval.
 func (server *Server) sampleAllStorage() map[string]storageFingerprint {
 	fingerprints := map[string]storageFingerprint{}
@@ -274,8 +274,31 @@ func (server *Server) uiStatus(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	projection := server.pendingProjection()
+	pendingOperations := projection.PendingCount
+	if server.serviceConsistencyRunning() {
+		// Folded into the same #operation-indicator pending removals already
+		// use, rather than a second UI element — there's no history event to
+		// link a "still scanning" notice to, so this only affects the count,
+		// not projection.Notices.
+		pendingOperations++
+	}
 	response.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(response).Encode(uiStatus{Revision: revision.Revision, Kind: revision.Kind, PendingOperations: projection.PendingCount, Notices: projection.Notices})
+	_ = json.NewEncoder(response).Encode(uiStatus{Revision: revision.Revision, Kind: revision.Kind, PendingOperations: pendingOperations, Notices: projection.Notices})
+}
+
+// serviceConsistencyRunning reports whether the global
+// inventory-and-files-consistency workflow (triggered by any service
+// add/edit/remove, or a removal's own recovery path) is still in flight.
+func (server *Server) serviceConsistencyRunning() bool {
+	if server.tasks == nil {
+		return false
+	}
+	for _, status := range server.tasks.WorkflowStatuses() {
+		if status.ID == consistencyWorkflowInstanceID {
+			return status.State != "succeeded" && status.State != "attention"
+		}
+	}
+	return false
 }
 
 type pendingProjection struct {
@@ -288,10 +311,10 @@ type pendingProjection struct {
 }
 
 // mediaOperationKey identifies one media item across pending-removal
-// projections and history lookups. integrationID disambiguates SourceID
-// across multiple configured instances of the same integration type.
-func mediaOperationKey(kind model.MediaType, id int, integrationID string) string {
-	return fmt.Sprintf("%s:%d:%s", kind, id, integrationID)
+// projections and history lookups. serviceID disambiguates SourceID
+// across multiple configured instances of the same service type.
+func mediaOperationKey(kind model.MediaType, id int, serviceID string) string {
+	return fmt.Sprintf("%s:%d:%s", kind, id, serviceID)
 }
 
 func emptyPendingProjection() pendingProjection {
@@ -311,7 +334,7 @@ func (server *Server) pendingProjection() pendingProjection {
 	managedTotals := map[string]int{}
 	_, mediaRefs, _, _, _ := server.inv.FileSnapshot()
 	for _, mediaRef := range mediaRefs {
-		owner := mediaOperationKey(mediaRef.MediaType, mediaRef.MediaID, mediaRef.IntegrationID)
+		owner := mediaOperationKey(mediaRef.MediaType, mediaRef.MediaID, mediaRef.ServiceID)
 		managedOwners[managedFileKey(mediaRef)] = owner
 		managedTotals[owner]++
 	}
@@ -354,7 +377,7 @@ func (server *Server) pendingProjection() pendingProjection {
 			}
 			if form.Get("kind") == "media" {
 				id, _ := strconv.Atoi(form.Get("media_id"))
-				key := mediaOperationKey(model.MediaType(form.Get("media_type")), id, form.Get("integration_id"))
+				key := mediaOperationKey(model.MediaType(form.Get("media_type")), id, form.Get("service_id"))
 				if managedTotals[key] > 0 && selectedByOwner[key] >= managedTotals[key] {
 					projection.Media[key] = notice
 				}
@@ -377,7 +400,7 @@ func (server *Server) pendingProjection() pendingProjection {
 func (projection pendingProjection) filterMedia(items []model.Media) []model.Media {
 	filtered := make([]model.Media, 0, len(items))
 	for _, item := range items {
-		if _, pending := projection.Media[mediaOperationKey(item.Type, item.SourceID, item.IntegrationID)]; !pending {
+		if _, pending := projection.Media[mediaOperationKey(item.Type, item.SourceID, item.ServiceID)]; !pending {
 			filtered = append(filtered, item)
 		}
 	}
@@ -404,8 +427,8 @@ func (projection pendingProjection) filterUnmanaged(items []model.UnmanagedFile)
 	return filtered
 }
 
-func (projection pendingProjection) mediaOperation(kind model.MediaType, id int, integrationID string) (operationNotice, bool) {
-	notice, found := projection.Media[mediaOperationKey(kind, id, integrationID)]
+func (projection pendingProjection) mediaOperation(kind model.MediaType, id int, serviceID string) (operationNotice, bool) {
+	notice, found := projection.Media[mediaOperationKey(kind, id, serviceID)]
 	return notice, found
 }
 

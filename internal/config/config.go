@@ -43,7 +43,7 @@ type RemovalConfig struct {
 	AutoEnabled bool `json:"auto_enabled"`
 }
 
-type Integration struct {
+type Service struct {
 	Type                  string `json:"type"`
 	Name                  string `json:"name"`
 	URL                   string `json:"url"`
@@ -52,127 +52,127 @@ type Integration struct {
 	Password              string `json:"password,omitempty"`
 	RootPath              string `json:"root_path,omitempty"`
 	AllowAutomaticRemoval bool   `json:"allow_automatic_removal"`
-	// ID is a stable, opaque identifier assigned once when the integration is
+	// ID is a stable, opaque identifier assigned once when the service is
 	// first added and never recomputed afterward — deliberately independent
-	// of both Name and URL, so renaming an integration or moving it to a new
+	// of both Name and URL, so renaming a service or moving it to a new
 	// address (a different host, port, or network entirely) never severs the
-	// ownership already attributed to it (MediaFileRef.IntegrationID,
-	// Torrent.IntegrationID, ...). A config.json written before this field
-	// existed has no id for its integrations; Load assigns one the first
+	// ownership already attributed to it (MediaFileRef.ServiceID,
+	// Torrent.ServiceID, ...). A config.json written before this field
+	// existed has no id for its services; Load assigns one the first
 	// time it sees such an entry and persists it immediately, so the
-	// assignment only ever happens once per integration, not on every load.
+	// assignment only ever happens once per service, not on every load.
 	ID string `json:"id,omitempty"`
 }
 
-// newIntegrationID generates a fresh, random, opaque ID for a new
-// integration. It is never derived from the integration's own fields (type
+// newServiceID generates a fresh, random, opaque ID for a new
+// service. It is never derived from the service's own fields (type
 // aside, kept only as a human-readable prefix) so nothing about it needs to
 // stay in sync with a later edit.
-func newIntegrationID(integrationType string) (string, error) {
+func newServiceID(serviceType string) (string, error) {
 	randomBytes := make([]byte, 8)
 	if _, err := rand.Read(randomBytes); err != nil {
-		return "", fmt.Errorf("generate integration id: %w", err)
+		return "", fmt.Errorf("generate service id: %w", err)
 	}
-	return strings.ToLower(strings.TrimSpace(integrationType)) + "-" + hex.EncodeToString(randomBytes), nil
+	return strings.ToLower(strings.TrimSpace(serviceType)) + "-" + hex.EncodeToString(randomBytes), nil
 }
 
-// normalizeIntegration trims/lowercases the fields Load already normalizes,
-// factored out so a live "add integration" flow applies identical rules to a
+// normalizeService trims/lowercases the fields Load already normalizes,
+// factored out so a live "add service" flow applies identical rules to a
 // single candidate without re-running the whole file loader.
-func normalizeIntegration(integration *Integration) {
-	integration.Type = strings.ToLower(strings.TrimSpace(integration.Type))
-	integration.Name = strings.TrimSpace(integration.Name)
-	integration.URL = strings.TrimRight(strings.TrimSpace(integration.URL), "/")
-	integration.RootPath = strings.TrimSpace(integration.RootPath)
+func normalizeService(service *Service) {
+	service.Type = strings.ToLower(strings.TrimSpace(service.Type))
+	service.Name = strings.TrimSpace(service.Name)
+	service.URL = strings.TrimRight(strings.TrimSpace(service.URL), "/")
+	service.RootPath = strings.TrimSpace(service.RootPath)
 }
 
-// validateIntegration checks one already-normalized integration against the
+// validateService checks one already-normalized service against the
 // rules Load enforces per-entry (required fields, reserved/duplicate names,
 // supported type, url/root_path exclusivity). seenNames must contain every
-// other integration's lowercased name already accepted in this batch/config.
-func validateIntegration(integration Integration, seenNames map[string]bool) error {
-	if integration.Type == "" {
+// other service's lowercased name already accepted in this batch/config.
+func validateService(service Service, seenNames map[string]bool) error {
+	if service.Type == "" {
 		return fmt.Errorf("type is required")
 	}
-	if integration.Name == "" {
+	if service.Name == "" {
 		return fmt.Errorf("name is required")
 	}
-	nameKey := strings.ToLower(integration.Name)
+	nameKey := strings.ToLower(service.Name)
 	if nameKey == "unmanaged" {
-		return fmt.Errorf("integration name %q is reserved", integration.Name)
+		return fmt.Errorf("service name %q is reserved", service.Name)
 	}
 	if seenNames[nameKey] {
-		return fmt.Errorf("integration name %q must be unique (case-insensitive)", integration.Name)
+		return fmt.Errorf("service name %q must be unique (case-insensitive)", service.Name)
 	}
-	switch integration.Type {
+	switch service.Type {
 	case "radarr", "sonarr", "qbittorrent", "jellyfin", "seerr":
-		if integration.URL == "" {
-			return fmt.Errorf("integration %q (%s) requires url", integration.Name, integration.Type)
+		if service.URL == "" {
+			return fmt.Errorf("service %q (%s) requires url", service.Name, service.Type)
 		}
-		if integration.RootPath != "" {
-			return fmt.Errorf("integration %q (%s) does not support root_path; storage roots are discovered by its adapter", integration.Name, integration.Type)
+		if service.RootPath != "" {
+			return fmt.Errorf("service %q (%s) does not support root_path; storage roots are discovered by its adapter", service.Name, service.Type)
 		}
 	default:
-		return fmt.Errorf("integration %q has unsupported type %q", integration.Name, integration.Type)
+		return fmt.Errorf("service %q has unsupported type %q", service.Name, service.Type)
 	}
 	return nil
 }
 
-// populateDerivedIntegrationFields fills the single-adapter-per-type
+// populateDerivedServiceFields fills the single-adapter-per-type
 // convenience fields (Radarr, Sonarr, ...) the runtime still reads directly,
-// from Integrations (the only source of truth). Factored out of Load so a
-// live "add integration" flow can refresh them the same way after mutating
-// Integrations, without re-running the whole file loader.
-func (configuration *Config) populateDerivedIntegrationFields() {
-	if integration, ok := configuration.FirstIntegration("radarr"); ok {
-		configuration.Radarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+// from Services (the only source of truth). Factored out of Load so a
+// live "add service" flow can refresh them the same way after mutating
+// Services, without re-running the whole file loader.
+func (configuration *Config) populateDerivedServiceFields() {
+	if service, ok := configuration.FirstService("radarr"); ok {
+		configuration.Radarr = Connection{URL: service.URL, APIKey: service.APIKey}
 	} else {
-		configuration.Radarr = Service{}
+		configuration.Radarr = Connection{}
 	}
-	if integration, ok := configuration.FirstIntegration("sonarr"); ok {
-		configuration.Sonarr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	if service, ok := configuration.FirstService("sonarr"); ok {
+		configuration.Sonarr = Connection{URL: service.URL, APIKey: service.APIKey}
 	} else {
-		configuration.Sonarr = Service{}
+		configuration.Sonarr = Connection{}
 	}
-	if integration, ok := configuration.FirstIntegration("jellyfin"); ok {
-		configuration.Jellyfin = Service{URL: integration.URL, APIKey: integration.APIKey}
+	if service, ok := configuration.FirstService("jellyfin"); ok {
+		configuration.Jellyfin = Connection{URL: service.URL, APIKey: service.APIKey}
 	} else {
-		configuration.Jellyfin = Service{}
+		configuration.Jellyfin = Connection{}
 	}
-	if integration, ok := configuration.FirstIntegration("seerr"); ok {
-		configuration.Seerr = Service{URL: integration.URL, APIKey: integration.APIKey}
+	if service, ok := configuration.FirstService("seerr"); ok {
+		configuration.Seerr = Connection{URL: service.URL, APIKey: service.APIKey}
 	} else {
-		configuration.Seerr = Service{}
+		configuration.Seerr = Connection{}
 	}
-	if integration, ok := configuration.FirstIntegration("qbittorrent"); ok {
-		configuration.QBittorrent = QBittorrentService{Name: integration.Name, URL: integration.URL, APIKey: integration.APIKey, Username: integration.Username, Password: integration.Password}
+	if service, ok := configuration.FirstService("qbittorrent"); ok {
+		configuration.QBittorrent = QBittorrentService{Name: service.Name, URL: service.URL, APIKey: service.APIKey, Username: service.Username, Password: service.Password}
 	} else {
 		configuration.QBittorrent = QBittorrentService{}
 	}
 }
 
-func (integration Integration) Enabled() bool {
-	return strings.TrimSpace(integration.URL) != "" || strings.TrimSpace(integration.RootPath) != ""
+func (service Service) Enabled() bool {
+	return strings.TrimSpace(service.URL) != "" || strings.TrimSpace(service.RootPath) != ""
 }
 
-func (configuration Config) IntegrationsOfType(integrationType string) []Integration {
-	matchingIntegrations := []Integration{}
-	for _, integration := range configuration.Integrations {
-		if strings.EqualFold(integration.Type, integrationType) {
-			matchingIntegrations = append(matchingIntegrations, integration)
+func (configuration Config) ServicesOfType(serviceType string) []Service {
+	matchingServices := []Service{}
+	for _, service := range configuration.Services {
+		if strings.EqualFold(service.Type, serviceType) {
+			matchingServices = append(matchingServices, service)
 		}
 	}
-	return matchingIntegrations
+	return matchingServices
 }
 
-// multiInstanceAllowed reports whether integrationType may have more than one
+// multiInstanceAllowed reports whether serviceType may have more than one
 // configured entry. Radarr/Sonarr/qBittorrent are commonly run in more than
 // one instance (separate quality-tier libraries, a seedbox alongside a local
 // client); Jellyfin/Seerr are each a single centralized service in every
 // known real-world deployment, so they keep the simpler one-instance shape
-// (FirstIntegration-derived Config.Jellyfin/Config.Seerr fields).
-func multiInstanceAllowed(integrationType string) bool {
-	switch strings.ToLower(integrationType) {
+// (FirstService-derived Config.Jellyfin/Config.Seerr fields).
+func multiInstanceAllowed(serviceType string) bool {
+	switch strings.ToLower(serviceType) {
 	case "radarr", "sonarr", "qbittorrent":
 		return true
 	default:
@@ -180,13 +180,13 @@ func multiInstanceAllowed(integrationType string) bool {
 	}
 }
 
-func (configuration Config) FirstIntegration(integrationType string) (Integration, bool) {
-	for _, integration := range configuration.Integrations {
-		if strings.EqualFold(integration.Type, integrationType) {
-			return integration, true
+func (configuration Config) FirstService(serviceType string) (Service, bool) {
+	for _, service := range configuration.Services {
+		if strings.EqualFold(service.Type, serviceType) {
+			return service, true
 		}
 	}
-	return Integration{}, false
+	return Service{}, false
 }
 
 type Config struct {
@@ -194,18 +194,22 @@ type Config struct {
 		Listen          string `json:"listen"`
 		RefreshInterval string `json:"refresh_interval"`
 	} `json:"server"`
-	Integrations []Integration `json:"integrations"`
+	Services []Service `json:"services"`
 	// Radarr, Sonarr, Jellyfin, Seerr and QBittorrent are not config keys; they
-	// are populated below from Integrations for the current single-adapter-per-
+	// are populated below from Services for the current single-adapter-per-
 	// type runtime.
-	Radarr      Service            `json:"-"`
-	Sonarr      Service            `json:"-"`
-	Jellyfin    Service            `json:"-"`
-	Seerr       Service            `json:"-"`
+	Radarr      Connection         `json:"-"`
+	Sonarr      Connection         `json:"-"`
+	Jellyfin    Connection         `json:"-"`
+	Seerr       Connection         `json:"-"`
 	QBittorrent QBittorrentService `json:"-"`
 	Storage     struct {
-		TargetUsagePercent   float64 `json:"target_usage_percent"`
-		CriticalUsagePercent float64 `json:"critical_usage_percent"`
+		// DeviceThresholds is keyed by a storage device's RepresentativePath
+		// (inventory.StorageDevice's stable external key — see
+		// inventory.knownDeviceRoots). A device with no entry here falls back
+		// to the defaults in ThresholdsFor; there is no longer a single
+		// global percentage applied to every device.
+		DeviceThresholds map[string]DeviceThreshold `json:"device_thresholds,omitempty"`
 	} `json:"storage"`
 	Protection struct {
 		Favorite          bool     `json:"favorite"`
@@ -220,9 +224,64 @@ type Config struct {
 	RequestGrace    time.Duration   `json:"-"`
 }
 
-type Service struct {
+type Connection struct {
 	URL    string `json:"url"`
 	APIKey string `json:"api_key"`
+}
+
+// DeviceThreshold is one storage device's reclamation targets. Values
+// outside (0,100) are treated as absent by ThresholdsFor rather than
+// rejected outright, so one malformed entry in a hand-edited config.json
+// doesn't take the whole file down.
+type DeviceThreshold struct {
+	TargetUsagePercent   float64 `json:"target_usage_percent"`
+	CriticalUsagePercent float64 `json:"critical_usage_percent"`
+}
+
+// defaultTargetUsagePercent and defaultCriticalUsagePercent are used for any
+// storage device with no explicit entry in Storage.DeviceThresholds.
+const (
+	defaultTargetUsagePercent   = 90.0
+	defaultCriticalUsagePercent = 95.0
+)
+
+// ThresholdsFor returns representativePath's configured reclamation
+// thresholds, or the defaults if it has no entry (or an invalid one).
+func (configuration Config) ThresholdsFor(representativePath string) (target, critical float64) {
+	target, critical = defaultTargetUsagePercent, defaultCriticalUsagePercent
+	threshold, ok := configuration.Storage.DeviceThresholds[representativePath]
+	if !ok {
+		return target, critical
+	}
+	if threshold.TargetUsagePercent > 0 && threshold.TargetUsagePercent < 100 {
+		target = threshold.TargetUsagePercent
+	}
+	if threshold.CriticalUsagePercent > 0 && threshold.CriticalUsagePercent < 100 {
+		critical = threshold.CriticalUsagePercent
+	}
+	return target, critical
+}
+
+// SetDeviceThreshold idempotently upserts one storage device's reclamation
+// thresholds, keyed by its RepresentativePath. Editing the same device from
+// any service overlay that happens to share it converges to this one entry.
+func SetDeviceThreshold(configuration Config, representativePath string, target, critical float64) (Config, error) {
+	if strings.TrimSpace(representativePath) == "" {
+		return configuration, fmt.Errorf("representativePath must not be empty")
+	}
+	if target <= 0 || target >= 100 {
+		return configuration, fmt.Errorf("target usage percent must be greater than 0 and less than 100")
+	}
+	if critical <= 0 || critical >= 100 {
+		return configuration, fmt.Errorf("critical usage percent must be greater than 0 and less than 100")
+	}
+	updated := configuration
+	updated.Storage.DeviceThresholds = make(map[string]DeviceThreshold, len(configuration.Storage.DeviceThresholds)+1)
+	for path, threshold := range configuration.Storage.DeviceThresholds {
+		updated.Storage.DeviceThresholds[path] = threshold
+	}
+	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical}
+	return updated, nil
 }
 
 type QBittorrentService struct {
@@ -252,36 +311,36 @@ func Load(path string) (Config, error) {
 	seenNames := map[string]bool{}
 	typeCounts := map[string]int{}
 	assignedFreshID := false
-	for integrationIndex := range configuration.Integrations {
-		integration := &configuration.Integrations[integrationIndex]
-		normalizeIntegration(integration)
-		if err := validateIntegration(*integration, seenNames); err != nil {
-			return configuration, fmt.Errorf("integrations[%d]: %w", integrationIndex, err)
+	for serviceIndex := range configuration.Services {
+		service := &configuration.Services[serviceIndex]
+		normalizeService(service)
+		if err := validateService(*service, seenNames); err != nil {
+			return configuration, fmt.Errorf("services[%d]: %w", serviceIndex, err)
 		}
-		seenNames[strings.ToLower(integration.Name)] = true
-		if integration.ID == "" {
+		seenNames[strings.ToLower(service.Name)] = true
+		if service.ID == "" {
 			// A config.json written before ID was persisted (or a hand-added
 			// entry) has none yet. Assign one now; the persist below makes
 			// this a one-time event, not something that happens on every load.
-			id, err := newIntegrationID(integration.Type)
+			id, err := newServiceID(service.Type)
 			if err != nil {
-				return configuration, fmt.Errorf("integrations[%d]: %w", integrationIndex, err)
+				return configuration, fmt.Errorf("services[%d]: %w", serviceIndex, err)
 			}
-			integration.ID = id
+			service.ID = id
 			assignedFreshID = true
 		}
-		typeCounts[integration.Type]++
+		typeCounts[service.Type]++
 	}
 	// Jellyfin/Seerr are each a single centralized service in every known
 	// real-world deployment (see multiInstanceAllowed); fail closed on a
 	// second one rather than silently using only the first and falsely
 	// classifying the other's data as Unmanaged.
-	for integrationType, count := range typeCounts {
-		if count > 1 && !multiInstanceAllowed(integrationType) {
-			return configuration, fmt.Errorf("multiple %s integration instances are not supported", integrationType)
+	for serviceType, count := range typeCounts {
+		if count > 1 && !multiInstanceAllowed(serviceType) {
+			return configuration, fmt.Errorf("multiple %s service instances are not supported", serviceType)
 		}
 	}
-	configuration.populateDerivedIntegrationFields()
+	configuration.populateDerivedServiceFields()
 	if configuration.Server.Listen == "" {
 		configuration.Server.Listen = ":8088"
 	}
@@ -310,21 +369,9 @@ func Load(path string) (Config, error) {
 		configuration.Valuation.TorrentWeights.Leechers = 5
 		configuration.Valuation.TorrentWeights.UploadRate = 5
 	}
-	if configuration.Storage.TargetUsagePercent <= 0 {
-		configuration.Storage.TargetUsagePercent = 90
-	}
-	if configuration.Storage.TargetUsagePercent >= 100 {
-		return configuration, fmt.Errorf("storage.target_usage_percent must be greater than 0 and less than 100")
-	}
-	if configuration.Storage.CriticalUsagePercent <= 0 {
-		configuration.Storage.CriticalUsagePercent = 95
-	}
-	if configuration.Storage.CriticalUsagePercent >= 100 {
-		return configuration, fmt.Errorf("storage.critical_usage_percent must be greater than 0 and less than 100")
-	}
 	if assignedFreshID {
 		if err := Save(path, configuration); err != nil {
-			return configuration, fmt.Errorf("persist generated integration id: %w", err)
+			return configuration, fmt.Errorf("persist generated service id: %w", err)
 		}
 	}
 	return configuration, nil
@@ -333,7 +380,7 @@ func Load(path string) (Config, error) {
 // Save atomically writes configuration back to path: encode, write to a temp
 // file in the same directory, then rename over the original. A crash or a
 // concurrent read mid-write can never observe a corrupt or partial file.
-// Callers that mutate a live Config (e.g. adding an integration) are
+// Callers that mutate a live Config (e.g. adding a service) are
 // responsible for their own serialization of concurrent Save calls; this
 // function only guarantees the write itself is atomic.
 func Save(path string, configuration Config) error {
@@ -368,106 +415,106 @@ func Save(path string, configuration Config) error {
 	return nil
 }
 
-// AddIntegration validates candidate against the same rules Load applies to
+// AddService validates candidate against the same rules Load applies to
 // an entry parsed from disk (required fields, reserved/duplicate names,
 // supported type, url/root_path exclusivity, one adapter slot per type) and
 // returns configuration with it appended and derived adapter fields
 // refreshed. It does not touch disk; the caller decides whether/how to
 // persist the result (see Save) and whether to do a live connection check
 // before committing to it.
-func AddIntegration(configuration Config, candidate Integration) (Config, error) {
-	normalizeIntegration(&candidate)
-	// Live-adding a root_path-only integration isn't supported by this first
-	// slice; every live-addable type requires url (validateIntegration
+func AddService(configuration Config, candidate Service) (Config, error) {
+	normalizeService(&candidate)
+	// Live-adding a root_path-only service isn't supported by this first
+	// slice; every live-addable type requires url (validateService
 	// already enforces url/root_path exclusivity for these types).
 	candidate.RootPath = ""
 
-	seenNames := make(map[string]bool, len(configuration.Integrations))
-	for _, existing := range configuration.Integrations {
+	seenNames := make(map[string]bool, len(configuration.Services))
+	for _, existing := range configuration.Services {
 		seenNames[strings.ToLower(existing.Name)] = true
 	}
-	if err := validateIntegration(candidate, seenNames); err != nil {
+	if err := validateService(candidate, seenNames); err != nil {
 		return configuration, err
 	}
 	if !multiInstanceAllowed(candidate.Type) {
-		for _, existing := range configuration.Integrations {
+		for _, existing := range configuration.Services {
 			if strings.EqualFold(existing.Type, candidate.Type) {
-				return configuration, fmt.Errorf("a %s integration already exists; only one is supported", candidate.Type)
+				return configuration, fmt.Errorf("a %s service already exists; only one is supported", candidate.Type)
 			}
 		}
 	}
-	id, err := newIntegrationID(candidate.Type)
+	id, err := newServiceID(candidate.Type)
 	if err != nil {
 		return configuration, err
 	}
 	candidate.ID = id
 
 	updated := configuration
-	updated.Integrations = append(append([]Integration(nil), configuration.Integrations...), candidate)
-	updated.populateDerivedIntegrationFields()
+	updated.Services = append(append([]Service(nil), configuration.Services...), candidate)
+	updated.populateDerivedServiceFields()
 	return updated, nil
 }
 
-// EditIntegration updates the integration identified by id — Name, URL,
-// APIKey, Username, Password — validated the same way AddIntegration
+// EditService updates the service identified by id — Name, URL,
+// APIKey, Username, Password — validated the same way AddService
 // validates a new one. Type and ID are immutable: Type because the adapter
 // class it selects can't meaningfully change in place, and ID because it's
-// the whole point — an edit, including moving the integration to an entirely
+// the whole point — an edit, including moving the service to an entirely
 // different URL, must never sever the ownership already attributed to it.
-func EditIntegration(configuration Config, id string, updates Integration) (Config, error) {
+func EditService(configuration Config, id string, updates Service) (Config, error) {
 	index := -1
-	for i, existing := range configuration.Integrations {
+	for i, existing := range configuration.Services {
 		if existing.ID == id {
 			index = i
 			break
 		}
 	}
 	if index == -1 {
-		return configuration, fmt.Errorf("integration not found")
+		return configuration, fmt.Errorf("service not found")
 	}
 
 	candidate := updates
-	candidate.Type = configuration.Integrations[index].Type
+	candidate.Type = configuration.Services[index].Type
 	candidate.ID = id
-	normalizeIntegration(&candidate)
+	normalizeService(&candidate)
 	candidate.RootPath = ""
 
-	seenNames := make(map[string]bool, len(configuration.Integrations)-1)
-	for i, existing := range configuration.Integrations {
+	seenNames := make(map[string]bool, len(configuration.Services)-1)
+	for i, existing := range configuration.Services {
 		if i == index {
 			continue
 		}
 		seenNames[strings.ToLower(existing.Name)] = true
 	}
-	if err := validateIntegration(candidate, seenNames); err != nil {
+	if err := validateService(candidate, seenNames); err != nil {
 		return configuration, err
 	}
 
 	updated := configuration
-	updated.Integrations = append([]Integration(nil), configuration.Integrations...)
-	updated.Integrations[index] = candidate
-	updated.populateDerivedIntegrationFields()
+	updated.Services = append([]Service(nil), configuration.Services...)
+	updated.Services[index] = candidate
+	updated.populateDerivedServiceFields()
 	return updated, nil
 }
 
-// RemoveIntegration deletes the integration identified by id. It does not
-// touch anything that integration previously owned — a Media/Torrent ref
-// tagged with this ID simply stops matching any configured integration on
+// RemoveService deletes the service identified by id. It does not
+// touch anything that service previously owned — a Media/Torrent ref
+// tagged with this ID simply stops matching any configured service on
 // the next reconciliation and is reported as Unmanaged from then on, the
-// same way it would be if the integration had never existed.
-func RemoveIntegration(configuration Config, id string) (Config, error) {
+// same way it would be if the service had never existed.
+func RemoveService(configuration Config, id string) (Config, error) {
 	index := -1
-	for i, existing := range configuration.Integrations {
+	for i, existing := range configuration.Services {
 		if existing.ID == id {
 			index = i
 			break
 		}
 	}
 	if index == -1 {
-		return configuration, fmt.Errorf("integration not found")
+		return configuration, fmt.Errorf("service not found")
 	}
 	updated := configuration
-	updated.Integrations = append(append([]Integration(nil), configuration.Integrations[:index]...), configuration.Integrations[index+1:]...)
-	updated.populateDerivedIntegrationFields()
+	updated.Services = append(append([]Service(nil), configuration.Services[:index]...), configuration.Services[index+1:]...)
+	updated.populateDerivedServiceFields()
 	return updated, nil
 }

@@ -42,19 +42,19 @@ func NormalizeTorrentStatus(status string) string {
 }
 
 type MediaRef struct {
-	// IntegrationID disambiguates SourceID across multiple configured
-	// instances of the same integration type — Radarr's own movie IDs (like
+	// ServiceID disambiguates SourceID across multiple configured
+	// instances of the same service type — Radarr's own movie IDs (like
 	// Sonarr's series IDs) are unique only within one instance, never
 	// globally, so identifying "this media item" always requires both.
-	IntegrationID string    `json:"integrationId,omitempty"`
-	Type          MediaType `json:"type"`
-	SourceID      int       `json:"sourceId"`
-	Title         string    `json:"title"`
-	Year          int       `json:"year"`
+	ServiceID string    `json:"serviceId,omitempty"`
+	Type      MediaType `json:"type"`
+	SourceID  int       `json:"sourceId"`
+	Title     string    `json:"title"`
+	Year      int       `json:"year"`
 }
 
 type Torrent struct {
-	IntegrationID     string     `json:"integrationId,omitempty"`
+	ServiceID         string     `json:"serviceId,omitempty"`
 	SwarmValue        float64    `json:"swarmValue"`
 	SwarmValueReasons []Reason   `json:"swarmValueReasons,omitempty"`
 	Protected         bool       `json:"protected,omitempty"`
@@ -127,14 +127,14 @@ type Torrent struct {
 }
 
 // File is an existing filesystem path with physical identity facts. Ownership is
-// declared separately by integration references; paths sharing device/inode are
+// declared separately by service references; paths sharing device/inode are
 // the same physical file and are grouped as such by topology/removal logic.
 type StorageContext struct {
-	IntegrationID   string `json:"integrationId,omitempty"`
-	IntegrationName string `json:"integrationName,omitempty"`
-	IntegrationType string `json:"integrationType,omitempty"`
-	Root            string `json:"root,omitempty"`
-	RootLabel       string `json:"rootLabel,omitempty"`
+	ServiceID   string `json:"serviceId,omitempty"`
+	ServiceName string `json:"serviceName,omitempty"`
+	ServiceType string `json:"serviceType,omitempty"`
+	Root        string `json:"root,omitempty"`
+	RootLabel   string `json:"rootLabel,omitempty"`
 }
 
 type File struct {
@@ -157,28 +157,28 @@ type MediaFilePart struct {
 }
 
 type MediaFileRef struct {
-	IntegrationID   string          `json:"integrationId,omitempty"`
-	IntegrationName string          `json:"integrationName,omitempty"`
-	MediaType       MediaType       `json:"mediaType"`
-	MediaID         int             `json:"mediaId"`
-	Source          string          `json:"source"`
-	SourceFileID    int             `json:"sourceFileId"`
-	Path            string          `json:"path"`
-	Parts           []MediaFilePart `json:"parts,omitempty"`
-	// AddedAt is the owning integration's own "date added" fact for this
+	ServiceID    string          `json:"serviceId,omitempty"`
+	ServiceName  string          `json:"serviceName,omitempty"`
+	MediaType    MediaType       `json:"mediaType"`
+	MediaID      int             `json:"mediaId"`
+	Source       string          `json:"source"`
+	SourceFileID int             `json:"sourceFileId"`
+	Path         string          `json:"path"`
+	Parts        []MediaFilePart `json:"parts,omitempty"`
+	// AddedAt is the owning service's own "date added" fact for this
 	// specific file, when it exposes one (Sonarr episode files do). It
 	// persists across refresh cycles so season-level recency scoring does
-	// not depend on a fresh integration fetch being in flight.
+	// not depend on a fresh service fetch being in flight.
 	AddedAt time.Time `json:"addedAt,omitempty"`
 }
 
 type TorrentFileRef struct {
-	IntegrationID   string `json:"integrationId,omitempty"`
-	IntegrationName string `json:"integrationName,omitempty"`
-	Client          string `json:"client"`
-	Hash            string `json:"hash"`
-	FileIndex       int    `json:"fileIndex"`
-	Path            string `json:"path"`
+	ServiceID   string `json:"serviceId,omitempty"`
+	ServiceName string `json:"serviceName,omitempty"`
+	Client      string `json:"client"`
+	Hash        string `json:"hash"`
+	FileIndex   int    `json:"fileIndex"`
+	Path        string `json:"path"`
 }
 
 type UnmanagedFile struct {
@@ -195,21 +195,21 @@ type UnmanagedFile struct {
 }
 
 type Media struct {
-	IntegrationID   string    `json:"integrationId,omitempty"`
-	IntegrationName string    `json:"integrationName,omitempty"`
-	Type            MediaType `json:"type"`
-	SourceID        int       `json:"sourceId"`
-	Title           string    `json:"title"`
-	Year            int       `json:"year"`
-	Path            string    `json:"path"`
-	SizeBytes       int64     `json:"sizeBytes"`
-	Rating          float64   `json:"rating"`
-	VoteCount       int       `json:"voteCount"`
-	AddedAt         time.Time `json:"addedAt"`
-	Tags            []string  `json:"tags"`
-	TMDBID          int       `json:"tmdbId"`
-	TVDBID          int       `json:"tvdbId"`
-	IMDBID          string    `json:"imdbId"`
+	ServiceID   string    `json:"serviceId,omitempty"`
+	ServiceName string    `json:"serviceName,omitempty"`
+	Type        MediaType `json:"type"`
+	SourceID    int       `json:"sourceId"`
+	Title       string    `json:"title"`
+	Year        int       `json:"year"`
+	Path        string    `json:"path"`
+	SizeBytes   int64     `json:"sizeBytes"`
+	Rating      float64   `json:"rating"`
+	VoteCount   int       `json:"voteCount"`
+	AddedAt     time.Time `json:"addedAt"`
+	Tags        []string  `json:"tags"`
+	TMDBID      int       `json:"tmdbId"`
+	TVDBID      int       `json:"tvdbId"`
+	IMDBID      string    `json:"imdbId"`
 
 	Views         int        `json:"views"`
 	UniqueViewers int        `json:"uniqueViewers"`

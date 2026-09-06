@@ -3,7 +3,7 @@
     "listen": ":8088",
     "refresh_interval": "30m"
   },
-  "integrations": [
+  "services": [
     {
       "type": "radarr",
       "name": "Movies",
@@ -41,8 +41,7 @@
     }
   ],
   "storage": {
-    "target_usage_percent": 90,
-    "critical_usage_percent": 95
+    "device_thresholds": {}
   },
   "protection": {
     "favorite": true,

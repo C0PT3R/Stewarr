@@ -147,7 +147,7 @@ func main() {
 		}), Advisory: inv.RefreshAdvisory, Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "jellyfin", Name: "Jellyfin enrichment", Description: "Refresh playback and favorite facts used by automatic planning.", Interval: jellyfinEnrichmentInterval, Preflight: retryable(inv.ValidateJellyfin), Runner: retryable(inv.RefreshJellyfin), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "seerr", Name: "Seerr enrichment", Description: "Refresh request facts used by automatic planning.", Interval: seerrEnrichmentInterval, Preflight: retryable(inv.ValidateSeerr), Runner: retryable(inv.RefreshSeerr), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
-		tasks.Definition{ID: "files", Name: "File reconciliation", Description: "Scan integration storage and reconcile file ownership.", Interval: fileReconcileInterval, Preflight: retryable(inv.ValidateReconciliation), AttachCompatible: fullScanAttachCompatible, Runner: retryable(func(ctx context.Context) error {
+		tasks.Definition{ID: "files", Name: "File reconciliation", Description: "Scan service storage and reconcile file ownership.", Interval: fileReconcileInterval, Preflight: retryable(inv.ValidateReconciliation), AttachCompatible: fullScanAttachCompatible, Runner: retryable(func(ctx context.Context) error {
 			if tasks.TriggeredOnlyBy(ctx, tasks.TriggerWorkflow) {
 				return inv.ReconcileFilesAfterMutation(ctx)
 			}
@@ -157,7 +157,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[scheduler] initialization: %v", err)
 	}
-	if err := taskManager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Name: "Inventory and files consistency", Description: "Restore authoritative inventory and file topology after a mutation (a removal, or an integration being added/edited/removed).", Steps: []string{"inventory", "files"}}); err != nil {
+	if err := taskManager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Name: "Inventory and files consistency", Description: "Restore authoritative inventory and file topology after a mutation (a removal, or a service being added/edited/removed).", Steps: []string{"inventory", "files"}}); err != nil {
 		log.Fatalf("[scheduler] workflow registration: %v", err)
 	}
 

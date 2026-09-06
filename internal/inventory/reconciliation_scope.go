@@ -17,10 +17,10 @@ const reconciliationScopeKey = "inventory.reconciliation.scope.v1"
 type ReconciliationOwner struct {
 	Type model.MediaType `json:"type"`
 	ID   int             `json:"id"`
-	// IntegrationID disambiguates ID across multiple configured instances of
-	// the same integration type. Empty on scopes persisted before
+	// ServiceID disambiguates ID across multiple configured instances of
+	// the same service type. Empty on scopes persisted before
 	// multi-instance support existed.
-	IntegrationID string `json:"integrationId,omitempty"`
+	ServiceID string `json:"serviceId,omitempty"`
 }
 
 type ReconciliationScope struct {
@@ -58,7 +58,7 @@ func (scope ReconciliationScope) normalized() ReconciliationScope {
 	owners := map[string]ReconciliationOwner{}
 	for _, owner := range scope.Owners {
 		if owner.ID > 0 && (owner.Type == model.Movie || owner.Type == model.Series) {
-			owners[fmt.Sprintf("%s:%s:%d", owner.Type, owner.IntegrationID, owner.ID)] = owner
+			owners[fmt.Sprintf("%s:%s:%d", owner.Type, owner.ServiceID, owner.ID)] = owner
 		}
 	}
 	scope.Owners = scope.Owners[:0]
@@ -93,7 +93,7 @@ func mergeReconciliationScopes(first, second ReconciliationScope) Reconciliation
 	}).normalized()
 }
 
-// RefreshAfterMutation avoids an integration-wide refresh only when the
+// RefreshAfterMutation avoids a service-wide refresh only when the
 // durable mutation scope is exact. Confirmed owner results are consumed by the
 // following targeted File reconciliation. Uncertain work retains a full run.
 func (service *Service) RefreshAfterMutation(ctx context.Context) error {
@@ -116,7 +116,7 @@ func (service *Service) ValidateReconciliation(ctx context.Context) error {
 			return nil
 		}
 	}
-	return service.ValidateBaseIntegrations(ctx)
+	return service.ValidateBaseServices(ctx)
 }
 
 func (service *Service) QueueReconciliation(scope ReconciliationScope) error {

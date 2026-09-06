@@ -1,0 +1,40 @@
+<div class="removal-overlay">
+  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-service-title" tabindex="-1">
+    <div class="top">
+      <div>
+        <h2 id="add-service-title">Add service</h2>
+        <div class="muted" data-service-step-hint>Connarr checks the connection before showing the rest.</div>
+      </div>
+    </div>
+    <div class="removal-scroll">
+      <form data-background-submit-then-overlay="/services/consistency-progress" method="post" action="/services/create">
+        <div class="field-stack">
+          <label for="service-type">Type<select id="service-type" name="type" required data-service-type>
+            <option value="radarr">Radarr</option>
+            <option value="sonarr">Sonarr</option>
+            <option value="qbittorrent">qBittorrent</option>
+            <option value="jellyfin">Jellyfin</option>
+            <option value="seerr">Seerr</option>
+          </select></label>
+          <label for="service-name">Name<input id="service-name" name="name" required></label>
+          <label for="service-url">URL<input id="service-url" name="url" type="url" required></label>
+          <label for="service-api-key" data-service-field="radarr sonarr jellyfin seerr">API key<input id="service-api-key" name="api_key" type="password" autocomplete="off"></label>
+          <label for="service-username" data-service-field="qbittorrent" hidden>Username<input id="service-username" name="username" autocomplete="off"></label>
+          <label for="service-password" data-service-field="qbittorrent" hidden>Password<input id="service-password" name="password" type="password" autocomplete="off"></label>
+        </div>
+        <div class="field-stack" data-service-step2 hidden>
+          <label for="service-root-path">Root path<input id="service-root-path" name="root_path" data-service-root-path autocomplete="off"></label>
+          <div class="muted" data-service-device-hint></div>
+          <label for="service-target-percent">Target usage %<input id="service-target-percent" name="target_usage_percent" type="number" min="1" max="99" step="1" value="90"></label>
+          <label for="service-critical-percent">Critical usage %<input id="service-critical-percent" name="critical_usage_percent" type="number" min="1" max="99" step="1" value="95"></label>
+        </div>
+        <p data-modal-error hidden class="bad"></p>
+        <div class="actions">
+          <button type="button" data-overlay-cancel>Cancel</button>
+          <button type="button" data-service-test>Test connection</button>
+          <button type="submit" data-service-submit hidden>Add service</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>

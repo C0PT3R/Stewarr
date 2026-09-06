@@ -118,7 +118,7 @@ type removalData struct {
 	MediaType             string
 	MediaID               int
 	Hash                  string
-	TorrentIntegrationID  string
+	TorrentServiceID      string
 	UnmanagedPaths        []string
 	SelectedUnmanaged     []string
 	SelectionModel        string
@@ -322,9 +322,9 @@ func rootCounts(files []model.File) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	for _, f := range files {
 		for _, c := range f.StorageContexts {
-			key := c.IntegrationID
+			key := c.ServiceID
 			if key == "" {
-				key = strings.ToLower(c.IntegrationName)
+				key = strings.ToLower(c.ServiceName)
 			}
 			if out[key] == nil {
 				out[key] = map[string]bool{}
@@ -347,17 +347,17 @@ func displayPath(path string, f model.File, owner removal.FileOwner, ownerName s
 	}
 	label := ownerName
 	if label == "" {
-		label = best.IntegrationName
+		label = best.ServiceName
 	}
 	if label == "" {
 		label = "Storage"
 	}
 	if best.Root != "" {
-		key := best.IntegrationID
+		key := best.ServiceID
 		if key == "" {
-			key = strings.ToLower(best.IntegrationName)
+			key = strings.ToLower(best.ServiceName)
 		}
-		if roots := counts[key]; len(roots) > 1 && best.RootLabel != "" && !strings.EqualFold(best.RootLabel, best.IntegrationName) {
+		if roots := counts[key]; len(roots) > 1 && best.RootLabel != "" && !strings.EqualFold(best.RootLabel, best.ServiceName) {
 			label += " · " + best.RootLabel
 		}
 		if rel, err := filepath.Rel(best.Root, p); err == nil {
@@ -368,7 +368,7 @@ func displayPath(path string, f model.File, owner removal.FileOwner, ownerName s
 		}
 	}
 	if owner == removal.UnmanagedOwner {
-		if best.IntegrationName != "" {
+		if best.ServiceName != "" {
 			label += " · Unmanaged"
 		} else {
 			label = "Unmanaged"
@@ -544,21 +544,21 @@ func managedFileKey(r model.MediaFileRef) string {
 	return strings.ToLower(strings.TrimSpace(r.Source)) + ":" + strconv.Itoa(r.SourceFileID)
 }
 
-// mediaRefFor resolves one media item by (kind, id). integrationID
+// mediaRefFor resolves one media item by (kind, id). serviceID
 // disambiguates SourceID across multiple configured instances of the same
-// integration type; when empty, a match is only accepted if it is unique
+// service type; when empty, a match is only accepted if it is unique
 // across all instances — a real collision fails closed rather than
 // silently guessing which instance was meant.
-func mediaRefFor(items []model.Media, kind model.MediaType, id int, integrationID string) (model.MediaRef, bool) {
+func mediaRefFor(items []model.Media, kind model.MediaType, id int, serviceID string) (model.MediaRef, bool) {
 	var found *model.Media
 	for i := range items {
 		m := &items[i]
 		if m.Type != kind || m.SourceID != id {
 			continue
 		}
-		if integrationID != "" {
-			if m.IntegrationID == integrationID {
-				return model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}, true
+		if serviceID != "" {
+			if m.ServiceID == serviceID {
+				return model.MediaRef{ServiceID: m.ServiceID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}, true
 			}
 			continue
 		}
@@ -570,7 +570,7 @@ func mediaRefFor(items []model.Media, kind model.MediaType, id int, integrationI
 	if found == nil {
 		return model.MediaRef{}, false
 	}
-	return model.MediaRef{IntegrationID: found.IntegrationID, Type: found.Type, SourceID: found.SourceID, Title: found.Title, Year: found.Year}, true
+	return model.MediaRef{ServiceID: found.ServiceID, Type: found.Type, SourceID: found.SourceID, Title: found.Title, Year: found.Year}, true
 }
 
 func groupManagedFiles(refs []model.MediaFileRef, files map[string]model.File, selected map[string]bool) []managedRemovalGroup {
@@ -848,12 +848,12 @@ func storageGuidance(plan removal.RemovalPlan, mediaType model.MediaType, relate
 func exclusionOptions(refs []model.MediaFileRef, mediaItems []model.Media) (bool, bool, []model.Media) {
 	selectedMedia := map[string]bool{}
 	for _, ref := range refs {
-		selectedMedia[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.IntegrationID, ref.MediaID)] = true
+		selectedMedia[fmt.Sprintf("%s:%s:%d", ref.MediaType, ref.ServiceID, ref.MediaID)] = true
 	}
 	canExcludeMovies, canExcludeSeries := false, false
 	targets := []model.Media{}
 	for _, mediaItem := range mediaItems {
-		if !selectedMedia[fmt.Sprintf("%s:%s:%d", mediaItem.Type, mediaItem.IntegrationID, mediaItem.SourceID)] {
+		if !selectedMedia[fmt.Sprintf("%s:%s:%d", mediaItem.Type, mediaItem.ServiceID, mediaItem.SourceID)] {
 			continue
 		}
 		switch mediaItem.Type {
@@ -875,13 +875,13 @@ func exclusionOptions(refs []model.MediaFileRef, mediaItems []model.Media) (bool
 	return canExcludeMovies, canExcludeSeries, targets
 }
 
-func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, integrationID string, selectionExplicit bool, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
+func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, serviceID string, selectionExplicit bool, selectedManaged map[string]bool, selectedTorrents map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
 	items, _, _ := server.inv.Snapshot()
-	mr, ok := mediaRefFor(items, kind, id, integrationID)
+	mr, ok := mediaRefFor(items, kind, id, serviceID)
 	if !ok {
 		return removalData{}, fmt.Errorf("media not found")
 	}
-	refs, _, ferr := server.inv.ManagedFileRefs(kind, id, mr.IntegrationID)
+	refs, _, ferr := server.inv.ManagedFileRefs(kind, id, mr.ServiceID)
 	if ferr != nil {
 		return removalData{}, ferr
 	}
@@ -912,7 +912,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, integr
 	physicalTorrentHashes := physicallyBackingTorrentHashes(files, refs, allTorrentRefs)
 	var mediaItem *model.Media
 	for itemIndex := range items {
-		if items[itemIndex].Type == kind && items[itemIndex].IntegrationID == mr.IntegrationID && items[itemIndex].SourceID == id {
+		if items[itemIndex].Type == kind && items[itemIndex].ServiceID == mr.ServiceID && items[itemIndex].SourceID == id {
 			mediaItem = &items[itemIndex]
 			break
 		}
@@ -1005,7 +1005,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, integr
 		}
 		return strings.ToLower(contextTorrents[i].Torrent.Name) < strings.ToLower(contextTorrents[j].Torrent.Name)
 	})
-	key := mediaOperationKey(kind, id, mr.IntegrationID)
+	key := mediaOperationKey(kind, id, mr.ServiceID)
 	candidates := candidateSlice(cm)
 	p := removal.Build(removal.MediaObject, key, mr.Title, server.inv.Config().Removal.DryRun, candidates)
 	all := append([]removal.CandidateFile(nil), candidates...)
@@ -1051,15 +1051,15 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, integr
 	}, nil
 }
 
-func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, targetSelected bool, selectedManaged map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
+func (server *Server) buildTorrentRemovalPlan(hash, serviceID string, targetSelected bool, selectedManaged map[string]bool, selectedUnmanaged map[string]bool) (removalData, error) {
 	h := strings.ToLower(strings.TrimSpace(hash))
 	var found *model.Torrent
 	for _, t := range server.inv.TorrentSnapshot() {
 		if !strings.EqualFold(t.Hash, h) {
 			continue
 		}
-		if integrationID != "" {
-			if t.IntegrationID == integrationID {
+		if serviceID != "" {
+			if t.ServiceID == serviceID {
 				x := t
 				found = &x
 				break
@@ -1067,7 +1067,7 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 			continue
 		}
 		if found != nil {
-			return removalData{}, fmt.Errorf("torrent hash %q exists in more than one configured instance; an integration_id is required", h)
+			return removalData{}, fmt.Errorf("torrent hash %q exists in more than one configured instance; an service_id is required", h)
 		}
 		x := t
 		found = &x
@@ -1095,11 +1095,11 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 	items, _, _ := server.inv.Snapshot()
 	mediaMap := map[string]model.MediaRef{}
 	for _, m := range items {
-		mediaMap[fmt.Sprintf("%s:%s:%d", m.Type, m.IntegrationID, m.SourceID)] = model.MediaRef{IntegrationID: m.IntegrationID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
+		mediaMap[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = model.MediaRef{ServiceID: m.ServiceID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}
 	}
 	byMedia := map[string][]model.MediaFileRef{}
 	for _, r := range proven {
-		key := fmt.Sprintf("%s:%s:%d", r.MediaType, r.IntegrationID, r.MediaID)
+		key := fmt.Sprintf("%s:%s:%d", r.MediaType, r.ServiceID, r.MediaID)
 		byMedia[key] = append(byMedia[key], r)
 	}
 	related := []relatedManagedMedia{}
@@ -1111,7 +1111,7 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 		groups := groupManagedFiles(refs, byPath, selectedManaged)
 		fullCounts := map[string]int{}
 		for _, fr := range mrefs {
-			if fr.MediaType != mr.Type || fr.IntegrationID != mr.IntegrationID || fr.MediaID != mr.SourceID {
+			if fr.MediaType != mr.Type || fr.ServiceID != mr.ServiceID || fr.MediaID != mr.SourceID {
 				continue
 			}
 			g := "Files"
@@ -1169,7 +1169,7 @@ func (server *Server) buildTorrentRemovalPlan(hash, integrationID string, target
 		SelectedManaged: selectedRefs, CanUnmonitorMovies: moviesOpt, CanUnmonitorEpisodes: episodesOpt,
 		CanExcludeMovies: canExcludeMovies, CanExcludeSeries: canExcludeSeries, ExclusionMedia: exclusionMedia,
 		SelectedFileCount: selectedFileCount, SelectedLogicalBytes: selectedLogicalBytes,
-		BackURL: "/torrents/" + url.PathEscape(h), Hash: h, TorrentIntegrationID: found.IntegrationID,
+		BackURL: "/torrents/" + url.PathEscape(h), Hash: h, TorrentServiceID: found.ServiceID,
 	}, nil
 }
 

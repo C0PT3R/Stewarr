@@ -18,7 +18,7 @@
         <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
         {{if .Storage.Available}}
           <div class="storage-bar">
-            {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Integration}}: {{humanU .Bytes}}"></span>{{end}}
+            {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
             {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
             {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
             <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
@@ -28,8 +28,8 @@
           <ul class="storage-legend">
             {{range .Storage.Claimed}}
             <li class="claim">
-              <div class="claim-label"><span class="swatch"></span>{{.Integration}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
-              {{with index $.IntegrationRoots .Integration}}
+              <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
+              {{with index $.ServiceRoots .Service}}
               <ul class="service-roots">{{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}</ul>
               {{end}}
             </li>

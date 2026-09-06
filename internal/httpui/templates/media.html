@@ -19,7 +19,7 @@
           <div class=value>{{printf "%.1f" .Media.RetentionValue}}</div>
           <div class=muted style="text-align:right">Retention Value</div>
         </div>
-        <button class=trash title="{{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}Remove{{else}}Nothing to remove{{end}}" {{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}data-removal-url="/removal/media?type={{.Media.Type}}&id={{.Media.SourceID}}&integration_id={{.Media.IntegrationID}}"{{else}}disabled{{end}}>🗑</button>
+        <button class=trash title="{{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}Remove{{else}}Nothing to remove{{end}}" {{if or (gt .FileCount 0) .Current .Superseded .Unassociated}}data-removal-url="/removal/media?type={{.Media.Type}}&id={{.Media.SourceID}}&service_id={{.Media.ServiceID}}"{{else}}disabled{{end}}>🗑</button>
       </div>
       <div class=summary>
         <section class=panel>

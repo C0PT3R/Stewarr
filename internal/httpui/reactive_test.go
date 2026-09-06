@@ -57,6 +57,115 @@ func TestDashboardStatusUsesConditionalETag(t *testing.T) {
 	}
 }
 
+// TestUIStatusSurfacesRunningServiceConsistencyThenClears guards step 3's
+// global-chrome counterpart: while the inventory-and-files-consistency
+// workflow a service add/edit/remove triggers is still in flight,
+// #operation-indicator (driven by uiStatus's PendingOperations) must reflect
+// it, exactly like a pending removal already does — and stop once no such
+// instance exists.
+func TestUIStatusSurfacesRunningServiceConsistencyThenClears(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := httptest.NewRecorder()
+	server.uiStatus(baseline, httptest.NewRequest(http.MethodGet, "/ui/status", nil))
+	var baselineBody struct {
+		PendingOperations int `json:"pendingOperations"`
+	}
+	if err := json.Unmarshal(baseline.Body.Bytes(), &baselineBody); err != nil {
+		t.Fatal(err)
+	}
+	if baselineBody.PendingOperations != 0 {
+		t.Fatalf("expected no pending operations with no task manager, got %d", baselineBody.PendingOperations)
+	}
+
+	manager := tasks.New(
+		tasks.Definition{ID: "inventory", Name: "Base inventory", Runner: func(context.Context) error { return nil }},
+		tasks.Definition{ID: "files", Name: "File reconciliation", Runner: func(context.Context) error { return nil }},
+	)
+	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+		t.Fatal(err)
+	}
+	withWorkflow, err := New(nil, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AdvanceWorkflow("inventory-and-files-consistency", "global", 0, 5*time.Minute, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	running := httptest.NewRecorder()
+	withWorkflow.uiStatus(running, httptest.NewRequest(http.MethodGet, "/ui/status", nil))
+	var runningBody struct {
+		PendingOperations int `json:"pendingOperations"`
+	}
+	if err := json.Unmarshal(running.Body.Bytes(), &runningBody); err != nil {
+		t.Fatal(err)
+	}
+	if runningBody.PendingOperations != 1 {
+		t.Fatalf("expected the running consistency workflow to count as 1 pending operation, got %d", runningBody.PendingOperations)
+	}
+
+	// No instance at all (a server with a task manager but nothing ever
+	// scheduled) must not falsely report anything running.
+	freshManager := tasks.New(
+		tasks.Definition{ID: "inventory", Runner: func(context.Context) error { return nil }},
+		tasks.Definition{ID: "files", Runner: func(context.Context) error { return nil }},
+	)
+	if err := freshManager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+		t.Fatal(err)
+	}
+	idle, err := New(nil, freshManager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idleRecorder := httptest.NewRecorder()
+	idle.uiStatus(idleRecorder, httptest.NewRequest(http.MethodGet, "/ui/status", nil))
+	var idleBody struct {
+		PendingOperations int `json:"pendingOperations"`
+	}
+	if err := json.Unmarshal(idleRecorder.Body.Bytes(), &idleBody); err != nil {
+		t.Fatal(err)
+	}
+	if idleBody.PendingOperations != 0 {
+		t.Fatalf("expected no pending operations with no consistency instance ever scheduled, got %d", idleBody.PendingOperations)
+	}
+}
+
+// TestServiceConsistencyStatusReportsStepAndTotal guards step 3's own
+// polling endpoint: it must report the real step/total from the workflow
+// definition, not a hardcoded guess.
+func TestServiceConsistencyStatusReportsStepAndTotal(t *testing.T) {
+	manager := tasks.New(
+		tasks.Definition{ID: "inventory", Name: "Base inventory", Runner: func(context.Context) error { return nil }},
+		tasks.Definition{ID: "files", Name: "File reconciliation", Runner: func(context.Context) error { return nil }},
+	)
+	if err := manager.RegisterWorkflow(tasks.WorkflowDefinition{ID: "inventory-and-files-consistency", Steps: []string{"inventory", "files"}}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(nil, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.AdvanceWorkflow("inventory-and-files-consistency", "global", 0, 5*time.Minute, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	server.serviceConsistencyStatus(recorder, httptest.NewRequest(http.MethodGet, "/services/consistency-status", nil))
+	var status consistencyStatusResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.TotalSteps != 2 {
+		t.Fatalf("expected 2 total steps, got %#v", status)
+	}
+	if status.State == "" {
+		t.Fatalf("expected a non-empty state, got %#v", status)
+	}
+}
+
 func TestRemovalAdmissionReturnsImmediatelyAndIsIdempotent(t *testing.T) {
 	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {

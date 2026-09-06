@@ -70,7 +70,7 @@
         {{if .Services}}
         <div class="kv">{{range .Services}}<span>{{.Name}}</span><b class="{{if .OK}}good{{else}}bad{{end}}">{{if .OK}}Connected{{else}}Unavailable{{end}}</b>{{end}}</div>
         {{else}}
-        <div class="muted">No integrations configured yet.</div>
+        <div class="muted">No services configured yet.</div>
         {{end}}
       </section>
     </div>

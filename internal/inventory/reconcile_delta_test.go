@@ -86,8 +86,8 @@ func TestReconcileInventoryDeltaAddsNewMovieWithoutFullScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	cfg := config.Config{Integrations: []config.Integration{{ID: "radarr-1", Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}}}
-	cfg.Radarr = config.Service{URL: radarrSrv.URL, APIKey: "key"}
+	cfg := config.Config{Services: []config.Service{{ID: "radarr-1", Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}}}
+	cfg.Radarr = config.Connection{URL: radarrSrv.URL, APIKey: "key"}
 	service := New(cfg, database)
 	service.mu.Lock()
 	service.generation = 1
@@ -95,7 +95,7 @@ func TestReconcileInventoryDeltaAddsNewMovieWithoutFullScan(t *testing.T) {
 	service.mu.Unlock()
 
 	oldMedia := []model.Media{}
-	newMedia := []model.Media{{Type: model.Movie, SourceID: 1, Path: moviePath, IntegrationID: "radarr-1"}}
+	newMedia := []model.Media{{Type: model.Movie, SourceID: 1, Path: moviePath, ServiceID: "radarr-1"}}
 	delta := computeInventoryDelta(oldMedia, newMedia, nil, nil)
 	if len(delta.newOwners) != 1 {
 		t.Fatalf("expected exactly one new owner, got %#v", delta.newOwners)
@@ -160,14 +160,14 @@ func TestReconcileInventoryDeltaPublishDoesNotCollideWithUntouchedRows(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	untouchedRefs := []model.MediaFileRef{{IntegrationID: "radarr-1", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 1, Path: untouchedFilePath}}
+	untouchedRefs := []model.MediaFileRef{{ServiceID: "radarr-1", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 1, Path: untouchedFilePath}}
 	if err := database.PublishReconciliation(1, untouchedFiles, untouchedRefs, nil, nil, nil,
-		[]model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, IntegrationID: "radarr-1"}}); err != nil {
+		[]model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, ServiceID: "radarr-1"}}); err != nil {
 		t.Fatal(err)
 	}
 
-	cfg := config.Config{Integrations: []config.Integration{{ID: "radarr-1", Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}}}
-	cfg.Radarr = config.Service{URL: radarrSrv.URL, APIKey: "key"}
+	cfg := config.Config{Services: []config.Service{{ID: "radarr-1", Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}}}
+	cfg.Radarr = config.Connection{URL: radarrSrv.URL, APIKey: "key"}
 	service := New(cfg, database)
 	service.mu.Lock()
 	service.generation = 1
@@ -175,10 +175,10 @@ func TestReconcileInventoryDeltaPublishDoesNotCollideWithUntouchedRows(t *testin
 	service.files, service.mediaFileRefs = untouchedFiles, untouchedRefs
 	service.mu.Unlock()
 
-	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, IntegrationID: "radarr-1"}}
+	oldMedia := []model.Media{{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, ServiceID: "radarr-1"}}
 	newMedia := []model.Media{
-		{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, IntegrationID: "radarr-1"},
-		{Type: model.Movie, SourceID: 2, Path: newMoviePath, IntegrationID: "radarr-1"},
+		{Type: model.Movie, SourceID: 1, Path: untouchedMoviePath, ServiceID: "radarr-1"},
+		{Type: model.Movie, SourceID: 2, Path: newMoviePath, ServiceID: "radarr-1"},
 	}
 	delta := computeInventoryDelta(oldMedia, newMedia, nil, nil)
 	if len(delta.newOwners) != 1 || delta.newOwners[0].ID != 2 {
@@ -253,25 +253,25 @@ func TestReconcileInventoryDeltaHandlesTorrentSavePathMoveAndRemoval(t *testing.
 	}
 	defer database.Close()
 	oldRefs := []model.TorrentFileRef{
-		{IntegrationID: "qb1", Client: "qBittorrent", Hash: "moved", FileIndex: 0, Path: removedFile}, // pre-move location for "moved" hash
-		{IntegrationID: "qb1", Client: "qBittorrent", Hash: "gone", FileIndex: 0, Path: removedFile},
+		{ServiceID: "qb1", Client: "qBittorrent", Hash: "moved", FileIndex: 0, Path: removedFile}, // pre-move location for "moved" hash
+		{ServiceID: "qb1", Client: "qBittorrent", Hash: "gone", FileIndex: 0, Path: removedFile},
 	}
 	if err := database.PublishReconciliation(1, oldFiles, nil, oldRefs, nil,
-		[]model.Torrent{{IntegrationID: "qb1", Hash: "moved", SavePath: removedDir}, {IntegrationID: "qb1", Hash: "gone", SavePath: removedDir}}, nil); err != nil {
+		[]model.Torrent{{ServiceID: "qb1", Hash: "moved", SavePath: removedDir}, {ServiceID: "qb1", Hash: "gone", SavePath: removedDir}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Config{Integrations: []config.Integration{{ID: "qb1", Type: "qbittorrent", Name: "qBittorrent", URL: qbSrv.URL, APIKey: "token"}}}
+	cfg := config.Config{Services: []config.Service{{ID: "qb1", Type: "qbittorrent", Name: "qBittorrent", URL: qbSrv.URL, APIKey: "token"}}}
 	cfg.QBittorrent = config.QBittorrentService{Name: "qBittorrent", URL: qbSrv.URL, APIKey: "token"}
 	service := New(cfg, database)
 	service.mu.Lock()
 	service.generation = 2
 	service.filesUpdated = time.Now()
 	service.files, service.torrentFileRefs = oldFiles, oldRefs
-	service.torrents = []model.Torrent{{IntegrationID: "qb1", Hash: "moved", SavePath: removedDir}, {IntegrationID: "qb1", Hash: "gone", SavePath: removedDir}}
+	service.torrents = []model.Torrent{{ServiceID: "qb1", Hash: "moved", SavePath: removedDir}, {ServiceID: "qb1", Hash: "gone", SavePath: removedDir}}
 	service.mu.Unlock()
 
-	oldTorrents := []model.Torrent{{IntegrationID: "qb1", Hash: "moved", SavePath: removedDir}, {IntegrationID: "qb1", Hash: "gone", SavePath: removedDir}}
-	newTorrents := []model.Torrent{{IntegrationID: "qb1", Hash: "moved", SavePath: movedTorrentDir}} // "gone" no longer present at all
+	oldTorrents := []model.Torrent{{ServiceID: "qb1", Hash: "moved", SavePath: removedDir}, {ServiceID: "qb1", Hash: "gone", SavePath: removedDir}}
+	newTorrents := []model.Torrent{{ServiceID: "qb1", Hash: "moved", SavePath: movedTorrentDir}} // "gone" no longer present at all
 	if err := os.Remove(removedFile); err != nil {
 		t.Fatal(err)
 	}

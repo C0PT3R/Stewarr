@@ -12,7 +12,7 @@ import (
 	"connarr/internal/inventory"
 )
 
-func TestEditIntegrationEndToEndOverHTTP(t *testing.T) {
+func TestEditServiceEndToEndOverHTTP(t *testing.T) {
 	oldRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer oldRadarr.Close()
 	newRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
@@ -34,9 +34,9 @@ func TestEditIntegrationEndToEndOverHTTP(t *testing.T) {
 	}
 	handler := server.Handler()
 
-	addBody, addContentType := multipartIntegrationForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": oldRadarr.URL, "api_key": "key"})
+	addBody, addContentType := multipartServiceForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": oldRadarr.URL, "api_key": "key"})
 	addRecorder := httptest.NewRecorder()
-	addRequest := httptest.NewRequest(http.MethodPost, "/services/integrations", addBody)
+	addRequest := httptest.NewRequest(http.MethodPost, "/services/create", addBody)
 	addRequest.Header.Set("Content-Type", addContentType)
 	handler.ServeHTTP(addRecorder, addRequest)
 	if addRecorder.Code != http.StatusNoContent {
@@ -46,7 +46,7 @@ func TestEditIntegrationEndToEndOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := added.Integrations[0].ID
+	id := added.Services[0].ID
 
 	// The pre-filled edit overlay loads via GET, with the existing URL baked in.
 	getRecorder := httptest.NewRecorder()
@@ -57,7 +57,7 @@ func TestEditIntegrationEndToEndOverHTTP(t *testing.T) {
 	}
 
 	// Moving it to a brand new URL (real browser shape: multipart) keeps the same ID.
-	editBody, editContentType := multipartIntegrationForm(t, map[string]string{"id": id, "name": "Movies", "url": newRadarr.URL, "api_key": "newkey"})
+	editBody, editContentType := multipartServiceForm(t, map[string]string{"id": id, "name": "Movies", "url": newRadarr.URL, "api_key": "newkey"})
 	editRecorder := httptest.NewRecorder()
 	editRequest := httptest.NewRequest(http.MethodPost, "/services/edit", editBody)
 	editRequest.Header.Set("Content-Type", editContentType)
@@ -70,12 +70,12 @@ func TestEditIntegrationEndToEndOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 1 || reloaded.Integrations[0].ID != id || reloaded.Integrations[0].URL != newRadarr.URL {
-		t.Fatalf("expected the same ID with the new URL persisted, got %#v (want id %q)", reloaded.Integrations, id)
+	if len(reloaded.Services) != 1 || reloaded.Services[0].ID != id || reloaded.Services[0].URL != newRadarr.URL {
+		t.Fatalf("expected the same ID with the new URL persisted, got %#v (want id %q)", reloaded.Services, id)
 	}
 }
 
-func TestRemoveIntegrationEndToEndOverHTTP(t *testing.T) {
+func TestRemoveServiceEndToEndOverHTTP(t *testing.T) {
 	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer radarrSrv.Close()
 
@@ -95,9 +95,9 @@ func TestRemoveIntegrationEndToEndOverHTTP(t *testing.T) {
 	}
 	handler := server.Handler()
 
-	addBody, addContentType := multipartIntegrationForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": radarrSrv.URL, "api_key": "key"})
+	addBody, addContentType := multipartServiceForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": radarrSrv.URL, "api_key": "key"})
 	addRecorder := httptest.NewRecorder()
-	addRequest := httptest.NewRequest(http.MethodPost, "/services/integrations", addBody)
+	addRequest := httptest.NewRequest(http.MethodPost, "/services/create", addBody)
 	addRequest.Header.Set("Content-Type", addContentType)
 	handler.ServeHTTP(addRecorder, addRequest)
 	if addRecorder.Code != http.StatusNoContent {
@@ -107,9 +107,9 @@ func TestRemoveIntegrationEndToEndOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := added.Integrations[0].ID
+	id := added.Services[0].ID
 
-	removeBody, removeContentType := multipartIntegrationForm(t, map[string]string{"id": id})
+	removeBody, removeContentType := multipartServiceForm(t, map[string]string{"id": id})
 	removeRecorder := httptest.NewRecorder()
 	removeRequest := httptest.NewRequest(http.MethodPost, "/services/remove", removeBody)
 	removeRequest.Header.Set("Content-Type", removeContentType)
@@ -122,14 +122,14 @@ func TestRemoveIntegrationEndToEndOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 0 {
-		t.Fatalf("expected the integration to be gone, got %#v", reloaded.Integrations)
+	if len(reloaded.Services) != 0 {
+		t.Fatalf("expected the service to be gone, got %#v", reloaded.Services)
 	}
 
 	servicesRecorder := httptest.NewRecorder()
 	servicesRequest := httptest.NewRequest(http.MethodGet, "/services", nil)
 	handler.ServeHTTP(servicesRecorder, servicesRequest)
 	if strings.Contains(servicesRecorder.Body.String(), "Movies") {
-		t.Fatalf("expected the Services page to no longer show the removed integration, got:\n%s", servicesRecorder.Body.String())
+		t.Fatalf("expected the Services page to no longer show the removed service, got:\n%s", servicesRecorder.Body.String())
 	}
 }

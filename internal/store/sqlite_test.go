@@ -412,14 +412,14 @@ func TestCleanupStatisticsCountsSuccessfulRemovals(t *testing.T) {
 	}
 }
 
-func TestFileIntegrationIdentitySurvivesReload(t *testing.T) {
+func TestFileServiceIdentitySurvivesReload(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	mr := []model.MediaFileRef{{IntegrationID: "radarr-1", IntegrationName: "Movies", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 2, Path: "/movies/a.mkv"}}
-	tr := []model.TorrentFileRef{{IntegrationID: "qb-1", IntegrationName: "Downloader", Client: "Downloader", Hash: "abc", FileIndex: 0, Path: "/downloads/a.mkv"}}
+	mr := []model.MediaFileRef{{ServiceID: "radarr-1", ServiceName: "Movies", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 2, Path: "/movies/a.mkv"}}
+	tr := []model.TorrentFileRef{{ServiceID: "qb-1", ServiceName: "Downloader", Client: "Downloader", Hash: "abc", FileIndex: 0, Path: "/downloads/a.mkv"}}
 	if err := db.ReplaceFiles(nil, mr, tr); err != nil {
 		t.Fatal(err)
 	}
@@ -427,10 +427,10 @@ func TestFileIntegrationIdentitySurvivesReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(gotM) != 1 || gotM[0].IntegrationID != "radarr-1" || gotM[0].IntegrationName != "Movies" {
+	if len(gotM) != 1 || gotM[0].ServiceID != "radarr-1" || gotM[0].ServiceName != "Movies" {
 		t.Fatalf("media refs=%#v", gotM)
 	}
-	if len(gotT) != 1 || gotT[0].IntegrationID != "qb-1" || gotT[0].IntegrationName != "Downloader" {
+	if len(gotT) != 1 || gotT[0].ServiceID != "qb-1" || gotT[0].ServiceName != "Downloader" {
 		t.Fatalf("torrent refs=%#v", gotT)
 	}
 }

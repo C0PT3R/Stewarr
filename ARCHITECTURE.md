@@ -15,21 +15,21 @@ qBittorrent, Seerr, Bazarr, Lidarr, Readarr or storage systems.
 
 Core principle:
 
-> **Integrations provide facts. Connarr provides context.**
+> **Services provide facts. Connarr provides context.**
 
 The unified model is the product. Cleanup is one application of that model.
 
-Inventory generations distinguish authoritative base facts from enrichment. Radarr, Sonarr and qBittorrent establish their own mutation ownership. Jellyfin contributes playback/favourite facts and Seerr contributes request facts without joining Connarr's filesystem namespace. Cached or partially enriched generations may be displayed, but they are explicitly valuation-unreliable and cannot produce automatic cleanup candidates. A failed integration disables only capabilities depending on it and never expands another integration's authority.
+Inventory generations distinguish authoritative base facts from enrichment. Radarr, Sonarr and qBittorrent establish their own mutation ownership. Jellyfin contributes playback/favourite facts and Seerr contributes request facts without joining Connarr's filesystem namespace. Cached or partially enriched generations may be displayed, but they are explicitly valuation-unreliable and cannot produce automatic cleanup candidates. A failed service disables only capabilities depending on it and never expands another service's authority.
 
 File topology is generation-bound. A reconciliation result is discarded if the authoritative base inventory changes before it is published. Its Files, claims, Unmanaged projection, Media and Torrents are committed atomically as one durable generation; readers cannot enter a replacement transaction halfway through. Direct filesystem removal has a stronger boundary still: at the final unlink boundary, after owner-backed actions finish, Connarr discovers the live torrent set and refreshes current Radarr/Sonarr file claims rather than treating cached absence as proof.
 
 ## Core facts and interpretations
 
-Raw integration data should remain attributable facts: an *arr import event, a qBittorrent hash, Jellyfin playback state, a Seerr request, a filesystem inode/link count, a storage usage reading.
+Raw service data should remain attributable facts: an *arr import event, a qBittorrent hash, Jellyfin playback state, a Seerr request, a filesystem inode/link count, a storage usage reading.
 
 Connarr then derives interpretations from combinations of facts: Current, Superseded, Unassociated, former relationships, Value, reclaimable bytes, storage pressure, safe actions, inconsistencies and health conditions.
 
-Do not blur those layers. A future change in interpretation should not require rebuilding the integration that supplied the facts.
+Do not blur those layers. A future change in interpretation should not require rebuilding the service that supplied the facts.
 
 ## Main domain concepts
 
@@ -54,7 +54,7 @@ Historical relationships between downloads/torrents and managed media. Preserve 
 A representation occupies bytes on a storage device. Library and torrent representations can be independent copies, hardlinks to one inode, reflinks/shared extents, remote data or unknown relationships.
 
 ### Storage device
-Target/pressure ultimately belongs to a storage device, not globally to the application. There is no configured storage path: known devices are derived from the storage roots each integration already discovers on its own, and roots resolving to the same physical device are grouped into one device entry.
+Target/pressure ultimately belongs to a storage device, not globally to the application. There is no configured storage path: known devices are derived from the storage roots each service already discovers on its own, and roots resolving to the same physical device are grouped into one device entry.
 
 ## Reclaimability
 
@@ -137,9 +137,9 @@ Current tasks:
 - Base inventory — Radarr/Sonarr/qBittorrent plus incremental provenance, frequent.
 - Jellyfin enrichment — playback/favorites, twice daily and removal-isolated.
 - Seerr enrichment — request facts, hourly.
-- File reconciliation — integration/file-identity reconciliation, sparse (currently 12h).
+- File reconciliation — service/file-identity reconciliation, sparse (currently 12h).
 
-Future tasks may include full reconciliation, storage capability scans, statistics maintenance and integration-specific reconciliation. Schedules should eventually be configurable through the GUI.
+Future tasks may include full reconciliation, storage capability scans, statistics maintenance and service-specific reconciliation. Schedules should eventually be configurable through the GUI.
 
 ## State and persistence
 
@@ -151,7 +151,7 @@ SQLite is durable state at:
 
 The path is deliberately not configurable. Connarr migrates the legacy Togetharr or Spartarr database filename when appropriate, preferring the newer Togetharr state if both exist.
 
-SQLite stores cached media/torrent/unmanaged state, import provenance, synchronization cursors, cleanup history/statistics and future integration/task state. Logical inventory and reconciliation generations use atomic publication transactions. The shared connection is guarded for both reads and writes so a reader cannot observe a table between its DELETE and replacement INSERT phases.
+SQLite stores cached media/torrent/unmanaged state, import provenance, synchronization cursors, cleanup history/statistics and future service/task state. Logical inventory and reconciliation generations use atomic publication transactions. The shared connection is guarded for both reads and writes so a reader cannot observe a table between its DELETE and replacement INSERT phases.
 
 ## Refresh architecture
 
@@ -203,10 +203,10 @@ The long-term optimization question is:
 
 > **Given current storage pressure, what set of safe actions returns each pressured storage device to target with the least loss of total value?**
 
-## Integrations
+## Services
 
-An integration type exists only when Connarr has a defined adapter for it.
-Configuration cannot create a generic integration merely by supplying a URL or
+A service type exists only when Connarr has a defined adapter for it.
+Configuration cannot create a generic service merely by supplying a URL or
 filesystem root. The currently defined types are Radarr, Sonarr, Jellyfin,
 Seerr and qBittorrent.
 
@@ -223,7 +223,7 @@ claim inventory makes absence Unknown rather than Unmanaged.
 
 Do not let core logic become hard-coded around Radarr/Sonarr/qBittorrent singleton assumptions.
 
-Future integration entities should support:
+Future service entities should support:
 
 - multiple instances;
 - capability advertisement;
@@ -274,7 +274,7 @@ Persist data when Connarr needs it for stable identity, cross-application relati
 
 List pages must be renderable from indexed state and must not cause one remote detail request per row. Detail pages may enrich one selected object from its owning application. Heavy filesystem or whole-client reconciliation belongs in an explicit sparse task rather than the routine inventory refresh.
 
-Media, files, torrents, source ownership, and physical storage identity are distinct concepts. The filesystem establishes which Files exist and their physical identity; integrations declare claims on those existing Files; Connarr reconciles the two. Existing Files with no claims are Unmanaged observations, while claims with no matching File are missing claims rather than phantom Files. A media entity remains valid with zero files. A File is deliberately content-agnostic so subtitles, text files, ebooks, or other regular files can participate without changing the core storage object.
+Media, files, torrents, source ownership, and physical storage identity are distinct concepts. The filesystem establishes which Files exist and their physical identity; services declare claims on those existing Files; Connarr reconciles the two. Existing Files with no claims are Unmanaged observations, while claims with no matching File are missing claims rather than phantom Files. A media entity remains valid with zero files. A File is deliberately content-agnostic so subtitles, text files, ebooks, or other regular files can participate without changing the core storage object.
 
 
 ## Media detail relationship presentation
@@ -283,9 +283,9 @@ Media pages expose their Current and Superseded torrent relationships rather tha
 
 ### First-class File model
 
-The durable file inventory is filesystem-first. A successful reconciliation validates integrations, discovers their storage roots, scans those roots for regular files, records path/size/device/inode/link-count facts, then applies integration claims. Symlinks are not followed. A failed or partial generation is never published over the last authoritative one.
+The durable file inventory is filesystem-first. A successful reconciliation validates services, discovers their storage roots, scans those roots for regular files, records path/size/device/inode/link-count facts, then applies service claims. Symlinks are not followed. A failed or partial generation is never published over the last authoritative one.
 
-Physical identity is authoritative for storage relationships: paths with the same device/inode are the same physical File. Proven physical backing establishes a Current torrent/media relationship even when import provenance is absent or stale. Ownership never overrides physical identity, and physical identity never lets Connarr manipulate a path through the wrong owner. Owned objects are manipulated only through their integration. A Media plan may propose a qBittorrent action for a Current torrent; confirming it still delegates the complete Torrent removal to qBittorrent. Unmanaged paths cannot be unlinked directly. Filenames alone never authorize destructive relationships.
+Physical identity is authoritative for storage relationships: paths with the same device/inode are the same physical File. Proven physical backing establishes a Current torrent/media relationship even when import provenance is absent or stale. Ownership never overrides physical identity, and physical identity never lets Connarr manipulate a path through the wrong owner. Owned objects are manipulated only through their service. A Media plan may propose a qBittorrent action for a Current torrent; confirming it still delegates the complete Torrent removal to qBittorrent. Unmanaged paths cannot be unlinked directly. Filenames alone never authorize destructive relationships.
 
 Space consequences are calculated from the physical graph. A physical file is freed only when the selected actions remove every known filesystem link, and an incomplete hardlink set is surfaced as a warning rather than guessed away.
 
@@ -332,7 +332,7 @@ All primary pages use a single application chrome driven by the centralized `pro
 The UI consumes published/cached application facts only. A versioned dashboard
 snapshot is invalidated by inventory, storage samples, database commits, task
 state, and mutation projections. SSE announces revisions; conditional polling
-is the fallback. Neither mechanism calls integrations or scans filesystems.
+is the fallback. Neither mechanism calls services or scans filesystems.
 
 Pending operations form a central projection over published inventory. Durable
 admission suppresses selected objects immediately across Home, lists, and
@@ -346,11 +346,11 @@ Removal planning remains a domain boundary. A Media can open a RemovalPlan whene
 
 ## Removal action model
 
-Removal is built from concrete owner-backed resources. `Media` is logical context and a selection grouping; it is not deleted by Connarr. Managed-file actions reference `MediaFileRef` records carrying the owning integration and owner file ID. Radarr actions delete MovieFiles; Sonarr actions delete EpisodeFiles. Torrent and Unmanaged File actions remain separate primitives.
+Removal is built from concrete owner-backed resources. `Media` is logical context and a selection grouping; it is not deleted by Connarr. Managed-file actions reference `MediaFileRef` records carrying the owning service and owner file ID. Radarr actions delete MovieFiles; Sonarr actions delete EpisodeFiles. Torrent and Unmanaged File actions remain separate primitives.
 
 ## Code readability
 
-Names must describe the domain concept they hold. Single-letter and cryptic abbreviated names are acceptable only in a tiny scope where their meaning is unmistakable, such as an index in a short loop or the conventional `w` and `r` parameters of a small HTTP handler. Domain objects, filesystem facts, integration responses, plans and persistent records use explicit names. Dense one-line control flow is not accepted merely because Go permits it.
+Names must describe the domain concept they hold. Single-letter and cryptic abbreviated names are acceptable only in a tiny scope where their meaning is unmistakable, such as an index in a short loop or the conventional `w` and `r` parameters of a small HTTP handler. Domain objects, filesystem facts, service responses, plans and persistent records use explicit names. Dense one-line control flow is not accepted merely because Go permits it.
 
 A Media-originated plan may expose any subset of its managed files and related qBittorrent actions whose correspondence is proven from authoritative physical identity. The plan may disclose other owners affected by a multi-file Torrent, but those other Media actions are preserved and cannot be selected through the initiating Media. A Torrent-originated plan may expose only managed files whose correspondence to a torrent file is proven from authoritative physical identity or future authoritative provenance. Filename/path similarity is never sufficient evidence for a destructive linked action.
 

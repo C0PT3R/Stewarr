@@ -26,8 +26,9 @@ type Server struct {
 	homeTpl            *template.Template
 	storageTpl         *template.Template
 	servicesTpl        *template.Template
-	addIntegrationTpl  *template.Template
-	editIntegrationTpl *template.Template
+	addServiceTpl      *template.Template
+	editServiceTpl     *template.Template
+	serviceProgressTpl *template.Template
 	libraryTpl         *template.Template
 	historyTpl         *template.Template
 	profileTpl         *template.Template
@@ -86,11 +87,15 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	addIntegrationTemplate, err := parseUITemplate("add_integration.html", templateFunctions)
+	addServiceTemplate, err := parseUITemplate("add_service.html", templateFunctions)
 	if err != nil {
 		return nil, err
 	}
-	editIntegrationTemplate, err := parseUITemplate("edit_integration.html", templateFunctions)
+	editServiceTemplate, err := parseUITemplate("edit_service.html", templateFunctions)
+	if err != nil {
+		return nil, err
+	}
+	serviceProgressTemplate, err := parseUITemplate("service_progress.html", templateFunctions)
 	if err != nil {
 		return nil, err
 	}
@@ -134,12 +139,12 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 	if err != nil {
 		return nil, err
 	}
-	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addIntegrationTpl: addIntegrationTemplate, editIntegrationTpl: editIntegrationTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub(), sseMaxLifetime: 3 * time.Minute}
+	server := &Server{inv: inventoryService, tasks: taskManager, homeTpl: homeTemplate, storageTpl: storageTemplate, servicesTpl: servicesTemplate, addServiceTpl: addServiceTemplate, editServiceTpl: editServiceTemplate, serviceProgressTpl: serviceProgressTemplate, libraryTpl: libraryTemplate, historyTpl: historyTemplate, profileTpl: profileTemplate, torrentTpl: torrentTemplate, torrentDetailTpl: torrentDetailTemplate, unmanagedTpl: unmanagedTemplate, tasksTpl: tasksTemplate, removalTpl: removalTemplate, operationTpl: operationTemplate, staticHandler: staticHandler, revisions: newRevisionHub(), sseMaxLifetime: 3 * time.Minute}
 	if taskManager != nil {
 		if err := taskManager.Register(tasks.Definition{ID: removalTaskID, Name: "Removal operations", Description: "Execute durable owner and filesystem mutations.", PayloadRunner: server.runScheduledRemoval, Resources: []tasks.ResourceClaim{{Resource: "owner-filesystem-mutation", Mode: tasks.ClaimExclusive}}, Priority: tasks.PriorityMutation, Recovery: tasks.RecoveryAttention}); err != nil {
 			return nil, err
 		}
-		if err := taskManager.Register(tasks.Definition{ID: autoRemovalTaskID, Name: "Automatic removal", Description: "Evaluate cross-domain cleanup plans and submit removals for opted-in integrations.", Interval: autoRemovalEvalInterval, Runner: server.runAutoRemovalEvaluation}); err != nil {
+		if err := taskManager.Register(tasks.Definition{ID: autoRemovalTaskID, Name: "Automatic removal", Description: "Evaluate cross-domain cleanup plans and submit removals for opted-in services.", Interval: autoRemovalEvalInterval, Runner: server.runAutoRemovalEvaluation}); err != nil {
 			return nil, err
 		}
 		if inventoryService != nil {
@@ -171,10 +176,14 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/", server.home)
 	mux.HandleFunc("/storage", server.storagePage)
 	mux.HandleFunc("/services", server.servicesPage)
-	mux.HandleFunc("/services/add", server.addIntegrationForm)
-	mux.HandleFunc("/services/integrations", server.addIntegration)
-	mux.HandleFunc("/services/edit", server.editIntegrationForm)
-	mux.HandleFunc("/services/remove", server.removeIntegration)
+	mux.HandleFunc("/services/add", server.addServiceForm)
+	mux.HandleFunc("/services/test", server.testServiceConnection)
+	mux.HandleFunc("/services/device-for-path", server.deviceForPath)
+	mux.HandleFunc("/services/create", server.addService)
+	mux.HandleFunc("/services/edit", server.editServiceForm)
+	mux.HandleFunc("/services/remove", server.removeService)
+	mux.HandleFunc("/services/consistency-progress", server.serviceConsistencyProgressForm)
+	mux.HandleFunc("/services/consistency-status", server.serviceConsistencyStatus)
 	mux.HandleFunc("/library", server.library)
 	mux.HandleFunc("/library/", server.media)
 	mux.HandleFunc("/media/", server.media)
@@ -216,7 +225,8 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 	cfg := server.inv.Config()
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
-		p, planErr := cleanup.Build(device.RepresentativePath, cfg.Storage.TargetUsagePercent, cfg.Storage.CriticalUsagePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
+		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
+		p, planErr := cleanup.Build(device.RepresentativePath, target, critical, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
 		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr})
 	}
 	return views

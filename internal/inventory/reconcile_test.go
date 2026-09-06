@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-func TestKnownIntegrationRootFallbackOnlyWhenDiscoveryIsEmpty(t *testing.T) {
-	i := config.Integration{Type: "radarr", Name: "Movies", RootPath: "/fallback"}
+func TestKnownServiceRootFallbackOnlyWhenDiscoveryIsEmpty(t *testing.T) {
+	i := config.Service{Type: "radarr", Name: "Movies", RootPath: "/fallback"}
 	got := configuredOrDiscoveredRoots(i, []string{"/authoritative"})
 	if len(got) != 1 || got[0].Path != "/authoritative" {
 		t.Fatalf("fallback overrode discovery: %#v", got)
@@ -58,15 +58,15 @@ func TestWalkRootsFailsClosedOnMissingRoot(t *testing.T) {
 	}
 }
 
-func TestWalkStorageRootsMergesOverlappingIntegrationContexts(t *testing.T) {
+func TestWalkStorageRootsMergesOverlappingServiceContexts(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "movie.mkv")
 	if err := os.WriteFile(path, []byte("media"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	files, err := walkStorageRoots([]storageRoot{
-		{Path: root, Integration: config.Integration{ID: "radarr", Type: "radarr", Name: "Movies"}},
-		{Path: root, Integration: config.Integration{ID: "jellyfin", Type: "jellyfin", Name: "Jellyfin"}},
+		{Path: root, Service: config.Service{ID: "radarr", Type: "radarr", Name: "Movies"}},
+		{Path: root, Service: config.Service{ID: "jellyfin", Type: "jellyfin", Name: "Jellyfin"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -76,17 +76,17 @@ func TestWalkStorageRootsMergesOverlappingIntegrationContexts(t *testing.T) {
 	}
 }
 
-// TestReconcileFilesSucceedsWithNoIntegrationsConfigured guards a fresh
-// install: zero storage-owning integrations configured is a legitimate,
+// TestReconcileFilesSucceedsWithNoServicesConfigured guards a fresh
+// install: zero storage-owning services configured is a legitimate,
 // expected state (nothing to discover yet), not a failure. reconcileFiles
 // must publish an empty-but-reliable file topology instead of erroring —
-// it used to hard-fail with "no integration storage roots are available"
-// purely because no integrations existed yet, well before the user had any
+// it used to hard-fail with "no service storage roots are available"
+// purely because no services existed yet, well before the user had any
 // chance to add one.
-func TestReconcileFilesSucceedsWithNoIntegrationsConfigured(t *testing.T) {
+func TestReconcileFilesSucceedsWithNoServicesConfigured(t *testing.T) {
 	service := New(config.Config{}, nil)
 	if err := service.ReconcileFiles(context.Background()); err != nil {
-		t.Fatalf("expected reconciliation with zero integrations to succeed, got %v", err)
+		t.Fatalf("expected reconciliation with zero services to succeed, got %v", err)
 	}
 	if got := service.ReliabilitySnapshot().FileModel; got != "reliable" {
 		t.Fatalf("FileModel=%q, want reliable", got)

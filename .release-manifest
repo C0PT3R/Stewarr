@@ -19,8 +19,8 @@ internal/config/config.go
 internal/config/config_test.go
 internal/filetopology/topology.go
 internal/filetopology/topology_test.go
-internal/httpui/add_integration_test.go
-internal/httpui/edit_remove_integration_test.go
+internal/httpui/add_service_test.go
+internal/httpui/edit_remove_service_test.go
 internal/httpui/api.go
 internal/httpui/auto_removal.go
 internal/httpui/auto_removal_test.go
@@ -65,11 +65,12 @@ internal/httpui/static/vendor/STIMULUS-LICENSE
 internal/httpui/static/vendor/htmx-2.0.10.min.js
 internal/httpui/static/vendor/stimulus-3.2.2.umd.js
 internal/httpui/templates.go
-internal/httpui/templates/add_integration.html
-internal/httpui/templates/edit_integration.html
+internal/httpui/templates/add_service.html
+internal/httpui/templates/edit_service.html
 internal/httpui/templates/history.html
 internal/httpui/templates/home.html
 internal/httpui/templates/library.html
+internal/httpui/templates/service_progress.html
 internal/httpui/templates/services.html
 internal/httpui/templates/storage.html
 internal/httpui/templates/media.html

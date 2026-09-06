@@ -21,8 +21,8 @@ const autoRemovalEvalInterval = 15 * time.Minute
 
 // runAutoRemovalEvaluation evaluates every known storage device's
 // cross-domain Cleanup plan and submits removal requests for every Action
-// whose integrations have all opted in. It is a no-op unless the global
-// switch is on; both it and every per-integration opt-in default to false,
+// whose services have all opted in. It is a no-op unless the global
+// switch is on; both it and every per-service opt-in default to false,
 // so a fresh or upgraded install does nothing automatically.
 func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	if server.inv == nil || server.tasks == nil {
@@ -41,17 +41,18 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	reliable := server.planningReliable(server.inv.ReliabilitySnapshot())
 	mediaByDevice := server.inv.MediaByDevice(items)
 	torrentsByDevice := server.inv.TorrentsByDevice(torrents)
-	integrationByID := make(map[string]config.Integration, len(cfg.Integrations))
-	for _, integration := range cfg.Integrations {
-		integrationByID[integration.ID] = integration
+	serviceByID := make(map[string]config.Service, len(cfg.Services))
+	for _, service := range cfg.Services {
+		serviceByID[service.ID] = service
 	}
 	for _, device := range server.inv.StorageDevices() {
-		plan, err := cleanup.Build(device.RepresentativePath, cfg.Storage.TargetUsagePercent, cfg.Storage.CriticalUsagePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable)
+		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
+		plan, err := cleanup.Build(device.RepresentativePath, target, critical, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable)
 		if err != nil || !plan.Available {
 			continue
 		}
 		for _, action := range plan.Actions {
-			if !actionIntegrationsOptedIn(action, integrationByID) {
+			if !actionServicesOptedIn(action, serviceByID) {
 				continue
 			}
 			form, err := server.formForAction(action)
@@ -67,20 +68,20 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	return nil
 }
 
-// actionIntegrationsOptedIn reports whether every integration an Action
+// actionServicesOptedIn reports whether every service an Action
 // touches has explicitly allowed automatic removal. A HardlinkedBundle spans
-// a Media integration and one or more Torrent integrations; all of them must
+// a Media service and one or more Torrent services; all of them must
 // have opted in, or the whole bundle is skipped, never partially executed.
-func actionIntegrationsOptedIn(action cleanup.Action, integrationByID map[string]config.Integration) bool {
+func actionServicesOptedIn(action cleanup.Action, serviceByID map[string]config.Service) bool {
 	if action.Kind != cleanup.StandaloneTorrent {
-		integ, ok := integrationByID[action.Media.IntegrationID]
+		integ, ok := serviceByID[action.Media.ServiceID]
 		if !ok || !integ.AllowAutomaticRemoval {
 			return false
 		}
 	}
 	if action.Kind != cleanup.StandaloneMedia {
 		for _, t := range action.Torrents {
-			integ, ok := integrationByID[t.IntegrationID]
+			integ, ok := serviceByID[t.ServiceID]
 			if !ok || !integ.AllowAutomaticRemoval {
 				return false
 			}
@@ -97,7 +98,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 	form := url.Values{}
 	switch action.Kind {
 	case cleanup.StandaloneMedia, cleanup.StandaloneSeason, cleanup.HardlinkedBundle:
-		refs, _, err := server.inv.ManagedFileRefs(action.Media.Type, action.Media.SourceID, action.Media.IntegrationID)
+		refs, _, err := server.inv.ManagedFileRefs(action.Media.Type, action.Media.SourceID, action.Media.ServiceID)
 		if err != nil {
 			return nil, err
 		}
@@ -116,7 +117,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 		form.Set("kind", "media")
 		form.Set("media_type", string(action.Media.Type))
 		form.Set("media_id", strconv.Itoa(action.Media.SourceID))
-		form.Set("integration_id", action.Media.IntegrationID)
+		form.Set("service_id", action.Media.ServiceID)
 		for _, ref := range refs {
 			form.Add("managed_file", managedFileKey(ref))
 		}
@@ -129,7 +130,7 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 		}
 		form.Set("kind", "torrent")
 		form.Set("hash", strings.ToLower(action.Torrents[0].Hash))
-		form.Set("integration_id", action.Torrents[0].IntegrationID)
+		form.Set("service_id", action.Torrents[0].ServiceID)
 		form.Set("target", "1")
 	default:
 		return nil, fmt.Errorf("unsupported action kind %q", action.Kind)

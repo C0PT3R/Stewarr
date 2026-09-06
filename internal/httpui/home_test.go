@@ -19,7 +19,7 @@ func TestHomeTemplateRendersStorageSummaryOnly(t *testing.T) {
 				Storage: inventory.StorageDevice{
 					RootLabels: []string{"downloads", "movies"}, RepresentativePath: "/data/movies", Filesystem: "ext2/ext3/ext4",
 					Available: true, TotalBytes: 1000, FreeBytes: 400, UsedBytes: 600,
-					Claimed:        []inventory.ClaimedSegment{{Integration: "Movies", Bytes: 500}},
+					Claimed:        []inventory.ClaimedSegment{{Service: "Movies", Bytes: 500}},
 					UnmanagedBytes: 50, OtherBytes: 50,
 				},
 			},
@@ -38,7 +38,7 @@ func TestHomeTemplateRendersStorageSummaryOnly(t *testing.T) {
 			t.Fatalf("expected home output to contain %q, got:\n%s", want, body)
 		}
 	}
-	// The full per-integration/cleanup-plan detail now lives on the dedicated
+	// The full per-service/cleanup-plan detail now lives on the dedicated
 	// Storage page, not on this quick-glance card.
 	for _, mustNotContain := range []string{"Movies: 500.0 B", "storage-legend", "Cleanup active", "Cleanup inactive"} {
 		if strings.Contains(body, mustNotContain) {

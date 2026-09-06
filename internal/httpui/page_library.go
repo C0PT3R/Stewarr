@@ -367,7 +367,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	integrationID := strings.TrimSpace(r.URL.Query().Get("integration_id"))
+	serviceID := strings.TrimSpace(r.URL.Query().Get("service_id"))
 	projection := server.pendingProjection()
 	mediaType := model.MediaType(parts[0])
 
@@ -376,14 +376,14 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 	if !reliability.Valuation && last == nil {
 		last = fmt.Errorf("%s Jellyfin: %s; Seerr: %s", reliability.Message, reliability.Jellyfin, reliability.Seerr)
 	}
-	resolved, resolvedOK := mediaRefFor(items, mediaType, sourceID, integrationID)
+	resolved, resolvedOK := mediaRefFor(items, mediaType, sourceID, serviceID)
 	if resolvedOK {
-		if notice, pending := projection.mediaOperation(mediaType, sourceID, resolved.IntegrationID); pending {
+		if notice, pending := projection.mediaOperation(mediaType, sourceID, resolved.ServiceID); pending {
 			server.renderOperation(w, operationPageData{Active: "library", FragmentID: "media-detail", Label: notice.Label, Notice: notice, BackURL: "/library", BackLabel: "Library"})
 			return
 		}
 	}
-	if integrationID == "" && !resolvedOK {
+	if serviceID == "" && !resolvedOK {
 		matches := 0
 		for _, m := range items {
 			if string(m.Type) == parts[0] && m.SourceID == sourceID {
@@ -391,7 +391,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if matches > 1 {
-			http.Error(w, "this media id exists in more than one configured instance; an integration_id is required", http.StatusConflict)
+			http.Error(w, "this media id exists in more than one configured instance; an service_id is required", http.StatusConflict)
 			return
 		}
 	}
@@ -401,19 +401,19 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		if string(m.Type) != parts[0] || m.SourceID != sourceID {
 			continue
 		}
-		if integrationID != "" {
-			if m.IntegrationID != integrationID {
+		if serviceID != "" {
+			if m.ServiceID != serviceID {
 				continue
 			}
-		} else if resolvedOK && m.IntegrationID != resolved.IntegrationID {
+		} else if resolvedOK && m.ServiceID != resolved.ServiceID {
 			continue
 		}
 		m.Torrents = projection.filterTorrents(m.Torrents)
 		current, superseded, unassociated := groupMediaTorrents(m.Torrents)
-		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.IntegrationID, m.SourceID)
+		storageView, filesUpdated, filesErr := server.inv.MediaStorage(m.Type, m.ServiceID, m.SourceID)
 		files := storageView.Files
 		if len(projection.ManagedFiles) > 0 {
-			refs, _, _ := server.inv.ManagedFileRefs(m.Type, m.SourceID, m.IntegrationID)
+			refs, _, _ := server.inv.ManagedFileRefs(m.Type, m.SourceID, m.ServiceID)
 			suppressedPaths := map[string]bool{}
 			for _, ref := range refs {
 				if _, pending := projection.ManagedFiles[managedFileKey(ref)]; pending {
@@ -453,7 +453,7 @@ func (server *Server) media(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if notice, found := server.removalHistory("media", mediaOperationKey(mediaType, sourceID, integrationID)); found {
+	if notice, found := server.removalHistory("media", mediaOperationKey(mediaType, sourceID, serviceID)); found {
 		server.renderOperation(w, operationPageData{Active: "library", FragmentID: "media-detail", Label: notice.Label, Notice: notice, BackURL: "/library", BackLabel: "Library"})
 		return
 	}

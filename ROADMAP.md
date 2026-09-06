@@ -10,7 +10,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   Connarr has no CDN, SPA, or mandatory frontend build service.
 - Cached, revisioned dashboard state with SSE invalidation and conditional
   five-second polling fallback. Storage sampling is independent and no UI
-  refresh calls an integration or starts a filesystem scan.
+  refresh calls a service or starts a filesystem scan.
 - Stable open lists: background additions and reorderings show **Updates
   available**, while removals always disappear immediately. Filters, paging,
   focus, scroll, disclosures, and list layout survive ordinary updates.
@@ -74,10 +74,10 @@ This file separates implemented behavior from intended direction. It is not a pr
 ### Storage devices (0.2.10)
 
 - No configured global storage path. Known storage devices are derived from
-  the roots each integration already discovers on its own, grouped by
+  the roots each service already discovers on its own, grouped by
   physical device when multiple roots share one disk.
 - Home shows one usage graphic per known device, broken down by which
-  integration's files occupy it, with Unmanaged and unattributed real usage
+  service's files occupy it, with Unmanaged and unattributed real usage
   kept as separate, honestly-labeled segments rather than forced to match.
 - Target/Critical reclamation thresholds apply independently to every known
   device; a device Connarr cannot measure is reported Unavailable without
@@ -110,10 +110,10 @@ This file separates implemented behavior from intended direction. It is not a pr
   from the planner entirely, regardless of storage pressure. A protected
   torrent hardlinked to a media item vetoes that whole bundle, not just
   itself, since removing the bundle would still delete files it needs.
-- A global auto-removal switch and a per-integration opt-in flag gate real,
+- A global auto-removal switch and a per-service opt-in flag gate real,
   unattended execution of the cross-domain Cleanup plan; both default to
   false, so a fresh or upgraded install does nothing automatically. A
-  bundled action spanning integrations with mixed opt-in status is skipped
+  bundled action spanning services with mixed opt-in status is skipped
   entirely, never partially executed. Automatic submissions travel through
   the exact same admission/durable-history/scheduler path as a manual
   browser removal, so `removal.dry_run` and every existing safety mechanism
@@ -131,38 +131,38 @@ This file separates implemented behavior from intended direction. It is not a pr
   otherwise-kept show instead of only ever reasoning about a whole series;
   a movie, or a series with no season data yet, is unaffected.
 
-### Live config editing and multi-instance integrations (0.2.13-0.2.28)
+### Live config editing and multi-instance services (0.2.13-0.2.28)
 
-- Integrations move from a static, must-exist-before-launch config file to
-  live, in-app management: adding, editing (including moving an integration to
+- Services move from a static, must-exist-before-launch config file to
+  live, in-app management: adding, editing (including moving a service to
   an entirely new URL without severing the data already attributed to it), and
-  removing an integration all validate a real connection before persisting,
+  removing a service all validate a real connection before persisting,
   then activate immediately without disturbing in-memory reconciliation state.
-  A removed integration's files become Unmanaged rather than disappearing.
+  A removed service's files become Unmanaged rather than disappearing.
 - Radarr, Sonarr, and qBittorrent each support more than one configured
   instance simultaneously (separate quality-tier libraries, a seedbox
   alongside a local client); every reconciliation, import-history, and
   removal-execution path fans out per instance and disambiguates identity by
-  a stable per-integration ID rather than assuming one adapter per type.
+  a stable per-service ID rather than assuming one adapter per type.
   Jellyfin and Seerr remain single-instance by design, matching how they're
   actually deployed in practice.
 - Media and torrent removal, and the Library/Torrent detail pages, carry an
-  explicit `integration_id` end to end so an ambiguous match (the same
+  explicit `service_id` end to end so an ambiguous match (the same
   Radarr/Sonarr source ID, or the same torrent infohash, existing in more than
   one configured instance) fails closed instead of silently guessing.
-- Adding, editing, or removing an integration schedules an immediate
+- Adding, editing, or removing a service schedules an immediate
   inventory-then-files consistency pass (the same chain a removal triggers)
   instead of waiting for the next periodic file reconciliation — the actual
   point of moving storage-path discovery into the app in the first place:
-  add an integration and its paths show up promptly, without a restart or an
+  add a service and its paths show up promptly, without a restart or an
   hours-long wait.
 - File reconciliation no longer fails on a fresh install with zero
-  integrations configured — that's an expected starting state, not a
+  services configured — that's an expected starting state, not a
   misconfiguration, and now publishes an empty-but-reliable file topology
   instead of erroring. The Home page's Services card always shows (with an
   empty state instead of disappearing entirely), and its Library card only
   shows a Movies/Series row for a library that's actually configured. The
-  Add/Edit integration forms show only the credential fields the selected
+  Add/Edit service forms show only the credential fields the selected
   type actually uses (an API key, or a username+password, never both).
 
 ### App-wide slowness during reconciliation publishing (0.2.29)
@@ -235,6 +235,47 @@ This file separates implemented behavior from intended direction. It is not a pr
   Playwright harness proving the old page's SSE connection is observed
   closed server-side before/at the point the new page's connection opens.
 
+### Terminology rename, per-device thresholds, and a staged service setup overlay (0.2.34)
+
+- "Integration" is renamed to "service" everywhere: Go identifiers
+  (`config.Service`, `Media.ServiceID`/`ServiceName`/`ServiceType`,
+  `inventory.Service.AddService`/`EditService`/`RemoveService`), JSON field
+  names (`serviceId`, the config file's own `services[]` key), routes
+  (`/services/create`), templates, and docs. The SQLite `integration_name`
+  column is now `service_name` — a real schema change with no migration
+  written, matching this project's established convention for its one real
+  deployment. A pre-existing, unrelated `Service{URL, APIKey}` convenience
+  struct (`Config.Radarr`/`.Sonarr`/`.Jellyfin`/`.Seerr`) collided with the
+  renamed type and was renamed to `Connection` instead.
+- Target/Critical reclamation thresholds move from one global percentage
+  applied to every storage device to a per-device setting
+  (`Storage.DeviceThresholds`, keyed by a device's stable representative
+  path — `config.ThresholdsFor`/`SetDeviceThreshold`), closing the
+  long-standing "Near-term" item of the same name. A new
+  `inventory.Service.DeviceForPath` resolves a not-yet-saved service's root
+  path to an existing device (so editing thresholds from any service
+  sharing that device converges to the same entry) or reports it as a new
+  one.
+- The Add service overlay is now a progressive two-step form instead of one
+  atomic save: a "Test connection" step runs a real, non-persisting
+  connection check (`inventory.Service.TestServiceConnection`) before
+  revealing the root path and per-device threshold fields, which only then
+  get submitted together. A separate GET-fragment design for step 2 was
+  considered and rejected during implementation — it would have put API
+  keys and passwords in a URL (query string, server logs, browser history);
+  the shipped design reveals the extra fields in place within the same
+  form instead.
+- Saving a service now opens a third, automatic step: a progress view
+  showing which stage of the inventory-and-files-consistency workflow is
+  running (`/services/consistency-status`, backed by the task manager's
+  existing per-workflow step tracking — no new progress-reporting
+  infrastructure needed), with an indeterminate animated bar rather than a
+  fabricated percentage, since the filesystem-walk stage has no known total
+  ahead of time. Closing it early leaves the scan running in the
+  background; the global `#operation-indicator` (already used for pending
+  removals) now also reflects an in-flight consistency scan, reusing the
+  same reactive SSE mechanism rather than adding a second UI element.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and
@@ -247,7 +288,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   index data and lazy source-owned detail loading.
 - Owner-scoped removals that reject cross-owner fields at admission and again
   inside scheduled execution.
-- Isolated integration authority: Jellyfin enrichment requires no shared path
+- Isolated service authority: Jellyfin enrichment requires no shared path
   namespace, topology is informational, and cross-owner mutations fail closed.
 - Unmanaged file inventory is read-only until a cleanup root is explicitly
   delegated to Connarr.
@@ -276,23 +317,21 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Add useful Unmanaged filters.
 - Improve explicit provenance-change reasons and per-object historical
   timelines.
-- Make Target/Critical reclamation thresholds independently configurable per
-  storage device rather than one global percentage applied to every device.
 - Continue readability work outside the HTTP/UI files touched through 0.2.8.
 
 ## Later
 
-- Capability discovery for the integration manager (auto-detecting what an
-  added integration supports, beyond the connection test already in place).
+- Capability discovery for the service manager (auto-detecting what an
+  added service supports, beyond the connection test already in place).
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
-  integration adapters.
+  service adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly
   configured emergency behavior.
 - Per-tracker torrent retention rules (e.g. a hit-and-run window, or a ratio
   floor that varies by tracker rather than one global value) on top of the
   global ratio floor and keep-tag protection already implemented (0.2.12).
   `Torrent.Tracker` is already a reconciled field; this is a policy layer on
-  existing data, not new integration work.
+  existing data, not new service work.
 - Observed reclamation verification: confirming after automatic execution
   that the predicted bytes were actually freed, not only that the plan ran.
 - Filesystem-specific shared-storage inspectors for reflinks/extents, ZFS,
@@ -300,7 +339,7 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Cross-stack diagnostics, repair workflows, global search, and per-item
   timelines.
 - Quality-versus-storage-cost reasoning and upgrade/downgrade recommendations.
-- Webhook/event adapters where integrations expose useful reliable events.
+- Webhook/event adapters where services expose useful reliable events.
 
 ## Product direction
 

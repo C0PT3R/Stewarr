@@ -45,7 +45,7 @@ func TestServicesTemplateRendersEmptyState(t *testing.T) {
 	if err := renderTemplate(recorder, server.servicesTpl, servicesData{}); err != nil {
 		t.Fatalf("render services template: %v", err)
 	}
-	if !strings.Contains(recorder.Body.String(), "No integrations are configured yet") {
+	if !strings.Contains(recorder.Body.String(), "No services are configured yet") {
 		t.Fatalf("expected empty-state message, got:\n%s", recorder.Body.String())
 	}
 }

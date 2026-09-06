@@ -6,8 +6,8 @@ import (
 )
 
 type storageData struct {
-	Devices          []deviceView
-	IntegrationRoots map[string][]string
+	Devices      []deviceView
+	ServiceRoots map[string][]string
 }
 
 func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
@@ -21,8 +21,8 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
 	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
 	data := storageData{
-		Devices:          server.deviceViews(items, ts, planningReliable),
-		IntegrationRoots: server.inv.IntegrationRootPaths(),
+		Devices:      server.deviceViews(items, ts, planningReliable),
+		ServiceRoots: server.inv.ServiceRootPaths(),
 	}
 	if err := renderTemplate(w, server.storageTpl, data); err != nil {
 		log.Printf("[http] render storage: %v", err)

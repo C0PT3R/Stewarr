@@ -1,0 +1,36 @@
+<div class="removal-overlay">
+  <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="edit-service-title" tabindex="-1">
+    <div class="top">
+      <div>
+        <h2 id="edit-service-title">Edit service</h2>
+        <div class="muted">Connarr checks the connection before saving it. Moving it to a new URL keeps everything it already owns.</div>
+      </div>
+    </div>
+    <div class="removal-scroll">
+      <form data-background-submit method="post" action="/services/edit">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <div class="field-stack">
+          <label>Type<input value="{{.Type}}" disabled></label>
+          <label for="service-name">Name<input id="service-name" name="name" value="{{.Name}}" required></label>
+          <label for="service-url">URL<input id="service-url" name="url" type="url" value="{{.URL}}" required></label>
+          {{if eq .Type "qbittorrent"}}
+          <label for="service-username">Username<input id="service-username" name="username" value="{{.Username}}" autocomplete="off"></label>
+          <label for="service-password">Password<input id="service-password" name="password" type="password" value="{{.Password}}" autocomplete="off"></label>
+          {{else}}
+          <label for="service-api-key">API key<input id="service-api-key" name="api_key" type="password" value="{{.APIKey}}" autocomplete="off"></label>
+          {{end}}
+        </div>
+        <p data-modal-error hidden class="bad"></p>
+        <div class="actions">
+          <button type="button" data-overlay-cancel>Cancel</button>
+          <button type="submit">Save changes</button>
+        </div>
+      </form>
+      <form data-background-submit method="post" action="/services/remove">
+        <input type="hidden" name="id" value="{{.ID}}">
+        <p class="warn">Removing this service lets go of everything it currently owns — those files become Unmanaged.</p>
+        <button type="submit" class="trash">Remove service</button>
+      </form>
+    </div>
+  </main>
+</div>

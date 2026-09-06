@@ -11,15 +11,15 @@ import (
 	"connarr/internal/config"
 )
 
-func TestAddIntegrationPersistsAndActivatesLiveWithoutConfigPath(t *testing.T) {
+func TestAddServicePersistsAndActivatesLiveWithoutConfigPath(t *testing.T) {
 	service := New(config.Config{}, nil)
-	err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: "http://radarr:7878"})
+	err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: "http://radarr:7878"})
 	if err == nil {
-		t.Fatal("expected AddIntegration to fail when no config path is set")
+		t.Fatal("expected AddService to fail when no config path is set")
 	}
 }
 
-func TestAddIntegrationSucceedsAndActivatesClient(t *testing.T) {
+func TestAddServiceSucceedsAndActivatesClient(t *testing.T) {
 	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"version":"5.0.0"}`))
 	}))
@@ -36,8 +36,8 @@ func TestAddIntegrationSucceedsAndActivatesClient(t *testing.T) {
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
 
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}); err != nil {
-		t.Fatalf("AddIntegration failed: %v", err)
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}); err != nil {
+		t.Fatalf("AddService failed: %v", err)
 	}
 
 	// Persisted to disk.
@@ -45,8 +45,8 @@ func TestAddIntegrationSucceedsAndActivatesClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 1 || reloaded.Integrations[0].Name != "Movies" {
-		t.Fatalf("expected the integration to be persisted, got %#v", reloaded.Integrations)
+	if len(reloaded.Services) != 1 || reloaded.Services[0].Name != "Movies" {
+		t.Fatalf("expected the service to be persisted, got %#v", reloaded.Services)
 	}
 	if reloaded.Radarr.URL != radarrSrv.URL {
 		t.Fatalf("expected derived Radarr field to be persisted, got %#v", reloaded.Radarr)
@@ -56,20 +56,20 @@ func TestAddIntegrationSucceedsAndActivatesClient(t *testing.T) {
 	// subsequent status check should be able to reach the fake Radarr.
 	service.mu.RLock()
 	activeCfg := service.cfg
-	activeClient := service.rad[reloaded.Integrations[0].ID]
+	activeClient := service.rad[reloaded.Services[0].ID]
 	service.mu.RUnlock()
 	if activeCfg.Radarr.URL != radarrSrv.URL {
-		t.Fatalf("expected service.cfg to reflect the new integration live, got %#v", activeCfg.Radarr)
+		t.Fatalf("expected service.cfg to reflect the new service live, got %#v", activeCfg.Radarr)
 	}
 	if activeClient == nil {
-		t.Fatal("expected service.rad to be rebuilt with the new integration's client")
+		t.Fatal("expected service.rad to be rebuilt with the new service's client")
 	}
 	if err := activeClient.WithContext(context.Background()).Validate(); err != nil {
 		t.Fatalf("expected the newly activated client to reach the fake Radarr server, got %v", err)
 	}
 }
 
-func TestAddIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing.T) {
+func TestAddServiceRejectsFailedConnectionCheckWithoutPersisting(t *testing.T) {
 	brokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -86,16 +86,16 @@ func TestAddIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing.
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
 
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: brokenSrv.URL, APIKey: "bad"}); err == nil {
-		t.Fatal("expected a failing connection check to reject the integration")
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: brokenSrv.URL, APIKey: "bad"}); err == nil {
+		t.Fatal("expected a failing connection check to reject the service")
 	}
 
 	reloaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 0 {
-		t.Fatalf("expected nothing to be persisted after a failed connection check, got %#v", reloaded.Integrations)
+	if len(reloaded.Services) != 0 {
+		t.Fatalf("expected nothing to be persisted after a failed connection check, got %#v", reloaded.Services)
 	}
 	service.mu.RLock()
 	stillEmpty := service.cfg.Radarr.URL == ""
@@ -105,12 +105,12 @@ func TestAddIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing.
 	}
 }
 
-func TestAddIntegrationAllowsSecondRadarrInstanceAtRuntime(t *testing.T) {
+func TestAddServiceAllowsSecondRadarrInstanceAtRuntime(t *testing.T) {
 	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer radarrSrv.Close()
 
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"integrations":[{"type":"radarr","name":"Movies","url":"http://radarr:7878"}],"storage":{}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"services":[{"type":"radarr","name":"Movies","url":"http://radarr:7878"}],"storage":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	baseCfg, err := config.Load(configPath)
@@ -120,21 +120,21 @@ func TestAddIntegrationAllowsSecondRadarrInstanceAtRuntime(t *testing.T) {
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
 
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies 4K", URL: radarrSrv.URL}); err != nil {
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies 4K", URL: radarrSrv.URL}); err != nil {
 		t.Fatalf("expected a second radarr instance to be allowed at runtime, got %v", err)
 	}
 	reloaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 2 {
-		t.Fatalf("expected 2 integrations, got %#v", reloaded.Integrations)
+	if len(reloaded.Services) != 2 {
+		t.Fatalf("expected 2 services, got %#v", reloaded.Services)
 	}
 }
 
-func TestAddIntegrationRejectsSecondInstanceOfSingleInstanceTypeAtRuntime(t *testing.T) {
+func TestAddServiceRejectsSecondInstanceOfSingleInstanceTypeAtRuntime(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"integrations":[{"type":"jellyfin","name":"Jellyfin","url":"http://jellyfin:8096"}],"storage":{}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"services":[{"type":"jellyfin","name":"Jellyfin","url":"http://jellyfin:8096"}],"storage":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	baseCfg, err := config.Load(configPath)
@@ -144,12 +144,12 @@ func TestAddIntegrationRejectsSecondInstanceOfSingleInstanceTypeAtRuntime(t *tes
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
 
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "jellyfin", Name: "Jellyfin 2", URL: "http://jellyfin2:8096"}); err == nil {
+	if err := service.AddService(context.Background(), config.Service{Type: "jellyfin", Name: "Jellyfin 2", URL: "http://jellyfin2:8096"}); err == nil {
 		t.Fatal("expected a second jellyfin instance to be rejected at runtime, same as a static config would reject it")
 	}
 }
 
-func TestEditIntegrationMovesToNewURLPreservingIDAndActivatesLive(t *testing.T) {
+func TestEditServiceMovesToNewURLPreservingIDAndActivatesLive(t *testing.T) {
 	oldRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer oldRadarr.Close()
 	newRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
@@ -165,23 +165,23 @@ func TestEditIntegrationMovesToNewURLPreservingIDAndActivatesLive(t *testing.T) 
 	}
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: oldRadarr.URL, APIKey: "key"}); err != nil {
-		t.Fatalf("setup AddIntegration failed: %v", err)
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: oldRadarr.URL, APIKey: "key"}); err != nil {
+		t.Fatalf("setup AddService failed: %v", err)
 	}
 	service.mu.RLock()
-	originalID := service.cfg.Integrations[0].ID
+	originalID := service.cfg.Services[0].ID
 	service.mu.RUnlock()
 
-	if err := service.EditIntegration(context.Background(), originalID, config.Integration{Name: "Movies", URL: newRadarr.URL, APIKey: "newkey"}); err != nil {
-		t.Fatalf("EditIntegration failed: %v", err)
+	if err := service.EditService(context.Background(), originalID, config.Service{Name: "Movies", URL: newRadarr.URL, APIKey: "newkey"}); err != nil {
+		t.Fatalf("EditService failed: %v", err)
 	}
 
 	reloaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 1 || reloaded.Integrations[0].ID != originalID {
-		t.Fatalf("expected the same ID to survive the URL change, got %#v (want id %q)", reloaded.Integrations, originalID)
+	if len(reloaded.Services) != 1 || reloaded.Services[0].ID != originalID {
+		t.Fatalf("expected the same ID to survive the URL change, got %#v (want id %q)", reloaded.Services, originalID)
 	}
 	if reloaded.Radarr.URL != newRadarr.URL {
 		t.Fatalf("expected the persisted config to reflect the new URL, got %#v", reloaded.Radarr)
@@ -195,7 +195,7 @@ func TestEditIntegrationMovesToNewURLPreservingIDAndActivatesLive(t *testing.T) 
 	}
 }
 
-func TestEditIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing.T) {
+func TestEditServiceRejectsFailedConnectionCheckWithoutPersisting(t *testing.T) {
 	oldRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer oldRadarr.Close()
 	brokenRadarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
@@ -211,14 +211,14 @@ func TestEditIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing
 	}
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: oldRadarr.URL, APIKey: "key"}); err != nil {
-		t.Fatalf("setup AddIntegration failed: %v", err)
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: oldRadarr.URL, APIKey: "key"}); err != nil {
+		t.Fatalf("setup AddService failed: %v", err)
 	}
 	service.mu.RLock()
-	id := service.cfg.Integrations[0].ID
+	id := service.cfg.Services[0].ID
 	service.mu.RUnlock()
 
-	if err := service.EditIntegration(context.Background(), id, config.Integration{Name: "Movies", URL: brokenRadarr.URL, APIKey: "bad"}); err == nil {
+	if err := service.EditService(context.Background(), id, config.Service{Name: "Movies", URL: brokenRadarr.URL, APIKey: "bad"}); err == nil {
 		t.Fatal("expected a failing connection check on the new URL to reject the edit")
 	}
 
@@ -231,7 +231,7 @@ func TestEditIntegrationRejectsFailedConnectionCheckWithoutPersisting(t *testing
 	}
 }
 
-func TestRemoveIntegrationDeactivatesClientAndFallsBackToUnmanaged(t *testing.T) {
+func TestRemoveServiceDeactivatesClientAndFallsBackToUnmanaged(t *testing.T) {
 	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{}`)) }))
 	defer radarrSrv.Close()
 
@@ -245,29 +245,29 @@ func TestRemoveIntegrationDeactivatesClientAndFallsBackToUnmanaged(t *testing.T)
 	}
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
-	if err := service.AddIntegration(context.Background(), config.Integration{Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}); err != nil {
-		t.Fatalf("setup AddIntegration failed: %v", err)
+	if err := service.AddService(context.Background(), config.Service{Type: "radarr", Name: "Movies", URL: radarrSrv.URL, APIKey: "key"}); err != nil {
+		t.Fatalf("setup AddService failed: %v", err)
 	}
 	service.mu.RLock()
-	id := service.cfg.Integrations[0].ID
+	id := service.cfg.Services[0].ID
 	service.mu.RUnlock()
 
-	if err := service.RemoveIntegration(id); err != nil {
-		t.Fatalf("RemoveIntegration failed: %v", err)
+	if err := service.RemoveService(id); err != nil {
+		t.Fatalf("RemoveService failed: %v", err)
 	}
 
 	reloaded, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.Integrations) != 0 || reloaded.Radarr.URL != "" {
-		t.Fatalf("expected the integration and its derived field to be gone, got %#v / %#v", reloaded.Integrations, reloaded.Radarr)
+	if len(reloaded.Services) != 0 || reloaded.Radarr.URL != "" {
+		t.Fatalf("expected the service and its derived field to be gone, got %#v / %#v", reloaded.Services, reloaded.Radarr)
 	}
 
 	statuses := service.StatusSnapshot()
 	for _, status := range statuses {
 		if status.Name == "Movies" {
-			t.Fatalf("expected the removed integration's status entry to be cleared, got %#v", status)
+			t.Fatalf("expected the removed service's status entry to be cleared, got %#v", status)
 		}
 	}
 	// Radarr supports multiple instances, so a removed instance's client is
@@ -277,11 +277,11 @@ func TestRemoveIntegrationDeactivatesClientAndFallsBackToUnmanaged(t *testing.T)
 	_, stillPresent := service.rad[id]
 	service.mu.RUnlock()
 	if stillPresent {
-		t.Fatal("expected the removed integration's client to be deleted from service.rad")
+		t.Fatal("expected the removed service's client to be deleted from service.rad")
 	}
 }
 
-func TestRemoveIntegrationRejectsUnknownID(t *testing.T) {
+func TestRemoveServiceRejectsUnknownID(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(configPath, []byte(`{"storage":{}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -292,7 +292,7 @@ func TestRemoveIntegrationRejectsUnknownID(t *testing.T) {
 	}
 	service := New(baseCfg, nil)
 	service.SetConfigPath(configPath)
-	if err := service.RemoveIntegration("does-not-exist"); err == nil {
+	if err := service.RemoveService("does-not-exist"); err == nil {
 		t.Fatal("expected removing an unknown ID to fail")
 	}
 }

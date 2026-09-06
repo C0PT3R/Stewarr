@@ -11,6 +11,7 @@ export class ShellController extends window.Stimulus.Controller {
   onInput!: (event: Event) => void;
   onChange!: (event: Event) => void;
   onSubmit!: (event: Event) => void;
+  onFocusOut!: (event: FocusEvent) => void;
   onRevision!: (event: CustomEvent) => void;
   onApply!: () => void;
   onAccepted!: () => void;
@@ -22,6 +23,7 @@ export class ShellController extends window.Stimulus.Controller {
     this.onInput = event => this.filterInput(event);
     this.onChange = event => this.filterChange(event);
     this.onSubmit = event => this.submit(event);
+    this.onFocusOut = event => this.focusOut(event);
     this.onRevision = event => this.revision(event.detail || {});
     this.onApply = () => this.refreshFragments(true);
     this.onAccepted = () => this.refreshFragments(true);
@@ -29,6 +31,7 @@ export class ShellController extends window.Stimulus.Controller {
     document.addEventListener("input", this.onInput);
     document.addEventListener("change", this.onChange);
     document.addEventListener("submit", this.onSubmit);
+    document.addEventListener("focusout", this.onFocusOut);
     document.addEventListener("connarr:revision", this.onRevision as EventListener);
     document.addEventListener("connarr:apply-updates", this.onApply);
     document.addEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -39,6 +42,7 @@ export class ShellController extends window.Stimulus.Controller {
     document.removeEventListener("input", this.onInput);
     document.removeEventListener("change", this.onChange);
     document.removeEventListener("submit", this.onSubmit);
+    document.removeEventListener("focusout", this.onFocusOut);
     document.removeEventListener("connarr:revision", this.onRevision as EventListener);
     document.removeEventListener("connarr:apply-updates", this.onApply);
     document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -100,6 +104,11 @@ export class ShellController extends window.Stimulus.Controller {
       document.querySelectorAll<HTMLInputElement>(".unmanagedPick").forEach(input => { input.checked = all.checked; });
       this.syncUnmanagedSelection();
     }
+    const serviceTest = target.closest<HTMLElement>("[data-service-test]");
+    if (serviceTest) {
+      event.preventDefault();
+      this.testServiceConnection(serviceTest);
+    }
   }
 
   filterInput(event: Event): void {
@@ -112,8 +121,8 @@ export class ShellController extends window.Stimulus.Controller {
 
   filterChange(event: Event): void {
     const target = event.target as HTMLElement;
-    if (target.matches("[data-integration-type]")) {
-      this.syncIntegrationFields(target as HTMLSelectElement);
+    if (target.matches("[data-service-type]")) {
+      this.syncServiceFields(target as HTMLSelectElement);
       return;
     }
     if (target.matches(".unmanagedPick")) {
@@ -124,15 +133,15 @@ export class ShellController extends window.Stimulus.Controller {
     if (form) this.navigateList(this.formURL(form));
   }
 
-  // Each integration type only needs a subset of credential fields (an API
+  // Each service type only needs a subset of credential fields (an API
   // key, or a username+password, never both) — show only the ones that
-  // apply to whatever type is currently selected in the Add integration form.
-  syncIntegrationFields(select: HTMLSelectElement): void {
+  // apply to whatever type is currently selected in the Add service form.
+  syncServiceFields(select: HTMLSelectElement): void {
     const form = select.closest("form");
     if (!form) return;
     const type = select.value;
-    for (const field of form.querySelectorAll<HTMLElement>("[data-integration-field]")) {
-      const types = (field.dataset.integrationField || "").split(/\s+/);
+    for (const field of form.querySelectorAll<HTMLElement>("[data-service-field]")) {
+      const types = (field.dataset.serviceField || "").split(/\s+/);
       field.hidden = !types.includes(type);
     }
   }
@@ -147,7 +156,12 @@ export class ShellController extends window.Stimulus.Controller {
       this.openOverlay(url.href, form.querySelector("button[type=submit]") as HTMLElement);
       return;
     }
-    if (form.matches("[data-background-submit]")) {
+    // A service overlay's final save opens step 3 (the setup-progress view)
+    // instead of just closing, since saving always triggers a potentially
+    // long first inventory+file scan the user otherwise gets no feedback
+    // about at all.
+    const thenOverlayURL = form.dataset.backgroundSubmitThenOverlay;
+    if (form.matches("[data-background-submit], [data-background-submit-then-overlay]")) {
       event.preventDefault();
       const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
       if (button) button.disabled = true;
@@ -156,10 +170,14 @@ export class ShellController extends window.Stimulus.Controller {
       try {
         const response = await fetch(form.action, { method: form.method || "POST", body: new FormData(form) });
         if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-        const insideModal = form.closest("#removal-modal");
-        if (insideModal) {
-          insideModal.replaceChildren();
-          document.body.classList.remove("modal-open");
+        if (thenOverlayURL) {
+          this.openOverlay(thenOverlayURL, button || form);
+        } else {
+          const insideModal = form.closest("#removal-modal");
+          if (insideModal) {
+            insideModal.replaceChildren();
+            document.body.classList.remove("modal-open");
+          }
         }
         dispatchRevision({ kind: "operation" });
       } catch (error) {
@@ -172,6 +190,70 @@ export class ShellController extends window.Stimulus.Controller {
       } finally {
         if (button) button.disabled = false;
       }
+    }
+  }
+
+  // Step 1 of the service setup overlay: a live connection check with
+  // nothing saved yet. Only on success does step 2 (root path, device
+  // thresholds) become visible and the real "Add service" submit appear.
+  async testServiceConnection(button: HTMLElement): Promise<void> {
+    const form = button.closest("form");
+    if (!form) return;
+    const hint = form.closest(".removal-dialog")?.querySelector<HTMLElement>("[data-service-step-hint]");
+    const errorTarget = form.querySelector<HTMLElement>("[data-modal-error]");
+    if (errorTarget) errorTarget.hidden = true;
+    (button as HTMLButtonElement).disabled = true;
+    const originalLabel = button.textContent;
+    button.textContent = "Testing…";
+    try {
+      const response = await fetch("/services/test", { method: "POST", body: new FormData(form) });
+      if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+      const step2 = form.querySelector<HTMLElement>("[data-service-step2]");
+      if (step2) step2.hidden = false;
+      const submitButton = form.querySelector<HTMLElement>("[data-service-submit]");
+      if (submitButton) submitButton.hidden = false;
+      button.hidden = true;
+      if (hint) hint.textContent = "Connection verified. Set a root path and save to finish.";
+    } catch (error) {
+      if (errorTarget) {
+        errorTarget.textContent = (error as Error).message;
+        errorTarget.hidden = false;
+      } else {
+        announce(`Connection test failed: ${(error as Error).message}`);
+      }
+    } finally {
+      (button as HTMLButtonElement).disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
+
+  focusOut(event: FocusEvent): void {
+    const target = event.target as HTMLElement;
+    if (target.matches("[data-service-root-path]")) {
+      this.lookupDeviceForPath(target as HTMLInputElement);
+    }
+  }
+
+  // Prefills step 2's threshold fields from whatever device the entered
+  // root path resolves to (an existing device's current thresholds, or the
+  // 90/95 defaults for a brand-new one) so the user isn't guessing values
+  // for a device Connarr already knows about.
+  async lookupDeviceForPath(input: HTMLInputElement): Promise<void> {
+    const path = input.value.trim();
+    const form = input.closest("form");
+    if (!path || !form) return;
+    const hint = form.querySelector<HTMLElement>("[data-service-device-hint]");
+    try {
+      const response = await fetch(`/services/device-for-path?path=${encodeURIComponent(path)}`);
+      if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+      const data = await response.json();
+      const target = form.querySelector<HTMLInputElement>("#service-target-percent");
+      const critical = form.querySelector<HTMLInputElement>("#service-critical-percent");
+      if (target) target.value = String(data.targetUsagePercent);
+      if (critical) critical.value = String(data.criticalUsagePercent);
+      if (hint) hint.textContent = data.isNewDevice ? "New device — using default thresholds." : "Matches an existing device — showing its current thresholds.";
+    } catch (_) {
+      if (hint) hint.textContent = "";
     }
   }
 
@@ -234,6 +316,7 @@ export class ShellController extends window.Stimulus.Controller {
   }
 
   revision(detail: Record<string, unknown>): void {
+    this.refreshWizardProgress();
     const kind = String(detail.kind || "background");
     const urgent = /mutation|operation|removal|failure/.test(kind);
     const stable = document.querySelector('[data-live-policy="stable-list"]');
@@ -244,6 +327,32 @@ export class ShellController extends window.Stimulus.Controller {
       return;
     }
     this.refreshFragments(urgent);
+  }
+
+  // Step 3 of the service setup overlay has no push mechanism of its own —
+  // it piggybacks on the SSE revision stream that already fires on every
+  // task-manager change (including this workflow's own step advances), and
+  // just re-fetches the current status on each tick, in place, without a
+  // full fragment re-render.
+  async refreshWizardProgress(): Promise<void> {
+    const root = document.querySelector("[data-wizard-progress]");
+    if (!root) return;
+    try {
+      const response = await fetch("/services/consistency-status");
+      if (!response.ok) return;
+      const status = await response.json();
+      const label = root.querySelector<HTMLElement>("[data-wizard-progress-label]");
+      const fill = root.querySelector<HTMLElement>(".wizard-progress-bar-fill");
+      if (label) {
+        label.textContent = status.state === "succeeded" || status.state === "attention"
+          ? "Done."
+          : `Step ${status.currentStep + 1} of ${status.totalSteps}: ${status.stepLabel || "Working…"}`;
+      }
+      if (fill) fill.classList.toggle("done", status.state === "succeeded" || status.state === "attention");
+    } catch (_) {
+      // A failed status poll leaves the last-known label in place; the next
+      // revision tick tries again.
+    }
   }
 
   refreshFragments(force: boolean): void {
@@ -271,6 +380,7 @@ export class ShellController extends window.Stimulus.Controller {
       if (!response.ok) throw new Error(content.trim() || `status ${response.status}`);
       root.innerHTML = content;
       window.htmx.process(root);
+      this.refreshWizardProgress();
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;

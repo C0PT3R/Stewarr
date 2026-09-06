@@ -48,12 +48,12 @@ type HistoryEvent struct {
 }
 
 type ImportEvent struct {
-	Source        string
-	IntegrationID string
-	OwnerID       int
-	SubID         int
-	DownloadID    string
-	ImportedAt    time.Time
+	Source     string
+	ServiceID  string
+	OwnerID    int
+	SubID      int
+	DownloadID string
+	ImportedAt time.Time
 }
 
 func Open(path string) (*Store, error) {
@@ -80,20 +80,20 @@ func Open(path string) (*Store, error) {
 		`PRAGMA synchronous=NORMAL;`,
 		`PRAGMA busy_timeout=5000;`,
 		`CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS media (kind TEXT NOT NULL, source_id INTEGER NOT NULL, integration_id TEXT NOT NULL DEFAULT '', payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(kind,source_id,integration_id));`,
+		`CREATE TABLE IF NOT EXISTS media (kind TEXT NOT NULL, source_id INTEGER NOT NULL, service_id TEXT NOT NULL DEFAULT '', payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(kind,source_id,service_id));`,
 		`CREATE TABLE IF NOT EXISTS torrents (client TEXT NOT NULL, hash TEXT NOT NULL, payload BLOB NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(client,hash));`,
 		`CREATE TABLE IF NOT EXISTS unmanaged_files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
 		`CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, payload BLOB NOT NULL, updated_at TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(kind,source_id,source,source_file_id));`,
+		`CREATE TABLE IF NOT EXISTS media_files (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, path TEXT NOT NULL, service_id TEXT NOT NULL DEFAULT '', service_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(kind,source_id,source,source_file_id));`,
 		`CREATE INDEX IF NOT EXISTS idx_media_files_media ON media_files(kind,source_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_media_files_path ON media_files(path);`,
 		`CREATE TABLE IF NOT EXISTS media_file_parts (kind TEXT NOT NULL, source_id INTEGER NOT NULL, source TEXT NOT NULL, source_file_id INTEGER NOT NULL, part_group TEXT NOT NULL DEFAULT '', part_label TEXT NOT NULL DEFAULT '', part_order INTEGER NOT NULL DEFAULT 0, source_part_id INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(kind,source_id,source,source_file_id,source_part_id));`,
 		`CREATE INDEX IF NOT EXISTS idx_media_file_parts_file ON media_file_parts(kind,source_id,source,source_file_id);`,
-		`CREATE TABLE IF NOT EXISTS torrent_files (client TEXT NOT NULL, hash TEXT NOT NULL, file_index INTEGER NOT NULL, path TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', integration_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(client,hash,file_index));`,
+		`CREATE TABLE IF NOT EXISTS torrent_files (client TEXT NOT NULL, hash TEXT NOT NULL, file_index INTEGER NOT NULL, path TEXT NOT NULL, service_id TEXT NOT NULL DEFAULT '', service_name TEXT NOT NULL DEFAULT '', PRIMARY KEY(client,hash,file_index));`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_hash ON torrent_files(client,hash);`,
 		`CREATE INDEX IF NOT EXISTS idx_torrent_files_path ON torrent_files(path);`,
-		`CREATE TABLE IF NOT EXISTS arr_imports (source TEXT NOT NULL, owner_id INTEGER NOT NULL, sub_id INTEGER NOT NULL DEFAULT 0, download_id TEXT NOT NULL, imported_at TEXT NOT NULL, integration_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source,integration_id,owner_id,sub_id,download_id,imported_at));`,
-		`CREATE INDEX IF NOT EXISTS idx_arr_imports_source_owner ON arr_imports(source,integration_id,owner_id,sub_id,imported_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS arr_imports (source TEXT NOT NULL, owner_id INTEGER NOT NULL, sub_id INTEGER NOT NULL DEFAULT 0, download_id TEXT NOT NULL, imported_at TEXT NOT NULL, service_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source,service_id,owner_id,sub_id,download_id,imported_at));`,
+		`CREATE INDEX IF NOT EXISTS idx_arr_imports_source_owner ON arr_imports(source,service_id,owner_id,sub_id,imported_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_arr_imports_hash ON arr_imports(download_id);`,
 		`CREATE TABLE IF NOT EXISTS history_events (id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL, status TEXT NOT NULL, dry_run INTEGER NOT NULL DEFAULT 1, requested_kind TEXT NOT NULL DEFAULT '', requested_key TEXT NOT NULL DEFAULT '', requested_label TEXT NOT NULL DEFAULT '', reclaimable_bytes INTEGER NOT NULL DEFAULT 0, payload BLOB NOT NULL DEFAULT '{}', error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);`,
 		`CREATE INDEX IF NOT EXISTS idx_history_events_created ON history_events(created_at DESC);`,
@@ -108,12 +108,12 @@ func Open(path string) (*Store, error) {
 		}
 	}
 	for _, migration := range []struct{ table, column, definition string }{
-		{"media_files", "integration_id", "TEXT NOT NULL DEFAULT ''"},
-		{"media_files", "integration_name", "TEXT NOT NULL DEFAULT ''"},
-		{"torrent_files", "integration_id", "TEXT NOT NULL DEFAULT ''"},
-		{"torrent_files", "integration_name", "TEXT NOT NULL DEFAULT ''"},
+		{"media_files", "service_id", "TEXT NOT NULL DEFAULT ''"},
+		{"media_files", "service_name", "TEXT NOT NULL DEFAULT ''"},
+		{"torrent_files", "service_id", "TEXT NOT NULL DEFAULT ''"},
+		{"torrent_files", "service_name", "TEXT NOT NULL DEFAULT ''"},
 		{"history_events", "media_bytes", "INTEGER NOT NULL DEFAULT 0"},
-		{"arr_imports", "integration_id", "TEXT NOT NULL DEFAULT ''"},
+		{"arr_imports", "service_id", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := s.ensureColumn(migration.table, migration.column, migration.definition); err != nil {
 			s.Close()
@@ -304,7 +304,7 @@ func (s *Store) saveMedia(items []model.Media) error {
 	if err := s.exec("DELETE FROM media"); err != nil {
 		return err
 	}
-	st, e := s.prepare(`INSERT INTO media(kind,source_id,integration_id,payload,updated_at) VALUES(?,?,?,?,?)`)
+	st, e := s.prepare(`INSERT INTO media(kind,source_id,service_id,payload,updated_at) VALUES(?,?,?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -319,7 +319,7 @@ func (s *Store) saveMedia(items []model.Media) error {
 		C.sqlite3_clear_bindings(st)
 		bindText(st, 1, string(m.Type))
 		bindInt(st, 2, int64(m.SourceID))
-		bindText(st, 3, m.IntegrationID)
+		bindText(st, 3, m.ServiceID)
 		bindText(st, 4, string(b))
 		bindText(st, 5, now)
 		if e := stepDone(s, st); e != nil {
@@ -462,7 +462,7 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 			_ = s.exec("ROLLBACK")
 		}
 	}()
-	st, e := s.prepare(`INSERT OR IGNORE INTO arr_imports(source,owner_id,sub_id,download_id,imported_at,integration_id) VALUES(?,?,?,?,?,?)`)
+	st, e := s.prepare(`INSERT OR IGNORE INTO arr_imports(source,owner_id,sub_id,download_id,imported_at,service_id) VALUES(?,?,?,?,?,?)`)
 	if e != nil {
 		return e
 	}
@@ -475,7 +475,7 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 		bindInt(st, 3, int64(x.SubID))
 		bindText(st, 4, strings.ToLower(strings.TrimSpace(x.DownloadID)))
 		bindText(st, 5, x.ImportedAt.UTC().Format(time.RFC3339Nano))
-		bindText(st, 6, x.IntegrationID)
+		bindText(st, 6, x.ServiceID)
 		if e := stepDone(s, st); e != nil {
 			return e
 		}
@@ -487,20 +487,20 @@ func (s *Store) AddImportEvents(events []ImportEvent) error {
 	return nil
 }
 
-// ImportEvents returns import history for one integration instance of
-// source ("radarr"/"sonarr"). integrationID disambiguates movie/series IDs
+// ImportEvents returns import history for one service instance of
+// source ("radarr"/"sonarr"). serviceID disambiguates movie/series IDs
 // across multiple configured instances of the same type; pass "" to match
 // only pre-multi-instance rows persisted before this column existed.
-func (s *Store) ImportEvents(source, integrationID string) ([]ImportEvent, error) {
+func (s *Store) ImportEvents(source, serviceID string) ([]ImportEvent, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT owner_id,sub_id,download_id,imported_at FROM arr_imports WHERE source=? AND integration_id=? ORDER BY imported_at DESC`)
+	st, e := s.prepare(`SELECT owner_id,sub_id,download_id,imported_at FROM arr_imports WHERE source=? AND service_id=? ORDER BY imported_at DESC`)
 	if e != nil {
 		return nil, e
 	}
 	defer C.sqlite3_finalize(st)
 	bindText(st, 1, source)
-	bindText(st, 2, integrationID)
+	bindText(st, 2, serviceID)
 	var out []ImportEvent
 	for {
 		rc := C.sqlite3_step(st)
@@ -511,7 +511,7 @@ func (s *Store) ImportEvents(source, integrationID string) ([]ImportEvent, error
 			return nil, s.err(rc)
 		}
 		t, _ := time.Parse(time.RFC3339Nano, colText(st, 3))
-		out = append(out, ImportEvent{Source: source, IntegrationID: integrationID, OwnerID: int(C.sqlite3_column_int64(st, 0)), SubID: int(C.sqlite3_column_int64(st, 1)), DownloadID: colText(st, 2), ImportedAt: t})
+		out = append(out, ImportEvent{Source: source, ServiceID: serviceID, OwnerID: int(C.sqlite3_column_int64(st, 0)), SubID: int(C.sqlite3_column_int64(st, 1)), DownloadID: colText(st, 2), ImportedAt: t})
 	}
 	return out, nil
 }
@@ -763,7 +763,7 @@ func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 			return err
 		}
 	}
-	mst, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,integration_id,integration_name) VALUES(?,?,?,?,?,?,?)`)
+	mst, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,service_id,service_name) VALUES(?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -781,8 +781,8 @@ func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 		bindText(mst, 3, r.Source)
 		bindInt(mst, 4, int64(r.SourceFileID))
 		bindText(mst, 5, filepath.Clean(r.Path))
-		bindText(mst, 6, r.IntegrationID)
-		bindText(mst, 7, r.IntegrationName)
+		bindText(mst, 6, r.ServiceID)
+		bindText(mst, 7, r.ServiceName)
 		if err := stepDone(s, mst); err != nil {
 			return err
 		}
@@ -802,7 +802,7 @@ func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 			}
 		}
 	}
-	tst, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,integration_id,integration_name) VALUES(?,?,?,?,?,?)`)
+	tst, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,service_id,service_name) VALUES(?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
@@ -814,8 +814,8 @@ func (s *Store) replaceFiles(files []model.File, mediaRefs []model.MediaFileRef,
 		bindText(tst, 2, strings.ToLower(r.Hash))
 		bindInt(tst, 3, int64(r.FileIndex))
 		bindText(tst, 4, filepath.Clean(r.Path))
-		bindText(tst, 5, r.IntegrationID)
-		bindText(tst, 6, r.IntegrationName)
+		bindText(tst, 5, r.ServiceID)
+		bindText(tst, 6, r.ServiceName)
 		if err := stepDone(s, tst); err != nil {
 			return err
 		}
@@ -960,7 +960,7 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 				}
 			}
 		}
-		mediaStatement, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,integration_id,integration_name) VALUES(?,?,?,?,?,?,?)`)
+		mediaStatement, err := s.prepare(`INSERT INTO media_files(kind,source_id,source,source_file_id,path,service_id,service_name) VALUES(?,?,?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
@@ -978,8 +978,8 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 			bindText(mediaStatement, 3, ref.Source)
 			bindInt(mediaStatement, 4, int64(ref.SourceFileID))
 			bindText(mediaStatement, 5, filepath.Clean(ref.Path))
-			bindText(mediaStatement, 6, ref.IntegrationID)
-			bindText(mediaStatement, 7, ref.IntegrationName)
+			bindText(mediaStatement, 6, ref.ServiceID)
+			bindText(mediaStatement, 7, ref.ServiceName)
 			if err := stepDone(s, mediaStatement); err != nil {
 				return err
 			}
@@ -1012,7 +1012,7 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 				return err
 			}
 		}
-		insertTorrentFile, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,integration_id,integration_name) VALUES(?,?,?,?,?,?)`)
+		insertTorrentFile, err := s.prepare(`INSERT INTO torrent_files(client,hash,file_index,path,service_id,service_name) VALUES(?,?,?,?,?,?)`)
 		if err != nil {
 			return err
 		}
@@ -1024,8 +1024,8 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 			bindText(insertTorrentFile, 2, strings.ToLower(ref.Hash))
 			bindInt(insertTorrentFile, 3, int64(ref.FileIndex))
 			bindText(insertTorrentFile, 4, filepath.Clean(ref.Path))
-			bindText(insertTorrentFile, 5, ref.IntegrationID)
-			bindText(insertTorrentFile, 6, ref.IntegrationName)
+			bindText(insertTorrentFile, 5, ref.ServiceID)
+			bindText(insertTorrentFile, 6, ref.ServiceName)
 			if err := stepDone(s, insertTorrentFile); err != nil {
 				return err
 			}
@@ -1055,7 +1055,7 @@ func (s *Store) PublishReconciliationDelta(delta ReconciliationDelta) error {
 }
 
 // PublishInventory atomically advances every configured qBittorrent
-// instance's incremental cursor (keyed by integration ID, since each
+// instance's incremental cursor (keyed by service ID, since each
 // instance has its own independent sync stream) with the Media and Torrent
 // snapshot to which they belong. Replaying an old RID is safe; advancing it
 // without its snapshot is not.
@@ -1066,11 +1066,11 @@ func (s *Store) PublishInventory(generation uint64, torrentRIDs map[string]int64
 		if err := s.saveTorrents(torrents); err != nil {
 			return err
 		}
-		for integrationID, rid := range torrentRIDs {
+		for serviceID, rid := range torrentRIDs {
 			if rid == 0 {
 				continue
 			}
-			if err := s.setMeta("qbittorrent."+integrationID+".rid", strconv.FormatInt(rid, 10)); err != nil {
+			if err := s.setMeta("qbittorrent."+serviceID+".rid", strconv.FormatInt(rid, 10)); err != nil {
 				return err
 			}
 		}
@@ -1120,7 +1120,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 	}
 	C.sqlite3_finalize(st)
 	var mr []model.MediaFileRef
-	st, err = s.prepare(`SELECT kind,source_id,source,source_file_id,path,integration_id,integration_name FROM media_files ORDER BY kind,source_id,path`)
+	st, err = s.prepare(`SELECT kind,source_id,source,source_file_id,path,service_id,service_name FROM media_files ORDER BY kind,source_id,path`)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, err
 	}
@@ -1133,7 +1133,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 			C.sqlite3_finalize(st)
 			return nil, nil, nil, time.Time{}, s.err(rc)
 		}
-		mr = append(mr, model.MediaFileRef{MediaType: model.MediaType(colText(st, 0)), MediaID: int(C.sqlite3_column_int64(st, 1)), Source: colText(st, 2), SourceFileID: int(C.sqlite3_column_int64(st, 3)), Path: colText(st, 4), IntegrationID: colText(st, 5), IntegrationName: colText(st, 6)})
+		mr = append(mr, model.MediaFileRef{MediaType: model.MediaType(colText(st, 0)), MediaID: int(C.sqlite3_column_int64(st, 1)), Source: colText(st, 2), SourceFileID: int(C.sqlite3_column_int64(st, 3)), Path: colText(st, 4), ServiceID: colText(st, 5), ServiceName: colText(st, 6)})
 	}
 	C.sqlite3_finalize(st)
 	partsByFile := map[string][]model.MediaFilePart{}
@@ -1159,7 +1159,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 		mr[i].Parts = append([]model.MediaFilePart(nil), partsByFile[key]...)
 	}
 	var tr []model.TorrentFileRef
-	st, err = s.prepare(`SELECT client,hash,file_index,path,integration_id,integration_name FROM torrent_files ORDER BY client,hash,file_index`)
+	st, err = s.prepare(`SELECT client,hash,file_index,path,service_id,service_name FROM torrent_files ORDER BY client,hash,file_index`)
 	if err != nil {
 		return nil, nil, nil, time.Time{}, err
 	}
@@ -1172,7 +1172,7 @@ func (s *Store) LoadFiles() ([]model.File, []model.MediaFileRef, []model.Torrent
 			C.sqlite3_finalize(st)
 			return nil, nil, nil, time.Time{}, s.err(rc)
 		}
-		tr = append(tr, model.TorrentFileRef{Client: colText(st, 0), Hash: colText(st, 1), FileIndex: int(C.sqlite3_column_int64(st, 2)), Path: colText(st, 3), IntegrationID: colText(st, 4), IntegrationName: colText(st, 5)})
+		tr = append(tr, model.TorrentFileRef{Client: colText(st, 0), Hash: colText(st, 1), FileIndex: int(C.sqlite3_column_int64(st, 2)), Path: colText(st, 3), ServiceID: colText(st, 4), ServiceName: colText(st, 5)})
 	}
 	C.sqlite3_finalize(st)
 	ts, _ := s.meta("files.updated_at")

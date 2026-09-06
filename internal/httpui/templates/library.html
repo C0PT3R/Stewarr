@@ -61,7 +61,7 @@
           {{range .Rows}}{{$m:=.Media}}
           <tr>
             <td>
-              <a data-list-item-link href="/library/{{$m.Type}}/{{$m.SourceID}}?integration_id={{$m.IntegrationID}}">{{$m.Title}} {{if $m.Year}}({{$m.Year}}){{end}}</a>
+              <a data-list-item-link href="/library/{{$m.Type}}/{{$m.SourceID}}?service_id={{$m.ServiceID}}">{{$m.Title}} {{if $m.Year}}({{$m.Year}}){{end}}</a>
             </td>
             <td class=value>{{printf "%.1f" $m.RetentionValue}}</td>
             <td>{{$m.Type}}</td>
@@ -73,7 +73,7 @@
             <td>{{human $m.SizeBytes}}</td>
             <td>{{len $m.Torrents}}</td>
             <td>
-              {{if .Removable}}<button class=trash title="Remove" data-removal-url="/removal/media?type={{$m.Type}}&id={{$m.SourceID}}&integration_id={{$m.IntegrationID}}">🗑</button>{{else}}<button class=trash disabled title="No files to remove">🗑</button>{{end}}
+              {{if .Removable}}<button class=trash title="Remove" data-removal-url="/removal/media?type={{$m.Type}}&id={{$m.SourceID}}&service_id={{$m.ServiceID}}">🗑</button>{{else}}<button class=trash disabled title="No files to remove">🗑</button>{{end}}
             </td>
           </tr>
           {{else}}

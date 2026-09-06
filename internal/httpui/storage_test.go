@@ -10,7 +10,7 @@ import (
 	"connarr/internal/model"
 )
 
-func TestStorageTemplateRendersPerIntegrationDetailAndRootPaths(t *testing.T) {
+func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +21,7 @@ func TestStorageTemplateRendersPerIntegrationDetailAndRootPaths(t *testing.T) {
 				Storage: inventory.StorageDevice{
 					RootLabels: []string{"downloads", "movies"}, RepresentativePath: "/data/movies", Filesystem: "ext2/ext3/ext4",
 					Available: true, TotalBytes: 1000, FreeBytes: 400, UsedBytes: 600,
-					Claimed:        []inventory.ClaimedSegment{{Integration: "Movies", Bytes: 500}},
+					Claimed:        []inventory.ClaimedSegment{{Service: "Movies", Bytes: 500}},
 					UnmanagedBytes: 50, OtherBytes: 50,
 				},
 				Plan: cleanup.Plan{Available: true, UsagePercent: 60, TargetUsagePercent: 90, Message: "No cleanup: 60.00% used (target 90.0%)"},
@@ -30,7 +30,7 @@ func TestStorageTemplateRendersPerIntegrationDetailAndRootPaths(t *testing.T) {
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/broken", Available: false, Error: "permission denied"},
 			},
 		},
-		IntegrationRoots: map[string][]string{"Movies": {"/data/movies", "/data/movies-4k"}},
+		ServiceRoots: map[string][]string{"Movies": {"/data/movies", "/data/movies-4k"}},
 	}
 	recorder := httptest.NewRecorder()
 	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {

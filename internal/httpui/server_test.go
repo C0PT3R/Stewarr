@@ -398,7 +398,7 @@ func TestTasksTemplateRenders(t *testing.T) {
 	}
 }
 
-func TestTaskGroupsHidesUnconfiguredIntegrations(t *testing.T) {
+func TestTaskGroupsHidesUnconfiguredServices(t *testing.T) {
 	all := []tasks.Status{
 		{ID: "inventory", Name: "Base inventory"},
 		{ID: "files", Name: "File reconciliation"},
@@ -411,7 +411,7 @@ func TestTaskGroupsHidesUnconfiguredIntegrations(t *testing.T) {
 	server := &Server{inv: inventory.New(config.Config{}, nil)}
 	groups := server.taskGroups(all)
 	if len(groups) != 1 || groups[0].Name != "Library & Storage" {
-		t.Fatalf("expected only the core group with neither integration configured, got %#v", groups)
+		t.Fatalf("expected only the core group with neither service configured, got %#v", groups)
 	}
 	if len(groups[0].Tasks) != 4 {
 		t.Fatalf("expected all four core tasks grouped together, got %#v", groups[0].Tasks)

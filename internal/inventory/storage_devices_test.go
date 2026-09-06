@@ -43,13 +43,13 @@ func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T)
 	service := New(config.Config{}, nil)
 	service.mu.Lock()
 	service.files = files
-	service.mediaFileRefs = []model.MediaFileRef{{IntegrationName: "Movies", MediaType: model.Movie, MediaID: 1, Path: managed}}
+	service.mediaFileRefs = []model.MediaFileRef{{ServiceName: "Movies", MediaType: model.Movie, MediaID: 1, Path: managed}}
 	service.torrentFileRefs = []model.TorrentFileRef{
-		{IntegrationName: "Downloader", Hash: "abc", Path: shared},
+		{ServiceName: "Downloader", Hash: "abc", Path: shared},
 	}
 	service.storageRoots = []storageRoot{
-		{Path: radarrRoot, Integration: config.Integration{ID: "radarr", Name: "Movies"}, Label: "movies"},
-		{Path: qbRoot, Integration: config.Integration{ID: "qbittorrent", Name: "Downloader"}, Label: "downloads"},
+		{Path: radarrRoot, Service: config.Service{ID: "radarr", Name: "Movies"}, Label: "movies"},
+		{Path: qbRoot, Service: config.Service{ID: "qbittorrent", Name: "Downloader"}, Label: "downloads"},
 	}
 	service.mu.Unlock()
 
@@ -61,7 +61,7 @@ func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T)
 	if len(device.RootLabels) != 2 || device.RootLabels[0] != "downloads" || device.RootLabels[1] != "movies" {
 		t.Fatalf("expected both root labels sorted, got %#v", device.RootLabels)
 	}
-	if len(device.Claimed) != 1 || device.Claimed[0].Integration != "Movies" || device.Claimed[0].Bytes != uint64(len("managed content")) {
+	if len(device.Claimed) != 1 || device.Claimed[0].Service != "Movies" || device.Claimed[0].Bytes != uint64(len("managed content")) {
 		t.Fatalf("expected the hardlinked file counted once under its media owner, got %#v", device.Claimed)
 	}
 	if device.UnmanagedBytes != uint64(len("leftover data!!")) {
@@ -110,11 +110,11 @@ func TestTorrentsByDeviceResolvesFromItsOwnFilesNotItsMedia(t *testing.T) {
 	service := New(config.Config{}, nil)
 	service.mu.Lock()
 	service.files = files
-	service.mediaFileRefs = []model.MediaFileRef{{IntegrationName: "Movies", MediaType: model.Movie, MediaID: 1, Path: managed}}
-	service.torrentFileRefs = []model.TorrentFileRef{{IntegrationName: "Downloader", Hash: "abc", Path: copyPath}}
+	service.mediaFileRefs = []model.MediaFileRef{{ServiceName: "Movies", MediaType: model.Movie, MediaID: 1, Path: managed}}
+	service.torrentFileRefs = []model.TorrentFileRef{{ServiceName: "Downloader", Hash: "abc", Path: copyPath}}
 	service.storageRoots = []storageRoot{
-		{Path: radarrRoot, Integration: config.Integration{ID: "radarr", Name: "Movies"}, Label: "movies"},
-		{Path: qbRoot, Integration: config.Integration{ID: "qbittorrent", Name: "Downloader"}, Label: "downloads"},
+		{Path: radarrRoot, Service: config.Service{ID: "radarr", Name: "Movies"}, Label: "movies"},
+		{Path: qbRoot, Service: config.Service{ID: "qbittorrent", Name: "Downloader"}, Label: "downloads"},
 	}
 	service.mu.Unlock()
 
@@ -135,18 +135,18 @@ func TestTorrentsByDeviceResolvesFromItsOwnFilesNotItsMedia(t *testing.T) {
 	// land in that device's own plan instead of leaking into its media's.
 }
 
-func TestIntegrationRootPathsGroupsByIntegrationNameAndDedupes(t *testing.T) {
+func TestServiceRootPathsGroupsByServiceNameAndDedupes(t *testing.T) {
 	service := New(config.Config{}, nil)
 	service.mu.Lock()
 	service.storageRoots = []storageRoot{
-		{Path: "/data/movies", Integration: config.Integration{ID: "radarr", Name: "Movies"}},
-		{Path: "/data/movies-4k", Integration: config.Integration{ID: "radarr", Name: "Movies"}},
-		{Path: "/data/movies", Integration: config.Integration{ID: "radarr", Name: "Movies"}}, // duplicate, must not double up
-		{Path: "/data/downloads", Integration: config.Integration{ID: "qbittorrent", Name: "Downloader"}},
+		{Path: "/data/movies", Service: config.Service{ID: "radarr", Name: "Movies"}},
+		{Path: "/data/movies-4k", Service: config.Service{ID: "radarr", Name: "Movies"}},
+		{Path: "/data/movies", Service: config.Service{ID: "radarr", Name: "Movies"}}, // duplicate, must not double up
+		{Path: "/data/downloads", Service: config.Service{ID: "qbittorrent", Name: "Downloader"}},
 	}
 	service.mu.Unlock()
 
-	roots := service.IntegrationRootPaths()
+	roots := service.ServiceRootPaths()
 	if got := roots["Movies"]; len(got) != 2 || got[0] != "/data/movies" || got[1] != "/data/movies-4k" {
 		t.Fatalf("unexpected Movies roots: %#v", got)
 	}
@@ -154,7 +154,7 @@ func TestIntegrationRootPathsGroupsByIntegrationNameAndDedupes(t *testing.T) {
 		t.Fatalf("unexpected Downloader roots: %#v", got)
 	}
 	if len(roots) != 2 {
-		t.Fatalf("expected exactly 2 integrations, got %#v", roots)
+		t.Fatalf("expected exactly 2 services, got %#v", roots)
 	}
 }
 
@@ -165,5 +165,62 @@ func TestStorageDevicesEmptyWhenNoRootsKnown(t *testing.T) {
 	}
 	if paths := service.KnownStorageDevicePaths(); len(paths) != 0 {
 		t.Fatalf("expected no known device paths, got %#v", paths)
+	}
+}
+
+func TestDeviceForPathResolvesExistingDeviceOrReportsNew(t *testing.T) {
+	root := t.TempDir()
+	existingRoot := filepath.Join(root, "movies")
+	if err := os.MkdirAll(existingRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A second path on the very same physical device as existingRoot (both
+	// under root, one filesystem in a test's TempDir) but not itself a known
+	// root — this is the "not-yet-saved service's RootPath" case.
+	sameDeviceNewPath := filepath.Join(root, "downloads")
+	if err := os.MkdirAll(sameDeviceNewPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	service := New(config.Config{}, nil)
+	service.mu.Lock()
+	service.storageRoots = []storageRoot{
+		{Path: existingRoot, Service: config.Service{ID: "radarr", Name: "Movies"}},
+	}
+	service.mu.Unlock()
+
+	representative, isNew, err := service.DeviceForPath(sameDeviceNewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isNew {
+		t.Fatalf("expected sameDeviceNewPath to resolve to the existing device, got isNewDevice=true representative=%q", representative)
+	}
+	if representative != existingRoot {
+		t.Fatalf("expected the existing group's representative %q, got %q", existingRoot, representative)
+	}
+
+	representative, isNew, err = service.DeviceForPath(existingRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isNew || representative != existingRoot {
+		t.Fatalf("expected the known root itself to resolve to its own representative, got representative=%q isNew=%v", representative, isNew)
+	}
+
+	if _, _, err := service.DeviceForPath(filepath.Join(root, "does-not-exist")); err == nil {
+		t.Fatal("expected an error for a path that does not exist")
+	}
+
+	// With no known roots at all, any real path is a brand-new device —
+	// representative is the path itself, since it will become that device's
+	// own first known root once the service is saved.
+	freshService := New(config.Config{}, nil)
+	representative, isNew, err = freshService.DeviceForPath(existingRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isNew || representative != existingRoot {
+		t.Fatalf("expected a brand-new device with no known roots, got representative=%q isNew=%v", representative, isNew)
 	}
 }

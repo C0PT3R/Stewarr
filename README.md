@@ -1,6 +1,6 @@
 # Connarr
 
-> **0.2.10 storage devices:** There is no configured global storage path. Connarr derives known storage devices from the roots each integration already discovers on its own, and Home shows one usage graphic per device broken down by which integration's files occupy it.
+> **0.2.10 storage devices:** There is no configured global storage path. Connarr derives known storage devices from the roots each service already discovers on its own, and Home shows one usage graphic per device broken down by which service's files occupy it.
 
 > **0.2.9 scheduler rewrite:** Background and mutation work now runs on a durable, domain-neutral engine with trigger/execution identity, coverage-aware coalescing, resource arbitration, and workflow-driven post-removal consistency. See `Scheduler-Spec.md` for the full contract.
 
@@ -10,16 +10,16 @@
 
 Connarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Retention Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
 
-Connarr does not try to replace the applications it integrates with. Integrations provide facts; Connarr provides context across them.
+Connarr does not try to replace the applications it integrates with. Services provide facts; Connarr provides context across them.
 
 ## Current version
 
 `0.2.10`
 
 There is no configured global storage path. Connarr derives its known
-storage devices from the roots each integration already discovers on its
+storage devices from the roots each service already discovers on its
 own, grouping roots that resolve to the same physical device. Home shows one
-usage graphic per device, broken down by which integration's files occupy
+usage graphic per device, broken down by which service's files occupy
 it, with Unmanaged and unattributed real usage kept as separate, honestly
 labeled segments rather than forced to match; Target/Critical reclamation
 thresholds apply independently to every device.
@@ -52,7 +52,7 @@ content scrolls.
 - **Home** — storage state, Library/Torrent summaries, service health, storage capabilities and lifetime cleanup statistics.
 - **Library** — searchable, filterable, sortable, server-paginated Radarr/Sonarr media ranked by Retention Value.
 - **Torrents** — searchable, filterable, sortable, server-paginated qBittorrent inventory with provenance and reclaimable-space information.
-- **Unmanaged files** — observational inventory of paths that no current integration claims; not directly removable.
+- **Unmanaged files** — observational inventory of paths that no current service claims; not directly removable.
 - **Tasks** — background maintenance tasks, their schedules/status, and **Run now** controls.
 - **History** — durable event history. Removal simulations and live removal outcomes are recorded here.
 
@@ -178,13 +178,13 @@ Connarr treats files as first-class, general storage objects rather than assumin
 Media -> Files <-> Files <- Torrent
 ```
 
-A `File` is intentionally generic enough to represent any regular file a future integration may own (video, subtitle, ebook, text, and so on). Current mutation owners are Radarr movie files, Sonarr episode files, and qBittorrent torrent files. Jellyfin independently contributes playback and favourite facts; it is not required to share Connarr's filesystem namespace. Ownership is stored separately from path-level filesystem facts, and relationships never create transitive mutation rights.
+A `File` is intentionally generic enough to represent any regular file a future service may own (video, subtitle, ebook, text, and so on). Current mutation owners are Radarr movie files, Sonarr episode files, and qBittorrent torrent files. Jellyfin independently contributes playback and favourite facts; it is not required to share Connarr's filesystem namespace. Ownership is stored separately from path-level filesystem facts, and relationships never create transitive mutation rights.
 
 File reconciliation records only path, size, existence, modification time, device, inode and hardlink count. It does not hash content, inspect codecs, or crawl the full storage tree. Media and torrent detail pages show a bounded preview of reconciled files, same-physical-data peers, and hypothetical unlink effects. `/api/files` exposes the indexed file and ownership records. Reclaimability is derived from the File model: unlinking one side of a hardlink pair reclaims 0 B, while unlinking every link to the inode reclaims the inode size.
 
 ## Unmanaged file inventory
 
-Connarr can discover regular files under reconciled storage roots that no current integration claims. This state is **Unmanaged**, not a third ownership category: a file is either managed by an integration or it isn't.
+Connarr can discover regular files under reconciled storage roots that no current service claims. This state is **Unmanaged**, not a third ownership category: a file is either managed by a service or it isn't.
 
 The scan fails closed: it must successfully retrieve the authoritative owner inventories before absence is reported. If an owner inventory fails, previous successful results are retained and the scan is marked unavailable. Even a complete absence of claims does not grant Connarr ownership.
 
@@ -218,16 +218,19 @@ Example:
 
 ```json
 "storage": {
-  "target_usage_percent": 90,
-  "critical_usage_percent": 95
+  "device_thresholds": {
+    "/data": { "target_usage_percent": 90, "critical_usage_percent": 95 }
+  }
 }
 ```
 
 There is no configured storage path. Connarr derives its known storage
-devices from the roots each integration already discovers on its own
+devices from the roots each service already discovers on its own
 (Radarr/Sonarr root folders, qBittorrent save paths); roots that resolve to
-the same physical device are grouped into one device. Home shows one usage
-bar per device, broken down by which integration's files occupy it, with
+the same physical device are grouped into one device. Each device's
+reclamation thresholds are configured independently, keyed by that device's
+representative root path — a device with no entry defaults to 90%/95%.
+Home shows one usage bar per device, broken down by which service's files occupy it, with
 Target/Critical applied independently to each device.
 
 Target is the operational reclamation threshold and return point per device.
@@ -262,9 +265,9 @@ The bind-mounted `config` directory should already exist on the host and be writ
 
 See [`config.example.json`](config.example.json).
 
-Integrations use named instance records in `integrations[]`. Each instance has a stable internal identity derived independently of its display name, so a future rename does not redefine ownership. `Unmanaged` is reserved as a synthetic owner label. Legacy singleton `radarr`, `sonarr`, `jellyfin`, `seerr`, and `qbittorrent` configuration blocks are still accepted and migrated in memory.
+Services use named instance records in `services[]`. Each instance has a stable internal identity derived independently of its display name, so a future rename does not redefine ownership. `Unmanaged` is reserved as a synthetic owner label. Legacy singleton `radarr`, `sonarr`, `jellyfin`, `seerr`, and `qbittorrent` configuration blocks are still accepted and migrated in memory.
 
-Only integration types with a defined adapter are accepted. Current adapters
+Only service types with a defined adapter are accepted. Current adapters
 discover every storage root they require from their authoritative APIs, so
 `root_path` is not accepted. Future adapters may participate in non-File
 features without exposing storage capabilities at all.

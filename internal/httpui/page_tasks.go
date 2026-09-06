@@ -20,8 +20,8 @@ type tasksData struct {
 }
 
 // taskGroups separates the flat task list into the "Library & Storage" core
-// tasks (always shown) and one group per enrichment integration, shown only
-// when that integration is actually configured.
+// tasks (always shown) and one group per enrichment service, shown only
+// when that service is actually configured.
 func (server *Server) taskGroups(all []tasks.Status) []taskGroup {
 	cfg := server.inv.Config()
 	byID := make(map[string]tasks.Status, len(all))

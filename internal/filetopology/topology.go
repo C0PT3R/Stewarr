@@ -34,12 +34,12 @@ type Index struct {
 }
 
 // mediaKey identifies one media item across multiple configured instances of
-// the same integration type. Radarr/Sonarr assign their own movie/series IDs
+// the same service type. Radarr/Sonarr assign their own movie/series IDs
 // sequentially starting from 1 per instance, so two instances routinely
-// share numeric IDs — integrationID is required to avoid silently merging
+// share numeric IDs — serviceID is required to avoid silently merging
 // two unrelated movies/series' file sets.
-func mediaKey(kind model.MediaType, integrationID string, id int) string {
-	return string(kind) + ":" + integrationID + ":" + strconv.Itoa(id)
+func mediaKey(kind model.MediaType, serviceID string, id int) string {
+	return string(kind) + ":" + serviceID + ":" + strconv.Itoa(id)
 }
 
 func New(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model.TorrentFileRef) *Index {
@@ -62,7 +62,7 @@ func New(files []model.File, mediaRefs []model.MediaFileRef, torrentRefs []model
 	}
 	for _, mediaRef := range mediaRefs {
 		cleanPath := filepath.Clean(mediaRef.Path)
-		key := mediaKey(mediaRef.MediaType, mediaRef.IntegrationID, mediaRef.MediaID)
+		key := mediaKey(mediaRef.MediaType, mediaRef.ServiceID, mediaRef.MediaID)
 		index.mediaPaths[key] = appendUnique(index.mediaPaths[key], cleanPath)
 		index.mediaByPath[cleanPath] = append(index.mediaByPath[cleanPath], mediaRef)
 	}
@@ -87,8 +87,8 @@ func appendUnique(values []string, candidate string) []string {
 	return append(values, candidate)
 }
 
-func (index *Index) MediaPaths(kind model.MediaType, integrationID string, id int) []string {
-	return append([]string(nil), index.mediaPaths[mediaKey(kind, integrationID, id)]...)
+func (index *Index) MediaPaths(kind model.MediaType, serviceID string, id int) []string {
+	return append([]string(nil), index.mediaPaths[mediaKey(kind, serviceID, id)]...)
 }
 
 func (index *Index) TorrentPaths(hash string) []string {
@@ -127,8 +127,8 @@ func (index *Index) TorrentOwners(path string) []model.TorrentFileRef {
 // false when either owner has no indexed paths or any required identity fact is
 // missing; a proven hardlink remains authoritative even if another file in the
 // relationship is unknown.
-func (index *Index) TorrentMediaHardlink(hash string, kind model.MediaType, integrationID string, id int) (hardlinked, known bool) {
-	mediaPaths := index.MediaPaths(kind, integrationID, id)
+func (index *Index) TorrentMediaHardlink(hash string, kind model.MediaType, serviceID string, id int) (hardlinked, known bool) {
+	mediaPaths := index.MediaPaths(kind, serviceID, id)
 	torrentPaths := index.TorrentPaths(hash)
 	if len(mediaPaths) == 0 || len(torrentPaths) == 0 {
 		return false, false
@@ -168,8 +168,8 @@ func (index *Index) TorrentMediaHardlink(hash string, kind model.MediaType, inte
 // the same physical inode. Unlike TorrentMediaHardlink, the two owners may
 // claim the exact same pathname; that still proves the torrent currently backs
 // the managed file even though it is not a distinct hardlink directory entry.
-func (index *Index) TorrentMediaPhysicalMatch(hash string, kind model.MediaType, integrationID string, id int) (matched, known bool) {
-	mediaPaths := index.MediaPaths(kind, integrationID, id)
+func (index *Index) TorrentMediaPhysicalMatch(hash string, kind model.MediaType, serviceID string, id int) (matched, known bool) {
+	mediaPaths := index.MediaPaths(kind, serviceID, id)
 	torrentPaths := index.TorrentPaths(hash)
 	if len(mediaPaths) == 0 || len(torrentPaths) == 0 {
 		return false, false

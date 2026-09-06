@@ -2823,6 +2823,7 @@ Copyright © 2023 Basecamp, LLC
       this.onInput = (event) => this.filterInput(event);
       this.onChange = (event) => this.filterChange(event);
       this.onSubmit = (event) => this.submit(event);
+      this.onFocusOut = (event) => this.focusOut(event);
       this.onRevision = (event) => this.revision(event.detail || {});
       this.onApply = () => this.refreshFragments(true);
       this.onAccepted = () => this.refreshFragments(true);
@@ -2830,6 +2831,7 @@ Copyright © 2023 Basecamp, LLC
       document.addEventListener("input", this.onInput);
       document.addEventListener("change", this.onChange);
       document.addEventListener("submit", this.onSubmit);
+      document.addEventListener("focusout", this.onFocusOut);
       document.addEventListener("connarr:revision", this.onRevision);
       document.addEventListener("connarr:apply-updates", this.onApply);
       document.addEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -2839,6 +2841,7 @@ Copyright © 2023 Basecamp, LLC
       document.removeEventListener("input", this.onInput);
       document.removeEventListener("change", this.onChange);
       document.removeEventListener("submit", this.onSubmit);
+      document.removeEventListener("focusout", this.onFocusOut);
       document.removeEventListener("connarr:revision", this.onRevision);
       document.removeEventListener("connarr:apply-updates", this.onApply);
       document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
@@ -2901,6 +2904,11 @@ Copyright © 2023 Basecamp, LLC
         });
         this.syncUnmanagedSelection();
       }
+      const serviceTest = target.closest("[data-service-test]");
+      if (serviceTest) {
+        event.preventDefault();
+        this.testServiceConnection(serviceTest);
+      }
     }
     filterInput(event) {
       const target = event.target;
@@ -2911,8 +2919,8 @@ Copyright © 2023 Basecamp, LLC
     }
     filterChange(event) {
       const target = event.target;
-      if (target.matches("[data-integration-type]")) {
-        this.syncIntegrationFields(target);
+      if (target.matches("[data-service-type]")) {
+        this.syncServiceFields(target);
         return;
       }
       if (target.matches(".unmanagedPick")) {
@@ -2922,15 +2930,15 @@ Copyright © 2023 Basecamp, LLC
       const form = target.closest("form[data-auto-filter]");
       if (form) this.navigateList(this.formURL(form));
     }
-    // Each integration type only needs a subset of credential fields (an API
+    // Each service type only needs a subset of credential fields (an API
     // key, or a username+password, never both) — show only the ones that
-    // apply to whatever type is currently selected in the Add integration form.
-    syncIntegrationFields(select) {
+    // apply to whatever type is currently selected in the Add service form.
+    syncServiceFields(select) {
       const form = select.closest("form");
       if (!form) return;
       const type = select.value;
-      for (const field of form.querySelectorAll("[data-integration-field]")) {
-        const types = (field.dataset.integrationField || "").split(/\s+/);
+      for (const field of form.querySelectorAll("[data-service-field]")) {
+        const types = (field.dataset.serviceField || "").split(/\s+/);
         field.hidden = !types.includes(type);
       }
     }
@@ -2944,7 +2952,8 @@ Copyright © 2023 Basecamp, LLC
         this.openOverlay(url.href, form.querySelector("button[type=submit]"));
         return;
       }
-      if (form.matches("[data-background-submit]")) {
+      const thenOverlayURL = form.dataset.backgroundSubmitThenOverlay;
+      if (form.matches("[data-background-submit], [data-background-submit-then-overlay]")) {
         event.preventDefault();
         const button = form.querySelector("button[type=submit]");
         if (button) button.disabled = true;
@@ -2953,10 +2962,14 @@ Copyright © 2023 Basecamp, LLC
         try {
           const response = await fetch(form.action, { method: form.method || "POST", body: new FormData(form) });
           if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
-          const insideModal = form.closest("#removal-modal");
-          if (insideModal) {
-            insideModal.replaceChildren();
-            document.body.classList.remove("modal-open");
+          if (thenOverlayURL) {
+            this.openOverlay(thenOverlayURL, button || form);
+          } else {
+            const insideModal = form.closest("#removal-modal");
+            if (insideModal) {
+              insideModal.replaceChildren();
+              document.body.classList.remove("modal-open");
+            }
           }
           dispatchRevision({ kind: "operation" });
         } catch (error) {
@@ -2969,6 +2982,67 @@ Copyright © 2023 Basecamp, LLC
         } finally {
           if (button) button.disabled = false;
         }
+      }
+    }
+    // Step 1 of the service setup overlay: a live connection check with
+    // nothing saved yet. Only on success does step 2 (root path, device
+    // thresholds) become visible and the real "Add service" submit appear.
+    async testServiceConnection(button) {
+      const form = button.closest("form");
+      if (!form) return;
+      const hint = form.closest(".removal-dialog")?.querySelector("[data-service-step-hint]");
+      const errorTarget = form.querySelector("[data-modal-error]");
+      if (errorTarget) errorTarget.hidden = true;
+      button.disabled = true;
+      const originalLabel = button.textContent;
+      button.textContent = "Testing\u2026";
+      try {
+        const response = await fetch("/services/test", { method: "POST", body: new FormData(form) });
+        if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+        const step2 = form.querySelector("[data-service-step2]");
+        if (step2) step2.hidden = false;
+        const submitButton = form.querySelector("[data-service-submit]");
+        if (submitButton) submitButton.hidden = false;
+        button.hidden = true;
+        if (hint) hint.textContent = "Connection verified. Set a root path and save to finish.";
+      } catch (error) {
+        if (errorTarget) {
+          errorTarget.textContent = error.message;
+          errorTarget.hidden = false;
+        } else {
+          announce(`Connection test failed: ${error.message}`);
+        }
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    }
+    focusOut(event) {
+      const target = event.target;
+      if (target.matches("[data-service-root-path]")) {
+        this.lookupDeviceForPath(target);
+      }
+    }
+    // Prefills step 2's threshold fields from whatever device the entered
+    // root path resolves to (an existing device's current thresholds, or the
+    // 90/95 defaults for a brand-new one) so the user isn't guessing values
+    // for a device Connarr already knows about.
+    async lookupDeviceForPath(input) {
+      const path = input.value.trim();
+      const form = input.closest("form");
+      if (!path || !form) return;
+      const hint = form.querySelector("[data-service-device-hint]");
+      try {
+        const response = await fetch(`/services/device-for-path?path=${encodeURIComponent(path)}`);
+        if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+        const data = await response.json();
+        const target = form.querySelector("#service-target-percent");
+        const critical = form.querySelector("#service-critical-percent");
+        if (target) target.value = String(data.targetUsagePercent);
+        if (critical) critical.value = String(data.criticalUsagePercent);
+        if (hint) hint.textContent = data.isNewDevice ? "New device \u2014 using default thresholds." : "Matches an existing device \u2014 showing its current thresholds.";
+      } catch (_) {
+        if (hint) hint.textContent = "";
       }
     }
     syncUnmanagedSelection() {
@@ -3027,6 +3101,7 @@ Copyright © 2023 Basecamp, LLC
       });
     }
     revision(detail) {
+      this.refreshWizardProgress();
       const kind = String(detail.kind || "background");
       const urgent = /mutation|operation|removal|failure/.test(kind);
       const stable = document.querySelector('[data-live-policy="stable-list"]');
@@ -3037,6 +3112,27 @@ Copyright © 2023 Basecamp, LLC
         return;
       }
       this.refreshFragments(urgent);
+    }
+    // Step 3 of the service setup overlay has no push mechanism of its own —
+    // it piggybacks on the SSE revision stream that already fires on every
+    // task-manager change (including this workflow's own step advances), and
+    // just re-fetches the current status on each tick, in place, without a
+    // full fragment re-render.
+    async refreshWizardProgress() {
+      const root = document.querySelector("[data-wizard-progress]");
+      if (!root) return;
+      try {
+        const response = await fetch("/services/consistency-status");
+        if (!response.ok) return;
+        const status = await response.json();
+        const label = root.querySelector("[data-wizard-progress-label]");
+        const fill = root.querySelector(".wizard-progress-bar-fill");
+        if (label) {
+          label.textContent = status.state === "succeeded" || status.state === "attention" ? "Done." : `Step ${status.currentStep + 1} of ${status.totalSteps}: ${status.stepLabel || "Working\u2026"}`;
+        }
+        if (fill) fill.classList.toggle("done", status.state === "succeeded" || status.state === "attention");
+      } catch (_) {
+      }
     }
     refreshFragments(force) {
       const fragments = [...document.querySelectorAll("[data-reactive-fragment][id]")];
@@ -3062,6 +3158,7 @@ Copyright © 2023 Basecamp, LLC
         if (!response.ok) throw new Error(content.trim() || `status ${response.status}`);
         root.innerHTML = content;
         window.htmx.process(root);
+        this.refreshWizardProgress();
       } catch (error) {
         if (error.name === "AbortError") return;
         root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;

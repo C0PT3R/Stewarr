@@ -22,11 +22,11 @@ import (
 	"time"
 )
 
-func (service *Service) ValidateBaseIntegrations(ctx context.Context) error {
-	return service.validateIntegrationTypes(ctx, map[string]bool{"radarr": true, "sonarr": true, "qbittorrent": true})
+func (service *Service) ValidateBaseServices(ctx context.Context) error {
+	return service.validateServiceTypes(ctx, map[string]bool{"radarr": true, "sonarr": true, "qbittorrent": true})
 }
 
-func (service *Service) validateIntegrationTypes(ctx context.Context, allowed map[string]bool) error {
+func (service *Service) validateServiceTypes(ctx context.Context, allowed map[string]bool) error {
 	service.mu.RLock()
 	validatedAt := service.validatedBaseAt
 	service.mu.RUnlock()
@@ -38,7 +38,7 @@ func (service *Service) validateIntegrationTypes(ctx context.Context, allowed ma
 		fn   func() error
 	}
 	checks := []check{}
-	for _, i := range service.cfg.Integrations {
+	for _, i := range service.cfg.Services {
 		i := i
 		if !allowed[i.Type] {
 			continue
@@ -59,7 +59,7 @@ func (service *Service) validateIntegrationTypes(ctx context.Context, allowed ma
 		case "qbittorrent":
 			fn = qbittorrent.New(i.Name, i.URL, i.Username, i.Password, i.APIKey).WithContext(ctx).Validate
 		default:
-			return fmt.Errorf("integration %q has no registered adapter for type %q", i.Name, i.Type)
+			return fmt.Errorf("service %q has no registered adapter for type %q", i.Name, i.Type)
 		}
 		checks = append(checks, check{name: i.Name, fn: fn})
 	}
@@ -84,7 +84,7 @@ func (service *Service) validateIntegrationTypes(ctx context.Context, allowed ma
 	}
 	if len(errs) > 0 {
 		sort.Strings(errs)
-		return fmt.Errorf("integration validation failed: %s", strings.Join(errs, "; "))
+		return fmt.Errorf("service validation failed: %s", strings.Join(errs, "; "))
 	}
 	service.mu.Lock()
 	service.validatedBaseAt = time.Now()
@@ -126,18 +126,18 @@ func collapse(paths []string) []string {
 }
 
 type storageRoot struct {
-	Path        string
-	Integration config.Integration
-	Label       string
+	Path    string
+	Service config.Service
+	Label   string
 }
 
-func configuredOrDiscoveredRoots(i config.Integration, discovered []string) []storageRoot {
+func configuredOrDiscoveredRoots(i config.Service, discovered []string) []storageRoot {
 	out := make([]storageRoot, 0, len(discovered)+1)
 	for _, p := range discovered {
-		out = append(out, storageRoot{Path: p, Integration: i})
+		out = append(out, storageRoot{Path: p, Service: i})
 	}
 	if len(discovered) == 0 && strings.TrimSpace(i.RootPath) != "" {
-		out = append(out, storageRoot{Path: i.RootPath, Integration: i})
+		out = append(out, storageRoot{Path: i.RootPath, Service: i})
 	}
 	return out
 }
@@ -152,10 +152,10 @@ func rootLabel(path string) string {
 }
 
 func collapseStorageRoots(in []storageRoot) []storageRoot {
-	// Collapse nested roots only within the same integration. Cross-integration
-	// overlap is meaningful because each integration contributes its own storage
+	// Collapse nested roots only within the same service. Cross-service
+	// overlap is meaningful because each service contributes its own storage
 	// context/claims.
-	byIntegration := map[string][]storageRoot{}
+	byService := map[string][]storageRoot{}
 	for _, r := range in {
 		r.Path = filepath.Clean(strings.TrimSpace(r.Path))
 		if r.Path == "" || r.Path == "." {
@@ -164,14 +164,14 @@ func collapseStorageRoots(in []storageRoot) []storageRoot {
 		if r.Label == "" {
 			r.Label = rootLabel(r.Path)
 		}
-		key := r.Integration.ID
+		key := r.Service.ID
 		if key == "" {
-			key = strings.ToLower(r.Integration.Name) + "\x00" + r.Integration.Type
+			key = strings.ToLower(r.Service.Name) + "\x00" + r.Service.Type
 		}
-		byIntegration[key] = append(byIntegration[key], r)
+		byService[key] = append(byService[key], r)
 	}
 	out := []storageRoot{}
-	for _, xs := range byIntegration {
+	for _, xs := range byService {
 		sort.Slice(xs, func(i, j int) bool { return len(xs[i].Path) < len(xs[j].Path) })
 		kept := []storageRoot{}
 		seen := map[string]bool{}
@@ -197,7 +197,7 @@ func collapseStorageRoots(in []storageRoot) []storageRoot {
 		if out[i].Path != out[j].Path {
 			return out[i].Path < out[j].Path
 		}
-		return out[i].Integration.Name < out[j].Integration.Name
+		return out[i].Service.Name < out[j].Service.Name
 	})
 	return out
 }
@@ -208,15 +208,15 @@ func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 	for _, contextRoot := range contextRoots {
 		info, err := os.Stat(contextRoot.Path)
 		if err != nil {
-			return nil, fmt.Errorf("storage root %s (%s): %w", contextRoot.Path, contextRoot.Integration.Name, err)
+			return nil, fmt.Errorf("storage root %s (%s): %w", contextRoot.Path, contextRoot.Service.Name, err)
 		}
 		if !info.IsDir() {
-			return nil, fmt.Errorf("storage root %s (%s) is not a directory", contextRoot.Path, contextRoot.Integration.Name)
+			return nil, fmt.Errorf("storage root %s (%s) is not a directory", contextRoot.Path, contextRoot.Service.Name)
 		}
 		physicalCandidates = append(physicalCandidates, contextRoot.Path)
 	}
-	// Overlapping integrations describe extra claims, not extra I/O. Walk each
-	// physical subtree once and attach every applicable integration context.
+	// Overlapping services describe extra claims, not extra I/O. Walk each
+	// physical subtree once and attach every applicable service context.
 	physicalRoots := collapse(physicalCandidates)
 	byPath := map[string]*model.File{}
 	for _, root := range physicalRoots {
@@ -241,7 +241,7 @@ func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 			contexts := []model.StorageContext{}
 			for _, contextRoot := range contextRoots {
 				if under(contextRoot.Path, p) {
-					contexts = append(contexts, model.StorageContext{IntegrationID: contextRoot.Integration.ID, IntegrationName: contextRoot.Integration.Name, IntegrationType: contextRoot.Integration.Type, Root: contextRoot.Path, RootLabel: contextRoot.Label})
+					contexts = append(contexts, model.StorageContext{ServiceID: contextRoot.Service.ID, ServiceName: contextRoot.Service.Name, ServiceType: contextRoot.Service.Type, Root: contextRoot.Path, RootLabel: contextRoot.Label})
 				}
 			}
 			f := model.File{Path: p, SizeBytes: i.Size(), Exists: true, ModifiedAt: i.ModTime(), StorageContexts: contexts}
@@ -266,14 +266,14 @@ func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 	return out, nil
 }
 
-func integrationName(c config.Config, typ, fallback string) string {
-	if i, ok := c.FirstIntegration(typ); ok && i.Name != "" {
+func serviceName(c config.Config, typ, fallback string) string {
+	if i, ok := c.FirstService(typ); ok && i.Name != "" {
 		return i.Name
 	}
 	return fallback
 }
-func integrationID(c config.Config, typ string) string {
-	if i, ok := c.FirstIntegration(typ); ok {
+func svcID(c config.Config, typ string) string {
+	if i, ok := c.FirstService(typ); ok {
 		return i.ID
 	}
 	return typ
@@ -282,7 +282,7 @@ func integrationID(c config.Config, typ string) string {
 func walkRoots(paths []string) ([]model.File, error) {
 	roots := make([]storageRoot, 0, len(paths))
 	for _, p := range paths {
-		roots = append(roots, storageRoot{Path: p, Integration: config.Integration{ID: "test", Name: "Storage"}})
+		roots = append(roots, storageRoot{Path: p, Service: config.Service{ID: "test", Name: "Storage"}})
 	}
 	return walkStorageRoots(roots)
 }
@@ -308,7 +308,7 @@ func (service *Service) ReconcileFilesAfterMutation(ctx context.Context) error {
 }
 
 // reconcileFiles performs one atomic generation: roots -> physical filesystem
-// inventory -> integration claims -> Claimed/Unmanaged projection. Nothing is
+// inventory -> service claims -> Claimed/Unmanaged projection. Nothing is
 // published unless every phase succeeds.
 func (service *Service) reconcileFiles(ctx context.Context) error {
 	defer service.publishChange()
@@ -324,7 +324,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.reliability.FileModel = "pending"
 	service.mu.Unlock()
 	stageStarted := time.Now()
-	if err := service.ValidateBaseIntegrations(ctx); err != nil {
+	if err := service.ValidateBaseServices(ctx); err != nil {
 		return service.setFilesError(err)
 	}
 	metrics["validation"] = time.Since(stageStarted).Round(time.Millisecond)
@@ -335,24 +335,24 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.mu.RUnlock()
 	torrentsByInstance := map[string]map[string]model.Torrent{}
 	for _, t := range torrents {
-		if torrentsByInstance[t.IntegrationID] == nil {
-			torrentsByInstance[t.IntegrationID] = map[string]model.Torrent{}
+		if torrentsByInstance[t.ServiceID] == nil {
+			torrentsByInstance[t.ServiceID] = map[string]model.Torrent{}
 		}
-		torrentsByInstance[t.IntegrationID][strings.ToLower(t.Hash)] = t
+		torrentsByInstance[t.ServiceID][strings.ToLower(t.Hash)] = t
 	}
 	service.mu.RLock()
-	radInstances := service.cfg.IntegrationsOfType("radarr")
-	sonInstances := service.cfg.IntegrationsOfType("sonarr")
-	qbInstances := service.cfg.IntegrationsOfType("qbittorrent")
+	radInstances := service.cfg.ServicesOfType("radarr")
+	sonInstances := service.cfg.ServicesOfType("sonarr")
+	qbInstances := service.cfg.ServicesOfType("qbittorrent")
 	radClients := service.rad
 	sonClients := service.son
 	qbClients := service.qb
 	service.mu.RUnlock()
 
 	type rootsFetch struct {
-		integration config.Integration
-		roots       []string
-		err         error
+		svc   config.Service
+		roots []string
+		err   error
 	}
 	radRootFetches := make([]rootsFetch, len(radInstances))
 	sonRootFetches := make([]rootsFetch, len(sonInstances))
@@ -360,61 +360,61 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	var wg sync.WaitGroup
 	stageStarted = time.Now()
 	wg.Add(len(radInstances) + len(sonInstances) + len(qbInstances))
-	for i, integration := range radInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range radInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			roots, err := radClients[integration.ID].WithContext(ctx).StorageRoots()
-			radRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
-		}(i, integration)
+			roots, err := radClients[svc.ID].WithContext(ctx).StorageRoots()
+			radRootFetches[i] = rootsFetch{svc: svc, roots: roots, err: err}
+		}(i, svc)
 	}
-	for i, integration := range sonInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range sonInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			roots, err := sonClients[integration.ID].WithContext(ctx).StorageRoots()
-			sonRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
-		}(i, integration)
+			roots, err := sonClients[svc.ID].WithContext(ctx).StorageRoots()
+			sonRootFetches[i] = rootsFetch{svc: svc, roots: roots, err: err}
+		}(i, svc)
 	}
-	for i, integration := range qbInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range qbInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			roots, err := qbClients[integration.ID].WithContext(ctx).StorageRoots(torrentsByInstance[integration.ID])
-			qbRootFetches[i] = rootsFetch{integration: integration, roots: roots, err: err}
-		}(i, integration)
+			roots, err := qbClients[svc.ID].WithContext(ctx).StorageRoots(torrentsByInstance[svc.ID])
+			qbRootFetches[i] = rootsFetch{svc: svc, roots: roots, err: err}
+		}(i, svc)
 	}
 	wg.Wait()
 	for _, f := range radRootFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("radarr (%s) storage roots: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("radarr (%s) storage roots: %w", f.svc.Name, f.err))
 		}
 	}
 	for _, f := range sonRootFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("sonarr (%s) storage roots: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("sonarr (%s) storage roots: %w", f.svc.Name, f.err))
 		}
 	}
 	for _, f := range qbRootFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("qbittorrent (%s) storage roots: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("qbittorrent (%s) storage roots: %w", f.svc.Name, f.err))
 		}
 	}
 	metrics["roots"] = time.Since(stageStarted).Round(time.Millisecond)
 	var roots []storageRoot
 	for _, f := range radRootFetches {
-		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
+		roots = append(roots, configuredOrDiscoveredRoots(f.svc, f.roots)...)
 	}
 	for _, f := range sonRootFetches {
-		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
+		roots = append(roots, configuredOrDiscoveredRoots(f.svc, f.roots)...)
 	}
 	for _, f := range qbRootFetches {
-		roots = append(roots, configuredOrDiscoveredRoots(f.integration, f.roots)...)
+		roots = append(roots, configuredOrDiscoveredRoots(f.svc, f.roots)...)
 	}
-	// Zero storage-owning integrations configured at all is a legitimate,
+	// Zero storage-owning services configured at all is a legitimate,
 	// expected state on a fresh install — not a failure. Only treat an empty
-	// root set as an error when at least one integration is configured but
+	// root set as an error when at least one service is configured but
 	// none of them reported a usable root, which is a real misconfiguration
 	// worth surfacing.
 	if len(roots) == 0 && len(radInstances)+len(sonInstances)+len(qbInstances) > 0 {
-		return service.setFilesError(fmt.Errorf("no integration storage roots are available"))
+		return service.setFilesError(fmt.Errorf("no service storage roots are available"))
 	}
 	stageStarted = time.Now()
 	files, err := walkStorageRoots(roots)
@@ -431,27 +431,27 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	seriesIDsByInstance := map[string][]int{}
 	mediaRootByKey := map[ownerKey]string{}
 	for _, m := range media {
-		mediaRootByKey[ownerKey{IntegrationID: m.IntegrationID, OwnerID: m.SourceID}] = m.Path
+		mediaRootByKey[ownerKey{ServiceID: m.ServiceID, OwnerID: m.SourceID}] = m.Path
 		if m.Type == model.Movie {
-			movieIDsByInstance[m.IntegrationID] = append(movieIDsByInstance[m.IntegrationID], m.SourceID)
+			movieIDsByInstance[m.ServiceID] = append(movieIDsByInstance[m.ServiceID], m.SourceID)
 		} else if m.Type == model.Series {
-			seriesIDsByInstance[m.IntegrationID] = append(seriesIDsByInstance[m.IntegrationID], m.SourceID)
+			seriesIDsByInstance[m.ServiceID] = append(seriesIDsByInstance[m.ServiceID], m.SourceID)
 		}
 	}
 	type radarrFilesFetch struct {
-		integration config.Integration
-		files       []radarr.FileRecord
-		err         error
+		svc   config.Service
+		files []radarr.FileRecord
+		err   error
 	}
 	type sonarrFilesFetch struct {
-		integration config.Integration
-		files       []sonarr.FileRecord
-		err         error
+		svc   config.Service
+		files []sonarr.FileRecord
+		err   error
 	}
 	type qbittorrentFilesFetch struct {
-		integration config.Integration
-		files       map[string][]qbittorrent.File
-		err         error
+		svc   config.Service
+		files map[string][]qbittorrent.File
+		err   error
 	}
 	radFilesFetches := make([]radarrFilesFetch, len(radInstances))
 	sonFilesFetches := make([]sonarrFilesFetch, len(sonInstances))
@@ -460,41 +460,41 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	stageStarted = time.Now()
 	wg = sync.WaitGroup{}
 	wg.Add(len(radInstances) + len(sonInstances) + len(qbInstances))
-	for i, integration := range radInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range radInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			files, err := radClients[integration.ID].WithContext(ctx).Files(movieIDsByInstance[integration.ID])
-			radFilesFetches[i] = radarrFilesFetch{integration: integration, files: files, err: err}
-		}(i, integration)
+			files, err := radClients[svc.ID].WithContext(ctx).Files(movieIDsByInstance[svc.ID])
+			radFilesFetches[i] = radarrFilesFetch{svc: svc, files: files, err: err}
+		}(i, svc)
 	}
-	for i, integration := range sonInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range sonInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			files, err := sonClients[integration.ID].WithContext(ctx).Files(seriesIDsByInstance[integration.ID])
-			sonFilesFetches[i] = sonarrFilesFetch{integration: integration, files: files, err: err}
-		}(i, integration)
+			files, err := sonClients[svc.ID].WithContext(ctx).Files(seriesIDsByInstance[svc.ID])
+			sonFilesFetches[i] = sonarrFilesFetch{svc: svc, files: files, err: err}
+		}(i, svc)
 	}
-	for i, integration := range qbInstances {
-		go func(i int, integration config.Integration) {
+	for i, svc := range qbInstances {
+		go func(i int, svc config.Service) {
 			defer wg.Done()
-			files, err := qbClients[integration.ID].WithContext(ctx).AllFiles(torrentsByInstance[integration.ID])
-			qbFilesFetches[i] = qbittorrentFilesFetch{integration: integration, files: files, err: err}
-		}(i, integration)
+			files, err := qbClients[svc.ID].WithContext(ctx).AllFiles(torrentsByInstance[svc.ID])
+			qbFilesFetches[i] = qbittorrentFilesFetch{svc: svc, files: files, err: err}
+		}(i, svc)
 	}
 	wg.Wait()
 	for _, f := range radFilesFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("radarr (%s) files: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("radarr (%s) files: %w", f.svc.Name, f.err))
 		}
 	}
 	for _, f := range sonFilesFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("sonarr (%s) files: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("sonarr (%s) files: %w", f.svc.Name, f.err))
 		}
 	}
 	for _, f := range qbFilesFetches {
 		if f.err != nil {
-			return service.setFilesError(fmt.Errorf("qbittorrent (%s) files: %w", f.integration.Name, f.err))
+			return service.setFilesError(fmt.Errorf("qbittorrent (%s) files: %w", f.svc.Name, f.err))
 		}
 	}
 	metrics["claims"] = time.Since(stageStarted).Round(time.Millisecond)
@@ -503,12 +503,12 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	claimed := map[string]bool{}
 	for _, rf := range radFilesFetches {
 		for _, f := range rf.files {
-			root := mediaRootByKey[ownerKey{IntegrationID: rf.integration.ID, OwnerID: f.MovieID}]
+			root := mediaRootByKey[ownerKey{ServiceID: rf.svc.ID, OwnerID: f.MovieID}]
 			if root == "" {
 				continue
 			}
 			p := filepath.Clean(filepath.Join(root, f.Relative))
-			mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: rf.integration.ID, IntegrationName: rf.integration.Name, MediaType: model.Movie, MediaID: f.MovieID, Source: "radarr", SourceFileID: f.ID, Path: p})
+			mediaRefs = append(mediaRefs, model.MediaFileRef{ServiceID: rf.svc.ID, ServiceName: rf.svc.Name, MediaType: model.Movie, MediaID: f.MovieID, Source: "radarr", SourceFileID: f.ID, Path: p})
 			if byPath[p] {
 				claimed[p] = true
 			}
@@ -516,12 +516,12 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	}
 	for _, sf := range sonFilesFetches {
 		for _, f := range sf.files {
-			root := mediaRootByKey[ownerKey{IntegrationID: sf.integration.ID, OwnerID: f.SeriesID}]
+			root := mediaRootByKey[ownerKey{ServiceID: sf.svc.ID, OwnerID: f.SeriesID}]
 			if root == "" {
 				continue
 			}
 			p := filepath.Clean(filepath.Join(root, f.Relative))
-			mediaRefs = append(mediaRefs, model.MediaFileRef{IntegrationID: sf.integration.ID, IntegrationName: sf.integration.Name, MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...), AddedAt: f.DateAdded})
+			mediaRefs = append(mediaRefs, model.MediaFileRef{ServiceID: sf.svc.ID, ServiceName: sf.svc.Name, MediaType: model.Series, MediaID: f.SeriesID, Source: "sonarr", SourceFileID: f.ID, Path: p, Parts: append([]model.MediaFilePart(nil), f.Parts...), AddedAt: f.DateAdded})
 			if byPath[p] {
 				claimed[p] = true
 			}
@@ -529,13 +529,13 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	}
 	for _, qf := range qbFilesFetches {
 		for h, xs := range qf.files {
-			t, ok := torrentsByInstance[qf.integration.ID][h]
+			t, ok := torrentsByInstance[qf.svc.ID][h]
 			if !ok {
 				continue
 			}
 			for _, x := range xs {
 				p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
-				torrentRefs = append(torrentRefs, model.TorrentFileRef{IntegrationID: qf.integration.ID, IntegrationName: qf.integration.Name, Client: t.Client, Hash: h, FileIndex: x.Index, Path: p})
+				torrentRefs = append(torrentRefs, model.TorrentFileRef{ServiceID: qf.svc.ID, ServiceName: qf.svc.Name, Client: t.Client, Hash: h, FileIndex: x.Index, Path: p})
 				if byPath[p] {
 					claimed[p] = true
 				}
