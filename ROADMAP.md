@@ -176,6 +176,27 @@ This file separates implemented behavior from intended direction. It is not a pr
   corresponding CPU/disk/memory signal to explain it. A dedicated lock now
   serializes reconciliation publishers against each other without ever being
   held by a reader, so a slow write no longer blocks anything but itself.
+  This was a real, worthwhile fix, but turned out not to be the cause of a
+  concurrently-reported "pages sometimes take a minute" symptom — see below.
+
+### Browser-side connection exhaustion from a leaked reconnecting EventSource (0.2.31)
+
+- Fixed the actual cause of the reported app-wide slowness: the reactive
+  UI's EventSource (`/ui/events`) fell back to polling on a connection error
+  but never called `.close()` on the errored object first. Per spec, a
+  dropped EventSource that isn't explicitly closed keeps retrying to
+  reconnect in the background forever, even after the app has already
+  switched to polling — and every silent retry still consumes one of the
+  browser's ~6 connections-per-origin. Left running long enough on a single
+  tab (hours open, one network blip), those leaked reconnect loops alone
+  can exhaust the pool, and every subsequent request to the origin — any
+  page, any asset — queues forever behind them ("Stalled" in the browser's
+  own network timing, not a server-side delay at all: no CPU/disk/memory
+  signal, nothing blocked in a goroutine dump, because the request never
+  even reached the server). Fixed by explicitly closing and clearing the
+  EventSource before falling back to polling. Added a permanent regression
+  test (`tests/ui/reactivity.mjs`) that forces a connection failure and
+  asserts no further reconnect attempts occur.
 
 ### Model and operations
 

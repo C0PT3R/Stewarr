@@ -54,6 +54,7 @@ export class RevisionsController extends window.Stimulus.Controller {
       this.startPolling();
       return;
     }
+    if (this.events) this.events.close();
     this.events = new EventSource("/ui/events");
     this.events.addEventListener("revision", event => {
       try {
@@ -68,7 +69,20 @@ export class RevisionsController extends window.Stimulus.Controller {
         this.pollTimer = null;
       }
     };
-    this.events.onerror = () => this.startPolling();
+    // A dropped EventSource that isn't explicitly closed keeps retrying to
+    // reconnect in the background forever, per spec, even after we've
+    // already fallen back to polling here. Each silent retry attempt still
+    // consumes one of the browser's ~6 connections-per-origin — left
+    // unclosed long enough (one tab, left open for hours, hitting the odd
+    // network blip), those zombie reconnect loops alone can exhaust the
+    // pool and stall every other request to this origin indefinitely.
+    this.events.onerror = () => {
+      if (this.events) {
+        this.events.close();
+        this.events = null;
+      }
+      this.startPolling();
+    };
   }
 
   startPolling(): void {

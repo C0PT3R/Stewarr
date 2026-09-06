@@ -61,6 +61,7 @@
         this.startPolling();
         return;
       }
+      if (this.events) this.events.close();
       this.events = new EventSource("/ui/events");
       this.events.addEventListener("revision", (event) => {
         try {
@@ -75,7 +76,13 @@
           this.pollTimer = null;
         }
       };
-      this.events.onerror = () => this.startPolling();
+      this.events.onerror = () => {
+        if (this.events) {
+          this.events.close();
+          this.events = null;
+        }
+        this.startPolling();
+      };
     }
     startPolling() {
       if (this.pollTimer) return;

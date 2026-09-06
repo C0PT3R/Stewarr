@@ -13,6 +13,7 @@ const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const staticRoot = join(repository, "internal/httpui/static");
 let planRequests = 0;
 let executeRequests = 0;
+let eventsRequests = 0;
 
 const model = Buffer.from(JSON.stringify({
   kind: "media",
@@ -34,10 +35,35 @@ const removal = `<div class="removal-overlay" data-controller="removal" data-rem
 
 const index = `<!doctype html><html><head><script defer src="/assets/vendor/htmx-2.0.10.min.js"></script><script defer src="/assets/vendor/stimulus-3.2.2.umd.js"></script><script defer src="/assets/app.js"></script></head><body data-controller="shell"><button id="open" data-removal-url="/removal/media">Remove</button><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
 
+// A minimal page carrying the "revisions" controller, matching every real
+// page's <body data-controller="shell revisions">, for the SSE
+// reconnect-leak regression test below.
+const sseIndex = `<!doctype html><html><head><script defer src="/assets/vendor/htmx-2.0.10.min.js"></script><script defer src="/assets/vendor/stimulus-3.2.2.umd.js"></script><script defer src="/assets/app.js"></script></head><body data-controller="shell revisions"><a id="operation-indicator" hidden></a><div id="persistent-notices"></div><div id="removal-modal"></div><div id="ui-announcer"></div><div id="updates-available" hidden></div></body></html>`;
+
 const server = createServer(async (request, response) => {
   if (request.url === "/") {
     response.setHeader("Content-Type", "text/html");
     response.end(index);
+    return;
+  }
+  if (request.url === "/sse") {
+    response.setHeader("Content-Type", "text/html");
+    response.end(sseIndex);
+    return;
+  }
+  if (request.url === "/ui/status") {
+    response.setHeader("Content-Type", "application/json");
+    response.end(JSON.stringify({ pendingOperations: 0, notices: [] }));
+    return;
+  }
+  if (request.url === "/ui/events") {
+    eventsRequests += 1;
+    // Simulate a real connection failure (a dropped network path, a
+    // container restart mid-stream) by destroying the socket outright,
+    // rather than ever completing a normal SSE response. The browser's
+    // EventSource fires "error" for this exactly as it would for a genuine
+    // network failure.
+    request.socket.destroy();
     return;
   }
   if (request.url === "/removal/media") {
@@ -118,6 +144,27 @@ try {
   await page.waitForSelector(".removal-dialog", { state: "detached" });
   assert(executeRequests === 1, `duplicate confirmation submitted ${executeRequests} operations`);
   assert(planRequests === 3, `unexpected plan request count ${planRequests}`);
+
+  // Regression guard for a real production incident: an EventSource that
+  // errors without being explicitly closed keeps retrying to reconnect in
+  // the background forever, per spec, even after the app has already
+  // fallen back to polling — each silent retry still consumes one of the
+  // browser's ~6 connections-per-origin. Left running long enough (one tab,
+  // open for hours, hitting the odd network blip), those leaked reconnect
+  // loops alone can exhaust the pool and stall every other request to the
+  // origin indefinitely, with no server-side signal at all.
+  const ssePage = await browser.newPage();
+  try {
+    await ssePage.goto(`http://127.0.0.1:${address.port}/sse`);
+    await ssePage.waitForTimeout(600);
+    const firstWindow = eventsRequests;
+    assert(firstWindow >= 1, "expected the revisions controller to open an EventSource connection to /ui/events");
+    await ssePage.waitForTimeout(4000);
+    const secondWindow = eventsRequests;
+    assert(secondWindow === firstWindow, `EventSource kept reconnecting in the background after the first error (${firstWindow} -> ${secondWindow} requests) instead of closing and falling back to polling`);
+  } finally {
+    await ssePage.close();
+  }
   console.log("Connarr browser reactivity tests passed");
 } finally {
   await browser.close();
