@@ -339,7 +339,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   selections without becoming the primary UI.
 - PUID/PGID-friendly Docker deployment and centralized Connarr product identity.
 
-### Overlay/UI polish (0.2.41-0.2.42)
+### Overlay/UI polish and removal fixes (0.2.41-0.2.44)
 
 - Overlay dialogs now size to their actual content instead of always
   filling ~90% of the viewport height, capping/scrolling internally only
@@ -364,6 +364,22 @@ This file separates implemented behavior from intended direction. It is not a pr
   scoped to `#home-dashboard` since `.card`/`.card-link` are reused
   elsewhere for things that must not become full-card links), with a
   hover highlight to signal it.
+- Fixed the Storage page crashing ("reflect: slice index out of range")
+  whenever a plan contained a `StandaloneSeason` action — its cleanup-actions
+  list only branched on "bundle"/"media" kinds, treating anything else as a
+  torrent action and indexing into an empty `Torrents` slice.
+- Removing a torrent hardlinked to a service-owned library file freed no
+  space at all, since the shared blocks stay allocated until that file is
+  also removed — but the torrent removal view never disclosed this
+  relationship. The backend already computed it (`RelatedManaged`), but a
+  template guard excluded rendering it specifically for torrent-kind
+  plans, making that whole code path dead. Since a torrent-kind submission
+  must never directly mutate a media-owned file (`validateRemovalScope`
+  forbids `managed_file` there — owned objects are only ever manipulated
+  through their own service), this is a disclosure-only section — the
+  same pattern already used for hardlinked Unmanaged paths — warning that
+  removing the torrent alone won't reclaim the space, with a link to the
+  media so the user can remove it from there instead.
 
 ## Near-term
 
