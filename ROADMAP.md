@@ -319,8 +319,9 @@ This file separates implemented behavior from intended direction. It is not a pr
   inside scheduled execution.
 - Isolated service authority: Jellyfin enrichment requires no shared path
   namespace, topology is informational, and cross-owner mutations fail closed.
-- Unmanaged file inventory is read-only until a cleanup root is explicitly
-  delegated to Connarr.
+- Unmanaged files can be selected and removed directly from the Unmanaged
+  page (see below) — this replaces an earlier read-only-until-a-cleanup-root
+  state.
 - Mandatory origin-labelled application logging to stdout and daily persistent
   files, with ten-day retention and fail-stop behavior.
 - Complete line-oriented removal audits keyed by durable operation identity.
@@ -380,6 +381,30 @@ This file separates implemented behavior from intended direction. It is not a pr
   same pattern already used for hardlinked Unmanaged paths — warning that
   removing the torrent alone won't reclaim the space, with a link to the
   media so the user can remove it from there instead.
+
+### Unmanaged file removal re-enabled (0.2.45)
+
+- Standalone Unmanaged file removal — direct OS deletion, since nothing
+  claims these files — was disabled during an earlier refactoring pass
+  (all removal kinds were disabled at once and re-enabled one at a time as
+  each was re-verified; Unmanaged was the last one still off). Re-enabling
+  it surfaced real gaps beyond the one deliberate `validateRemovalScope`
+  rejection: `groupRemovalFiles` had no switch case at all for an
+  Unmanaged-kind plan's own target files, and the initial candidate never
+  set `Selectable: true` — together these meant every Unmanaged target
+  would have rendered as "Preserved · not owned by this operation" and
+  been unselectable even with the rejection lifted. The GET overlay
+  handler (`removalUnmanaged`) was also a hardcoded 403 stub, never
+  calling the plan builder at all.
+- The Unmanaged page's removal UI didn't just need re-enabling — it had
+  been fully stripped (no checkboxes, no trash button) and the leftover
+  JS (`syncUnmanagedSelection`) only ever managed checkbox *state*, with
+  no submit ever wired to it. Rebuilt as a per-path checkbox list plus a
+  "select all", submitting through the same removal overlay already
+  proven for Library/Torrents rather than reconstructing the old bespoke
+  two-level group/sub-path scheme — simpler, and each hardlinked path of
+  an Unmanaged file can now be selected independently, since removing one
+  alias vs. all of them are genuinely different, meaningful actions.
 
 ## Near-term
 

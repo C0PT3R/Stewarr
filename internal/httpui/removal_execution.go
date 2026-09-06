@@ -136,7 +136,16 @@ func (server *Server) removalTorrent(w http.ResponseWriter, r *http.Request) {
 	server.renderRemoval(w, d)
 }
 func (server *Server) removalUnmanaged(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "Direct filesystem removal is disabled: these files are Unmanaged, not Connarr-owned.", http.StatusForbidden)
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET only", 405)
+		return
+	}
+	d, err := server.buildUnmanagedRemovalPlan(r.URL.Query()["path"], selectedTorrentSet(r))
+	if err != nil {
+		http.Error(w, err.Error(), 404)
+		return
+	}
+	server.renderRemoval(w, d)
 }
 
 func (server *Server) executeRemoval(w http.ResponseWriter, r *http.Request) {

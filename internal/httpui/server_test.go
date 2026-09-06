@@ -104,33 +104,52 @@ func TestEveryRemovalKindRejectsCrossOwnerActions(t *testing.T) {
 	}
 }
 
-func TestUnmanagedFilesystemRemovalIsDisabledWithoutDelegatedRoot(t *testing.T) {
+// TestUnmanagedRemovalScopeAcceptsCleanForm guards the re-enablement of
+// direct filesystem removal for Unmanaged files: a clean "unmanaged" kind
+// submission carrying only "path" must be accepted, not rejected outright
+// the way it was while this feature was disabled pending refactoring.
+func TestUnmanagedRemovalScopeAcceptsCleanForm(t *testing.T) {
 	form := url.Values{"kind": {"unmanaged"}, "path": {"/data/Films/Agent Zeta/movie.mkv"}}
-	if err := validateRemovalScope(form); err == nil || !strings.Contains(err.Error(), "explicitly delegated") {
-		t.Fatalf("error=%v", err)
+	if err := validateRemovalScope(form); err != nil {
+		t.Fatalf("clean unmanaged removal was rejected: %v", err)
 	}
-	server, err := New(nil, nil)
+}
+
+func TestUnmanagedRemovalScopeRequiresAtLeastOnePath(t *testing.T) {
+	form := url.Values{"kind": {"unmanaged"}}
+	if err := validateRemovalScope(form); err == nil {
+		t.Fatal("expected an error when no path is selected")
+	}
+}
+
+// TestRemovalUnmanagedHandlerIsLive confirms the GET overlay handler is no
+// longer the hardcoded 403 stub it was while this feature was disabled —
+// it now actually calls buildUnmanagedRemovalPlan. A path unknown to this
+// minimal server still fails (nothing is genuinely unmanaged here), but
+// that failure must come from real plan-building, not a blanket rejection.
+func TestRemovalUnmanagedHandlerIsLive(t *testing.T) {
+	server, err := New(inventory.New(config.Config{}, nil), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response := httptest.NewRecorder()
 	server.removalUnmanaged(response, httptest.NewRequest(http.MethodGet, "/removal/unmanaged?path=/data/file", nil))
-	if response.Code != http.StatusForbidden {
-		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	if response.Code == http.StatusForbidden {
+		t.Fatalf("removalUnmanaged is still hardcoded to reject: status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 
-func TestUnmanagedPageHasNoMutationControls(t *testing.T) {
+func TestUnmanagedPageExposesRemovalControls(t *testing.T) {
 	content, err := uiFiles.ReadFile("templates/unmanaged.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"/removal/unmanaged", "unmanagedRemove", "unmanagedPick", "class=trash"} {
-		if bytes.Contains(content, []byte(forbidden)) {
-			t.Fatalf("Unmanaged page still exposes %q", forbidden)
+	for _, required := range []string{"/removal/unmanaged", "unmanagedPick", "unmanagedRemoveButton", "unmanagedAll", `name="path"`} {
+		if !bytes.Contains(content, []byte(required)) {
+			t.Fatalf("Unmanaged page missing removal control %q", required)
 		}
 	}
-	for _, required := range []string{"Unmanaged files", "absence is not ownership", "cannot remove them directly"} {
+	for _, required := range []string{"Unmanaged files", "No current service claims these paths"} {
 		if !bytes.Contains(content, []byte(required)) {
 			t.Fatalf("Unmanaged explanation missing %q", required)
 		}
@@ -631,6 +650,32 @@ func TestGroupRemovalFilesGroupsHardlinksByPhysicalIdentity(t *testing.T) {
 	}
 	if !groups[0].Selectable || !groups[0].Selected || len(groups[0].DisplayPaths) != 2 {
 		t.Fatalf("physical owner actions=%+v", groups[0])
+	}
+}
+
+// TestGroupRemovalFilesMakesUnmanagedTargetSelectable guards the actual gap
+// that kept standalone Unmanaged removal broken even after validateRemovalScope's
+// blanket rejection was lifted: groupRemovalFiles had no switch case at all
+// for removal.UnmanagedOwner, so every target file fell into the
+// "not selectable" branch and rendered as "Preserved · not owned by this
+// operation" regardless of what buildUnmanagedRemovalPlan intended.
+func TestGroupRemovalFilesMakesUnmanagedTargetSelectable(t *testing.T) {
+	files := []removal.FileState{
+		{Path: "/data/downloads/orphan.iso", Owner: removal.UnmanagedOwner, OwnerKey: "/data/downloads/orphan.iso", Selected: true, Selectable: true, Exists: true, SizeBytes: 999},
+	}
+	groups := groupRemovalFiles(removal.RemovalPlan{Kind: removal.UnmanagedObject, Files: files}, nil)
+	if len(groups) != 1 || len(groups[0].DisplayPaths) != 1 {
+		t.Fatalf("expected 1 group with 1 display path, got %+v", groups)
+	}
+	display := groups[0].DisplayPaths[0]
+	if !display.Selectable || !display.Selected {
+		t.Fatalf("expected the unmanaged target to be selectable and selected, got %+v", display)
+	}
+	if display.ActionName != "path" || display.ActionValue != "/data/downloads/orphan.iso" {
+		t.Fatalf("expected action name/value path=/data/downloads/orphan.iso, got %q=%q", display.ActionName, display.ActionValue)
+	}
+	if strings.Contains(display.ActionLabel, "Preserved") {
+		t.Fatalf("expected the unmanaged target not to be marked Preserved, got %q", display.ActionLabel)
 	}
 }
 

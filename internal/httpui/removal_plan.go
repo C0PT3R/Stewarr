@@ -150,7 +150,12 @@ func validateRemovalScope(form url.Values) error {
 			return fmt.Errorf("torrent removal requires the torrent target")
 		}
 	case "unmanaged":
-		return fmt.Errorf("direct filesystem removal is disabled until the path belongs to an explicitly delegated Connarr cleanup root")
+		if err := forbidden("managed_file", "unmanaged_path", "target", "torrent", "unmonitor_movies", "unmonitor_episodes", "exclude_movies", "exclude_series"); err != nil {
+			return err
+		}
+		if len(form["path"]) == 0 {
+			return fmt.Errorf("unmanaged removal requires at least one path")
+		}
 	}
 	return nil
 }
@@ -475,6 +480,11 @@ func groupRemovalFiles(plan removal.RemovalPlan, inventoryFiles []model.File) []
 			} else if plan.Kind == removal.TorrentObject && state.Selectable && strings.EqualFold(state.OwnerKey, plan.RequestedKey) {
 				display.ActionName, display.ActionValue = "target", "1"
 				display.ActionLabel, display.Selectable = "Remove torrent and its complete data set", true
+			}
+		case removal.UnmanagedOwner:
+			if plan.Kind == removal.UnmanagedObject && state.Selectable {
+				display.ActionName, display.ActionValue = "path", state.Path
+				display.ActionLabel, display.Selectable = "Remove file", true
 			}
 		}
 		if !display.Selectable {
@@ -1196,7 +1206,7 @@ func (server *Server) buildUnmanagedRemovalPlan(paths []string, selectedTorrents
 		}
 		clean = append(clean, p)
 		selectedUF[p] = true
-		mergeRemovalCandidate(cm, removal.CandidateFile{Path: p, Owner: removal.UnmanagedOwner, OwnerKey: p, Label: p, Selected: true})
+		mergeRemovalCandidate(cm, removal.CandidateFile{Path: p, Owner: removal.UnmanagedOwner, OwnerKey: p, Label: p, Selected: true, Selectable: true})
 	}
 	if len(clean) == 0 {
 		return removalData{}, fmt.Errorf("no unmanaged files selected")

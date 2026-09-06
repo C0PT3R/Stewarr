@@ -297,7 +297,7 @@ Torrent/media relationships are bidirectional at the Connarr model boundary. Aut
 
 ## Removal architecture
 
-All manual removal flows use a mandatory `RemovalPlan`: initial targeted file inspection -> local consequence calculation -> durable admission -> authoritative revalidation inside the scheduler's exclusive mutation boundary -> owner-delegated execution -> History -> reconciliation. The browser calculation is presentation, never deletion authority. A composite plan may contain Radarr/Sonarr managed-file actions and qBittorrent Torrent actions, but every action remains delegated to its declared owner. Direct OS removal requires a future explicitly delegated Connarr cleanup root and is currently disabled.
+All manual removal flows use a mandatory `RemovalPlan`: initial targeted file inspection -> local consequence calculation -> durable admission -> authoritative revalidation inside the scheduler's exclusive mutation boundary -> owner-delegated execution -> History -> reconciliation. The browser calculation is presentation, never deletion authority. A composite plan may contain Radarr/Sonarr managed-file actions and qBittorrent Torrent actions, but every action remains delegated to its declared owner. Unmanaged files have no owner to delegate to, so their removal is a direct OS deletion instead — the one removal kind that mutates the filesystem itself rather than calling an owner's API — but it goes through the exact same admission/revalidation boundary, plus a final physical-identity re-check immediately before deletion to close the last time-of-check gap.
 
 `Unassociated` is a Torrent provenance state. `Unmanaged` is an observational File state. Neither grants deletion authority.
 

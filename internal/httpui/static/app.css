@@ -206,12 +206,16 @@
 .storage-guidance p {
   margin: 3px 0;
 }
-.modal-dialog .danger {
+.modal-dialog .danger,
+.danger {
   background: #722 !important;
   border-color: #933 !important;
 }
 .modal-dialog .simulate {
   background: #604d13 !important;
+}
+.unmanaged-actions {
+  margin: 12px 0;
 }
 .modal-dialog .dry {
   display: inline-block;

@@ -10,7 +10,7 @@
     {{chrome "unmanaged"}}
     <h1 class="page-title">Unmanaged files</h1>
     <p class="muted">
-      No current service claims these paths. That absence is not ownership, so Connarr cannot remove them directly.
+      No current service claims these paths. Removing one deletes it directly from disk — this is not delegated to any service.
     </p>
     {{if .ScanErr}}
     <p class="warn">Scan unavailable: {{.ScanErr}}</p>
@@ -34,9 +34,11 @@
           Per page: {{range .SizeLinks}}<a class="{{if eq .Value $.PageSize}}active{{end}}" href="{{.URL}}">{{.Value}}</a>{{end}}
         </div>
       </div>
+      <form data-removal-launch method="get" action="/removal/unmanaged">
       <table>
         <thead>
           <tr>
+            <th><input type="checkbox" id="unmanagedAll" {{if not .Files}}disabled{{end}}></th>
             <th><a href="{{index .SortURLs "path"}}">Path</a></th>
             <th><a href="{{index .SortURLs "size"}}">Size</a></th>
             <th><a href="{{index .SortURLs "reclaimable"}}">Physical potential</a></th>
@@ -45,27 +47,34 @@
           </tr>
         </thead>
         <tbody>
-          {{range .Files}}
+          {{range $group := .Files}}
           <tr>
             <td>
-              {{range .Paths}}
-              <div class="mono path" title="{{.Path}}">{{shortPath .Path}}</div>
+              {{if eq (len $group.Paths) 1}}<input class="unmanagedPick" type="checkbox" name="path" value="{{(index $group.Paths 0).Path}}">{{end}}
+            </td>
+            <td>
+              {{range $group.Paths}}
+              <div class="mono path" title="{{.Path}}">{{if gt (len $group.Paths) 1}}<label><input class="unmanagedPick" type="checkbox" name="path" value="{{.Path}}"> {{shortPath .Path}}</label>{{else}}{{shortPath .Path}}{{end}}</div>
               {{end}}
             </td>
-            <td>{{human .SizeBytes}}</td>
-            <td>{{if .ReclaimableKnown}}{{human .ReclaimableBytes}}{{else}}—{{end}}</td>
+            <td>{{human $group.SizeBytes}}</td>
+            <td>{{if $group.ReclaimableKnown}}{{human $group.ReclaimableBytes}}{{else}}—{{end}}</td>
             <td>
-              {{if gt (len .Paths) 1}}hardlinked · {{len .Paths}} paths to the same physical file{{else if gt .Links 1}}hardlinked{{else}}—{{end}}{{if gt .MissingLinks 0}} · {{.MissingLinks}} hardlink{{if gt .MissingLinks 1}}s{{end}} outside known topology{{end}}
+              {{if gt (len $group.Paths) 1}}hardlinked · {{len $group.Paths}} paths to the same physical file{{else if gt $group.Links 1}}hardlinked{{else}}—{{end}}{{if gt $group.MissingLinks 0}} · {{$group.MissingLinks}} hardlink{{if gt $group.MissingLinks 1}}s{{end}} outside known topology{{end}}
             </td>
-            <td>{{fmtUpdated .ModifiedAt}}</td>
+            <td>{{fmtUpdated $group.ModifiedAt}}</td>
           </tr>
           {{else}}
           <tr>
-            <td colspan="5" class="muted">No unmanaged files found.</td>
+            <td colspan="6" class="muted">No unmanaged files found.</td>
           </tr>
           {{end}}
         </tbody>
       </table>
+      <div class="unmanaged-actions">
+        <button id="unmanagedRemoveButton" type="submit" class="danger" disabled>Remove selected</button>
+      </div>
+      </form>
       <div class="pager">
         {{if .HasPrev}}<a href="{{.PrevURL}}">← Previous</a>{{else}}<span class="disabled">← Previous</span>{{end}}<span>Page {{.Page}} of {{.TotalPages}}</span>{{if .HasNext}}<a href="{{.NextURL}}">Next →</a>{{else}}<span class="disabled">Next →</span>{{end}}
       </div>

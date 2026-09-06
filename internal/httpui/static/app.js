@@ -3022,13 +3022,13 @@ Copyright © 2023 Basecamp, LLC
         button.textContent = originalLabel;
       }
     }
+    // Every unmanaged checkbox (one row's own, or one of several hardlinked
+    // paths within a row) is an independent name="path" field — hardlinked
+    // paths of an otherwise-unclaimed file can be removed individually, since
+    // each is a real, separately meaningful deletion (removing one alias vs.
+    // removing all of them and actually freeing the data).
     syncUnmanagedSelection() {
       const picks = [...document.querySelectorAll(".unmanagedPick")];
-      for (const pick of picks) {
-        document.querySelectorAll(`.unmanagedGroupPath[data-unmanaged-group="${CSS.escape(pick.dataset.unmanagedGroup)}"]`).forEach((input) => {
-          input.disabled = !pick.checked;
-        });
-      }
       const selected = picks.filter((input) => input.checked).length;
       const all = document.getElementById("unmanagedAll");
       if (all) {

@@ -67,7 +67,7 @@ Manual Removal is available from discreet trash actions on Media and Torrent vie
 }
 ```
 
-`removal.dry_run` defaults to **true**. In dry-run mode Connarr performs no destructive owner API calls; confirming a plan records the simulation in History. Setting it to `false` enables owner-backed execution. Managed Media is removed only through Radarr/Sonarr and Torrent data only through qBittorrent. Direct OS removal of Unmanaged files is disabled until a future cleanup root is explicitly delegated to Connarr.
+`removal.dry_run` defaults to **true**. In dry-run mode Connarr performs no destructive owner API calls; confirming a plan records the simulation in History. Setting it to `false` enables owner-backed execution. Managed Media is removed only through Radarr/Sonarr and Torrent data only through qBittorrent. Unmanaged files are removed by direct OS deletion — the only removal kind not delegated to a service, since nothing claims them — with the same admission, revalidation, and physical-identity re-verification every other removal kind goes through.
 
 Every confirmed operation is written durably with status `queued` before
 scheduler admission and advances to `started` before any mutation. Once execution begins it uses an application-owned bounded context,
