@@ -197,6 +197,23 @@ This file separates implemented behavior from intended direction. It is not a pr
   EventSource before falling back to polling. Added a permanent regression
   test (`tests/ui/reactivity.mjs`) that forces a connection failure and
   asserts no further reconnect attempts occur.
+- That fix alone turned out to be insufficient: it only runs when the
+  browser actually fires an `error` event, but a connection can also go
+  silently dead (a NAT mapping timing out, a network path change) with
+  neither side ever seeing an error — left open indefinitely from both
+  ends' point of view, so the fix's own cleanup code never executes at all.
+  Closed the gap (0.2.32) by having the server voluntarily end and rotate
+  every `/ui/events` connection on a bounded lifetime (3 minutes) regardless
+  of whether anything looks wrong, so a silently-dead connection is always
+  eventually replaced. Because EventSource has no way to distinguish an
+  intentional server-side close from a real failure — both fire the same
+  `error` event — the client no longer treats a single error as fatal: it
+  now retries with capped exponential backoff (up to 5 attempts) before
+  falling back to polling, so routine rotations reconnect near-instantly
+  and only genuine, sustained failures degrade to polling. Verified with a
+  new Go test (`TestSSEEndsOnItsOwnAfterMaxLifetime`) and an extended
+  browser regression test asserting the retry count climbs and then
+  plateaus rather than staying flat or growing forever.
 
 ### Model and operations
 

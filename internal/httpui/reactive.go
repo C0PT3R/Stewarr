@@ -213,9 +213,24 @@ func (server *Server) uiEvents(response http.ResponseWriter, request *http.Reque
 	flusher.Flush()
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
+	// A connection can go silently dead — a NAT mapping timing out, a
+	// network path change — without either side ever seeing an error: the
+	// client's next read simply never arrives, and the server's next write
+	// can sit in the OS send buffer for a long time before TCP gives up and
+	// finally reports a failure. Bounding the stream's lifetime and ending
+	// it cleanly here, rather than waiting to detect a failure that may
+	// never surface, is the standard fix: EventSource auto-reconnects
+	// immediately on an ordinary server-closed stream (no error path
+	// involved at all), so this guarantees no single connection is relied
+	// on for longer than this window regardless of why an old one might
+	// have gone stale.
+	maxLifetime := time.NewTimer(server.sseMaxLifetime)
+	defer maxLifetime.Stop()
 	for {
 		select {
 		case <-request.Context().Done():
+			return
+		case <-maxLifetime.C:
 			return
 		case revision := <-updates:
 			if writeSSERevision(response, revision) != nil {

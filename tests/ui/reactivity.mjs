@@ -153,15 +153,28 @@ try {
   // open for hours, hitting the odd network blip), those leaked reconnect
   // loops alone can exhaust the pool and stall every other request to the
   // origin indefinitely, with no server-side signal at all.
+  //
+  // The controller retries a bounded number of times with backoff before
+  // giving up on SSE for good (a routine server-side connection rotation
+  // and a genuine network failure both look identical to EventSource, so a
+  // single error can't be treated as fatal — see revisions.ts), so the
+  // request count is expected to climb for a while and then plateau, not
+  // stay flat after the very first attempt.
   const ssePage = await browser.newPage();
   try {
     await ssePage.goto(`http://127.0.0.1:${address.port}/sse`);
     await ssePage.waitForTimeout(600);
     const firstWindow = eventsRequests;
     assert(firstWindow >= 1, "expected the revisions controller to open an EventSource connection to /ui/events");
+    // Backoff delays (500ms * 2^n, capped at 8s) sum to ~15.5s across 5
+    // retries; give it comfortably longer to exhaust every attempt and
+    // settle into polling.
+    await ssePage.waitForTimeout(20000);
+    const plateauCount = eventsRequests;
+    assert(plateauCount > firstWindow, `expected the controller to retry a few times before giving up, got stuck at ${plateauCount} requests`);
     await ssePage.waitForTimeout(4000);
-    const secondWindow = eventsRequests;
-    assert(secondWindow === firstWindow, `EventSource kept reconnecting in the background after the first error (${firstWindow} -> ${secondWindow} requests) instead of closing and falling back to polling`);
+    const afterPlateau = eventsRequests;
+    assert(afterPlateau === plateauCount, `EventSource kept reconnecting in the background after exhausting its retry budget (${plateauCount} -> ${afterPlateau} requests) instead of settling into polling`);
   } finally {
     await ssePage.close();
   }

@@ -18,10 +18,23 @@ interface StatusResponse {
   [key: string]: unknown;
 }
 
+const maxReconnectAttempts = 5;
+
 export class RevisionsController extends window.Stimulus.Controller {
   etag = "";
   pollTimer: ReturnType<typeof setInterval> | null = null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   events: EventSource | null = null;
+  // The server voluntarily ends and lets the client reconnect every few
+  // minutes (a connection can go silently dead through a network path with
+  // neither side ever seeing an error, so relying on failure detection
+  // alone isn't enough) — EventSource has no way to tell "the server closed
+  // this on purpose" apart from "the network died", both surface as the
+  // same error event. Counting consecutive failures, and resetting the
+  // count on every successful open, is what keeps a routine server-side
+  // rotation from permanently downgrading every page load to polling after
+  // a few minutes.
+  reconnectAttempts = 0;
   onVisible!: () => void;
   // A newly opened EventSource always immediately replays whatever revision
   // is already current, so the connection's very first "revision" message
@@ -35,6 +48,8 @@ export class RevisionsController extends window.Stimulus.Controller {
   connect(): void {
     this.etag = "";
     this.pollTimer = null;
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
     this.syncedInitialRevision = false;
     this.onVisible = () => {
       if (!document.hidden) this.refreshStatus({ kind: "visibility" });
@@ -47,6 +62,7 @@ export class RevisionsController extends window.Stimulus.Controller {
     document.removeEventListener("visibilitychange", this.onVisible);
     if (this.events) this.events.close();
     if (this.pollTimer) clearInterval(this.pollTimer);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
   }
 
   connectEvents(): void {
@@ -54,6 +70,15 @@ export class RevisionsController extends window.Stimulus.Controller {
       this.startPolling();
       return;
     }
+    // A dropped EventSource that isn't explicitly closed keeps retrying to
+    // reconnect in the background forever, per spec, even after this
+    // controller has moved on to its own retry/poll logic below. Each
+    // silent retry attempt still consumes one of the browser's ~6
+    // connections-per-origin — left unclosed long enough (one tab, open for
+    // hours, hitting the odd network blip), those zombie reconnect loops
+    // alone can exhaust the pool and stall every other request to this
+    // origin indefinitely. Always close the previous object ourselves
+    // before creating a new one.
     if (this.events) this.events.close();
     this.events = new EventSource("/ui/events");
     this.events.addEventListener("revision", event => {
@@ -64,24 +89,32 @@ export class RevisionsController extends window.Stimulus.Controller {
       }
     });
     this.events.onopen = () => {
+      this.reconnectAttempts = 0;
       if (this.pollTimer) {
         clearInterval(this.pollTimer);
         this.pollTimer = null;
       }
     };
-    // A dropped EventSource that isn't explicitly closed keeps retrying to
-    // reconnect in the background forever, per spec, even after we've
-    // already fallen back to polling here. Each silent retry attempt still
-    // consumes one of the browser's ~6 connections-per-origin — left
-    // unclosed long enough (one tab, left open for hours, hitting the odd
-    // network blip), those zombie reconnect loops alone can exhaust the
-    // pool and stall every other request to this origin indefinitely.
     this.events.onerror = () => {
       if (this.events) {
         this.events.close();
         this.events = null;
       }
-      this.startPolling();
+      // EventSource gives no way to tell "the server ended this on purpose"
+      // (a routine periodic rotation) apart from "the network actually
+      // failed" — both fire this same error event. Treating every single
+      // error as a permanent downgrade to polling would mean every page
+      // load loses live updates within minutes, as soon as the server's
+      // first scheduled rotation happens. Retry a handful of times first
+      // (with backoff, so a genuine outage doesn't hammer the server) and
+      // only fall back to polling if reconnecting keeps failing.
+      this.reconnectAttempts++;
+      if (this.reconnectAttempts > maxReconnectAttempts) {
+        this.startPolling();
+        return;
+      }
+      const delay = Math.min(500 * 2 ** (this.reconnectAttempts - 1), 8000);
+      this.reconnectTimer = setTimeout(() => this.connectEvents(), delay);
     };
   }
 

@@ -188,6 +188,39 @@ func TestSSEDisconnectDoesNotLeakSubscriber(t *testing.T) {
 	}
 }
 
+// TestSSEEndsOnItsOwnAfterMaxLifetime guards the actual fix for a real
+// production incident: a connection can go silently dead (a NAT mapping
+// timing out, a network path change) without either side ever seeing an
+// error, leaving it open indefinitely from both ends' point of view. The
+// server must not rely on detecting that failure — it has to voluntarily
+// end the stream on a bounded schedule regardless, so the client's
+// EventSource auto-reconnects into a fresh connection either way.
+func TestSSEEndsOnItsOwnAfterMaxLifetime(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.sseMaxLifetime = 20 * time.Millisecond
+	request := httptest.NewRequest(http.MethodGet, "/ui/events", nil)
+	response := newFlushRecorder()
+	done := make(chan struct{})
+	go func() {
+		server.uiEvents(response, request)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("SSE handler did not end on its own after sseMaxLifetime, even with no client disconnect and no revision update — a silently dead connection would never be replaced")
+	}
+	server.revisions.mu.Lock()
+	subscribers := len(server.revisions.subscribers)
+	server.revisions.mu.Unlock()
+	if subscribers != 0 {
+		t.Fatalf("SSE subscribers still registered after the lifetime-based close: %d", subscribers)
+	}
+}
+
 type flushRecorder struct {
 	*httptest.ResponseRecorder
 	flushes atomic.Int32

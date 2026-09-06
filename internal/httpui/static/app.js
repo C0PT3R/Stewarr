@@ -26,12 +26,24 @@
   }
 
   // internal/httpui/static/src/controllers/revisions.ts
+  var maxReconnectAttempts = 5;
   var RevisionsController = class extends window.Stimulus.Controller {
     constructor() {
       super(...arguments);
       this.etag = "";
       this.pollTimer = null;
+      this.reconnectTimer = null;
       this.events = null;
+      // The server voluntarily ends and lets the client reconnect every few
+      // minutes (a connection can go silently dead through a network path with
+      // neither side ever seeing an error, so relying on failure detection
+      // alone isn't enough) — EventSource has no way to tell "the server closed
+      // this on purpose" apart from "the network died", both surface as the
+      // same error event. Counting consecutive failures, and resetting the
+      // count on every successful open, is what keeps a routine server-side
+      // rotation from permanently downgrading every page load to polling after
+      // a few minutes.
+      this.reconnectAttempts = 0;
       // A newly opened EventSource always immediately replays whatever revision
       // is already current, so the connection's very first "revision" message
       // merely restates what this page's HTML was just rendered with — not
@@ -44,6 +56,8 @@
     connect() {
       this.etag = "";
       this.pollTimer = null;
+      this.reconnectTimer = null;
+      this.reconnectAttempts = 0;
       this.syncedInitialRevision = false;
       this.onVisible = () => {
         if (!document.hidden) this.refreshStatus({ kind: "visibility" });
@@ -55,6 +69,7 @@
       document.removeEventListener("visibilitychange", this.onVisible);
       if (this.events) this.events.close();
       if (this.pollTimer) clearInterval(this.pollTimer);
+      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     }
     connectEvents() {
       if (!("EventSource" in window)) {
@@ -71,6 +86,7 @@
         }
       });
       this.events.onopen = () => {
+        this.reconnectAttempts = 0;
         if (this.pollTimer) {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
@@ -81,7 +97,13 @@
           this.events.close();
           this.events = null;
         }
-        this.startPolling();
+        this.reconnectAttempts++;
+        if (this.reconnectAttempts > maxReconnectAttempts) {
+          this.startPolling();
+          return;
+        }
+        const delay = Math.min(500 * 2 ** (this.reconnectAttempts - 1), 8e3);
+        this.reconnectTimer = setTimeout(() => this.connectEvents(), delay);
       };
     }
     startPolling() {
