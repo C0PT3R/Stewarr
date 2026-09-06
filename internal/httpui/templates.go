@@ -51,7 +51,7 @@ func appChrome(active string) string {
 		{"home", "Home", "/"},
 		{"library", "Library", "/library"},
 		{"torrents", "Torrents", "/torrents"},
-		{"unmanaged", "Unmanaged", "/downloads/unmanaged"},
+		{"unmanaged", "Unmanaged", "/unmanaged"},
 		{"tasks", "Tasks", "/tasks"},
 		{"history", "History", "/history"},
 	}

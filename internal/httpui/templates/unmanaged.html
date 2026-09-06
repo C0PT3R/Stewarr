@@ -19,8 +19,8 @@
       <b>{{.AllItems}}</b> files · <b>{{human .TotalBytes}}</b>{{if gt .ReclaimableBytes 0}} · <b>{{human .ReclaimableBytes}}</b> physically reclaimable if an authorized owner removes every link{{end}}{{if gt .SharedBytes 0}} · {{human .SharedBytes}} shared through hardlinks{{end}}
     </div>
     <div class="toolbar">
-      <form class="filters" data-auto-filter method="get" action="/downloads/unmanaged">
-        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/downloads/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/downloads/unmanaged">Clear</a>{{end}}
+      <form class="filters" data-auto-filter method="get" action="/unmanaged">
+        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/unmanaged">Clear</a>{{end}}
       </form>
       <button class="scan" type="button" data-unmanaged-scan>Refresh inventory</button>
     </div>
@@ -44,17 +44,19 @@
             <th><a href="{{index .SortURLs "reclaimable"}}">Physical potential</a></th>
             <th><a href="{{index .SortURLs "links"}}">Links</a></th>
             <th><a href="{{index .SortURLs "modified"}}">Modified</a></th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          {{range $group := .Files}}
+          {{range $i, $group := .Files}}
           <tr>
             <td>
-              {{if eq (len $group.Paths) 1}}<input class="unmanagedPick" type="checkbox" name="path" value="{{(index $group.Paths 0).Path}}">{{end}}
+              <input class="unmanagedPick" type="checkbox" data-unmanaged-group="{{$i}}">
+              {{range $group.Paths}}<input class="unmanagedGroupPath" type="checkbox" name="path" value="{{.Path}}" data-unmanaged-group="{{$i}}" hidden>{{end}}
             </td>
             <td>
               {{range $group.Paths}}
-              <div class="mono path" title="{{.Path}}">{{if gt (len $group.Paths) 1}}<label><input class="unmanagedPick" type="checkbox" name="path" value="{{.Path}}"> {{shortPath .Path}}</label>{{else}}{{shortPath .Path}}{{end}}</div>
+              <div class="mono path" title="{{.Path}}">{{shortPath .Path}}</div>
               {{end}}
             </td>
             <td>{{human $group.SizeBytes}}</td>
@@ -63,10 +65,13 @@
               {{if gt (len $group.Paths) 1}}hardlinked · {{len $group.Paths}} paths to the same physical file{{else if gt $group.Links 1}}hardlinked{{else}}—{{end}}{{if gt $group.MissingLinks 0}} · {{$group.MissingLinks}} hardlink{{if gt $group.MissingLinks 1}}s{{end}} outside known topology{{end}}
             </td>
             <td>{{fmtUpdated $group.ModifiedAt}}</td>
+            <td>
+              <button class=trash type="button" title="Remove" data-removal-url="{{unmanagedRemovalURL $group}}">🗑</button>
+            </td>
           </tr>
           {{else}}
           <tr>
-            <td colspan="6" class="muted">No unmanaged files found.</td>
+            <td colspan="7" class="muted">No unmanaged files found.</td>
           </tr>
           {{end}}
         </tbody>

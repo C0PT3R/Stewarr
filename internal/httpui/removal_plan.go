@@ -1248,7 +1248,7 @@ func (server *Server) buildUnmanagedRemovalPlan(paths []string, selectedTorrents
 	}
 	return removalData{
 		Plan: p, FileGroups: groupRemovalFiles(p, files), PotentialBytes: potential,
-		BackURL: "/downloads/unmanaged", UnmanagedPaths: clean, Related: torrents,
+		BackURL: "/unmanaged", UnmanagedPaths: clean, Related: torrents,
 		RelatedGroups: groupRelatedTorrents(torrents), SelectedActions: actions,
 	}, nil
 }

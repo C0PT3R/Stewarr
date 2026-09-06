@@ -64,7 +64,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "unmanagedRemovalURL": unmanagedRemovalURL, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -189,8 +189,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/media/", server.media)
 	mux.HandleFunc("/torrents", server.torrents)
 	mux.HandleFunc("/torrents/", server.torrentDetail)
-	mux.HandleFunc("/downloads/unmanaged", server.unmanagedDownloads)
-	mux.HandleFunc("/downloads/unmanaged/scan", server.scanUnmanagedNow)
+	mux.HandleFunc("/unmanaged", server.unmanagedDownloads)
+	mux.HandleFunc("/unmanaged/scan", server.scanUnmanagedNow)
 	mux.HandleFunc("/history", server.history)
 	mux.HandleFunc("/tasks", server.tasksPage)
 	mux.HandleFunc("/tasks/run", server.runTask)

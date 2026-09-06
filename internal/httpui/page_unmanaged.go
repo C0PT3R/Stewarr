@@ -28,6 +28,18 @@ type unmanagedFileGroup struct {
 	MissingLinks     int
 }
 
+// unmanagedRemovalURL builds the removal overlay URL for one physical
+// file's trash icon — every hardlinked path of the group, not just the
+// first, so a single-click removal reclaims the same space the bulk
+// checkbox-select path does rather than leaving a dangling hardlink.
+func unmanagedRemovalURL(group unmanagedFileGroup) string {
+	query := url.Values{}
+	for _, file := range group.Paths {
+		query.Add("path", file.Path)
+	}
+	return "/removal/unmanaged?" + query.Encode()
+}
+
 type unmanagedData struct {
 	Files                                     []unmanagedFileGroup
 	Updated                                   time.Time
@@ -172,11 +184,11 @@ func (server *Server) scanUnmanagedNow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/downloads/unmanaged", http.StatusSeeOther)
+	http.Redirect(w, r, "/unmanaged", http.StatusSeeOther)
 }
 
 func (server *Server) unmanagedDownloads(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/downloads/unmanaged" {
+	if r.URL.Path != "/unmanaged" {
 		http.NotFound(w, r)
 		return
 	}
@@ -246,7 +258,7 @@ func (server *Server) unmanagedDownloads(w http.ResponseWriter, r *http.Request)
 		if qtext != "" {
 			q.Set("q", qtext)
 		}
-		return "/downloads/unmanaged?" + q.Encode()
+		return "/unmanaged?" + q.Encode()
 	}
 	sortURLs := map[string]string{}
 	for _, k := range []string{"path", "size", "reclaimable", "links", "modified"} {

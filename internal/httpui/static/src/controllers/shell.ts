@@ -223,13 +223,17 @@ export class ShellController extends window.Stimulus.Controller {
     }
   }
 
-  // Every unmanaged checkbox (one row's own, or one of several hardlinked
-  // paths within a row) is an independent name="path" field — hardlinked
-  // paths of an otherwise-unclaimed file can be removed individually, since
-  // each is a real, separately meaningful deletion (removing one alias vs.
-  // removing all of them and actually freeing the data).
+  // One visible .unmanagedPick checkbox per physical file, regardless of
+  // how many hardlinked paths it has — selecting it mirrors onto every
+  // hidden .unmanagedGroupPath (one per path, all name="path") sharing its
+  // data-unmanaged-group. Partial selection (only some of a file's
+  // hardlinks) was tried and rejected: it silently reclaims 0 bytes, since
+  // the remaining link keeps the data alive, with no visible reason why.
   syncUnmanagedSelection(): void {
     const picks = [...document.querySelectorAll<HTMLInputElement>(".unmanagedPick")];
+    for (const pick of picks) {
+      document.querySelectorAll<HTMLInputElement>(`.unmanagedGroupPath[data-unmanaged-group="${CSS.escape(pick.dataset.unmanagedGroup!)}"]`).forEach(input => { input.checked = pick.checked; });
+    }
     const selected = picks.filter(input => input.checked).length;
     const all = document.getElementById("unmanagedAll") as HTMLInputElement | null;
     if (all) {
@@ -245,7 +249,7 @@ export class ShellController extends window.Stimulus.Controller {
     (button as HTMLButtonElement).disabled = true;
     button.textContent = "Scanning…";
     try {
-      const response = await fetch("/downloads/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
+      const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
       this.refreshFragments(true);

@@ -193,7 +193,7 @@ Hardlinks are grouped by device+inode to explain physical storage potential. No 
 Browse results at:
 
 ```text
-/downloads/unmanaged
+/unmanaged
 ```
 
 ## Search, filtering, sorting and pagination

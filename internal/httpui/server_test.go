@@ -144,7 +144,7 @@ func TestUnmanagedPageExposesRemovalControls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, required := range []string{"/removal/unmanaged", "unmanagedPick", "unmanagedRemoveButton", "unmanagedAll", `name="path"`} {
+	for _, required := range []string{"/removal/unmanaged", "unmanagedPick", "unmanagedRemoveButton", "unmanagedAll", `name="path"`, "class=trash", "unmanagedRemovalURL"} {
 		if !bytes.Contains(content, []byte(required)) {
 			t.Fatalf("Unmanaged page missing removal control %q", required)
 		}
@@ -154,6 +154,32 @@ func TestUnmanagedPageExposesRemovalControls(t *testing.T) {
 			t.Fatalf("Unmanaged explanation missing %q", required)
 		}
 	}
+}
+
+// TestUnmanagedRemovalURLIncludesEveryHardlinkedPath guards the per-row
+// trash icon: it must target every path in the group, not just the first,
+// so a single-click removal reclaims the same space the bulk
+// checkbox-select flow does rather than leaving a dangling hardlink.
+func TestUnmanagedRemovalURLIncludesEveryHardlinkedPath(t *testing.T) {
+	group := unmanagedFileGroup{Paths: []model.UnmanagedFile{{Path: "/data/a/file.mkv"}, {Path: "/data/b/file.mkv"}}}
+	got := unmanagedRemovalURL(group)
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := parsed.Query()["path"]
+	if len(paths) != 2 || !containsString(paths, "/data/a/file.mkv") || !containsString(paths, "/data/b/file.mkv") {
+		t.Fatalf("expected both hardlinked paths in the removal URL, got %q -> %v", got, paths)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, v := range values {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCrossOriginWriteIsRejected(t *testing.T) {

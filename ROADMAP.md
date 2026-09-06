@@ -399,12 +399,25 @@ This file separates implemented behavior from intended direction. It is not a pr
 - The Unmanaged page's removal UI didn't just need re-enabling — it had
   been fully stripped (no checkboxes, no trash button) and the leftover
   JS (`syncUnmanagedSelection`) only ever managed checkbox *state*, with
-  no submit ever wired to it. Rebuilt as a per-path checkbox list plus a
-  "select all", submitting through the same removal overlay already
-  proven for Library/Torrents rather than reconstructing the old bespoke
-  two-level group/sub-path scheme — simpler, and each hardlinked path of
-  an Unmanaged file can now be selected independently, since removing one
-  alias vs. all of them are genuinely different, meaningful actions.
+  no submit ever wired to it. Rebuilt with one checkbox per physical
+  file, submitting through the same removal overlay already proven for
+  Library/Torrents. A first version let each hardlinked path of a file be
+  selected independently, on the theory that removing one alias vs. all
+  of them are different actions — in practice this let a user select
+  only some of a file's hardlinks and reclaim exactly 0 bytes, since the
+  remaining link keeps the data alive, with no visible reason why. One
+  checkbox per file now selects (and submits) every one of its hardlinked
+  paths together. Each row also has its own trash icon (same convention
+  as Library/Torrents) for removing that one physical file directly,
+  without selecting it first — it targets every one of its hardlinked
+  paths too, for the same reason the bulk checkbox does.
+- The Unmanaged page moved from `/downloads/unmanaged` to `/unmanaged`
+  (and its scan endpoint from `/downloads/unmanaged/scan` to
+  `/unmanaged/scan`) — a leftover from an earlier, narrower framing of
+  the feature: `/downloads` was never used as a prefix anywhere else in
+  the app, and the scan itself isn't scoped to download-client folders at
+  all, so the nesting no longer matched anything. Now flat like every
+  other top-level page (`/library`, `/torrents`, `/services`, ...).
 
 ## Near-term
 
