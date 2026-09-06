@@ -27,6 +27,43 @@ func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {
 	}
 }
 
+// TestValidateAcceptsA204LoginResponseWithSIDCookie guards a real
+// production failure: some qBittorrent deployments respond to a successful
+// /api/v2/auth/login with 204 and an empty body instead of the documented
+// 200 "Ok." — login() must accept this since the actual authentication
+// signal is the SID session cookie, not one specific body string.
+func TestValidateAcceptsA204LoginResponseWithSIDCookie(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/auth/login" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "SID", Value: "abc123"})
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+	if err := New("qBittorrent", srv.URL, "user", "pass", "").Validate(); err != nil {
+		t.Fatalf("expected a 204+SID-cookie login to be accepted, got %v", err)
+	}
+}
+
+// TestValidateRejectsFailedLoginWithoutSIDCookie guards against the above
+// fix accidentally weakening wrong-credentials rejection: qBittorrent
+// responds 200 with body "Fails." on bad credentials and never sets SID,
+// which must still be treated as a failure.
+func TestValidateRejectsFailedLoginWithoutSIDCookie(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/auth/login" {
+			_, _ = w.Write([]byte("Fails."))
+			return
+		}
+		t.Fatalf("unexpected request: %s", r.URL.Path)
+	}))
+	defer srv.Close()
+	if err := New("qBittorrent", srv.URL, "user", "wrong", "").Validate(); err == nil {
+		t.Fatal("expected a failed login (no SID cookie, body \"Fails.\") to be rejected")
+	}
+}
+
 func TestAllFilesToleratesOneTorrentRemovedDirectlyInQBittorrent(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/torrents/files" {

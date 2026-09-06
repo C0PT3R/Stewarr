@@ -75,7 +75,21 @@ func (client *Client) login() error {
 	}
 	defer r.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(r.Body, 1024))
-	if r.StatusCode/100 != 2 || strings.TrimSpace(string(b)) != "Ok." {
+	// The documented success body is "Ok." with a 200, but qBittorrent
+	// authenticates by handing back a SID session cookie regardless of the
+	// exact status/body — some deployments respond 204 with an empty body
+	// on success instead. A real failure (wrong credentials) responds 200
+	// with body "Fails." and never sets SID, so keying off the cookie
+	// can't be fooled into accepting bad credentials the "Ok." check would
+	// have caught.
+	authenticated := false
+	for _, cookie := range r.Cookies() {
+		if cookie.Name == "SID" {
+			authenticated = true
+			break
+		}
+	}
+	if r.StatusCode/100 != 2 || (!authenticated && strings.TrimSpace(string(b)) != "Ok.") {
 		return fmt.Errorf("qbittorrent login: %s: %s", r.Status, strings.TrimSpace(string(b)))
 	}
 	return nil
