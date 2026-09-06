@@ -68,9 +68,9 @@
       <div class=card>
         <strong>Files {{if .FileCount}}({{.FileCount}}){{end}}</strong>{{range .Files}}
         <div style="padding:8px 0;border-top:1px solid #333">
-          <div class=mono title="{{.File.Path}}">{{shortPath .File.Path}}</div>
+          <div class=mono title="{{.File.Path}}">{{shortPath .File.Path}}{{if fileOwner .File.StorageContexts}} <span class="muted owner">· {{fileOwner .File.StorageContexts}}</span>{{end}}</div>
           {{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}
-          <div class=mono title="{{.Path}}">{{shortPath .Path}}</div>
+          <div class=mono title="{{.Path}}">{{shortPath .Path}}{{if peerOwner .}} <span class="muted owner">· {{peerOwner .}}</span>{{end}}</div>
           {{end}}{{end}}<span class=muted>{{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}</span>
         </div>
         {{else}}

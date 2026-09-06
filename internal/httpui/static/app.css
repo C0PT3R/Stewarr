@@ -1404,6 +1404,12 @@ a {
   font-weight: 650;
   overflow-wrap: anywhere;
 }
+.owner {
+  font-weight: 400;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  font-size: 13px;
+}
 .row-meta {
   font-size: 13px;
   color: #aaa;

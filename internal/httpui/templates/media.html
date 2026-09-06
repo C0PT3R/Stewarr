@@ -8,7 +8,7 @@
   </head>
   <body data-controller="shell revisions">
     {{chrome "library"}}
-    <div id="media-detail" class=page data-reactive-fragment data-live-policy="immediate">
+    <div id="media-detail" data-reactive-fragment data-live-policy="immediate">
       {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
       <div class=hero>
         <div>
@@ -42,6 +42,8 @@
         <section class=panel>
           <h2>Media</h2>
           <div class=kv>
+            <div>Service</div>
+            <div>{{if .Media.ServiceName}}{{.Media.ServiceName}}{{else}}<span class=muted>Unknown</span>{{end}}</div>
             <div>Size</div>
             <div>{{human .Media.SizeBytes}}</div>
             <div>Path</div>
@@ -94,9 +96,9 @@
         {{else}}{{range .Files}}
         <div class=row>
           <div>
-            <div class="row-title mono" title="{{.File.Path}}">{{shortPath .File.Path}}</div>
+            <div class="row-title mono" title="{{.File.Path}}">{{shortPath .File.Path}}{{if fileOwner .File.StorageContexts}} <span class="muted owner">· {{fileOwner .File.StorageContexts}}</span>{{end}}</div>
             {{if and .File.Exists .File.IdentityKnown (gt .File.Links 1)}}{{range .SharedWith}}
-            <div class="row-title mono" title="{{.Path}}">{{shortPath .Path}}</div>
+            <div class="row-title mono" title="{{.Path}}">{{shortPath .Path}}{{if peerOwner .}} <span class="muted owner">· {{peerOwner .}}</span>{{end}}</div>
             {{end}}{{end}}
             <div class=row-meta>
               {{human .File.SizeBytes}}{{if .File.Exists}}{{if .File.IdentityKnown}}{{if gt .File.Links 1}} · <strong>hardlinked · {{.File.Links}} paths / 1 physical file</strong>{{end}}{{end}}{{else}} · missing{{end}}

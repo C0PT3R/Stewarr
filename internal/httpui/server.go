@@ -64,7 +64,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "unmanagedRemovalURL": unmanagedRemovalURL, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -345,6 +345,50 @@ func shortPath(v string) string {
 		return v
 	}
 	return v[:left] + "..." + v[len(v)-right:]
+}
+
+// fileOwnerLabel describes which service's root a file path was discovered
+// under (its StorageContexts), for display next to a file row so "who owns
+// this path" doesn't require cross-referencing the Services page.
+func fileOwnerLabel(contexts []model.StorageContext) string {
+	names := make([]string, 0, len(contexts))
+	seen := map[string]bool{}
+	for _, context := range contexts {
+		name := context.ServiceName
+		if name == "" {
+			name = context.RootLabel
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// filePeerOwnerLabel describes which media item or torrent a hardlinked
+// sibling path belongs to, so a "Files" section's other known paths read as
+// more than an unexplained list of strings.
+func filePeerOwnerLabel(peer inventory.FilePeer) string {
+	owners := make([]string, 0, len(peer.Media)+len(peer.Torrents))
+	for _, ref := range peer.Media {
+		if ref.Title == "" {
+			continue
+		}
+		if ref.Year > 0 {
+			owners = append(owners, fmt.Sprintf("%s (%d)", ref.Title, ref.Year))
+		} else {
+			owners = append(owners, ref.Title)
+		}
+	}
+	for _, torrent := range peer.Torrents {
+		if torrent.Name == "" {
+			continue
+		}
+		owners = append(owners, "torrent: "+torrent.Name)
+	}
+	return strings.Join(owners, ", ")
 }
 
 func unixTime(sec int64) string {
