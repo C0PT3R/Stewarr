@@ -58,6 +58,48 @@ func TestLibraryTemplateHidesTypeFilterWithSingleType(t *testing.T) {
 	if strings.Contains(body, "name=source") {
 		t.Fatalf("expected no Source filter when SourceOptions is empty, got:\n%s", body)
 	}
+	if strings.Contains(body, "name=torrent") {
+		t.Fatalf("expected no Torrent filter when HasTorrentClient is false, got:\n%s", body)
+	}
+}
+
+// TestLibraryTemplateShowsTorrentFilterOnlyWithTorrentClient guards a
+// specific UI rule: with no torrent-client-type service configured, no
+// media item can ever have a torrent, so filtering by "Torrent" would
+// always be a no-op — it must not be offered at all.
+func TestLibraryTemplateShowsTorrentFilterOnlyWithTorrentClient(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := libraryData{
+		HasMediaLibrary: true,
+		Rows:            []mediaRow{{Media: model.Media{Type: model.Movie, SourceID: 1, Title: "Test"}}},
+		TypeOptions:     []mediaTypeOption{{Value: "movie", Label: "Movies"}},
+		Page:            1, PageSize: 50, TotalPages: 1, TotalItems: 1, Sort: "title", Order: "asc",
+		SortURLs:  map[string]string{"value": "/library", "title": "/library", "type": "/library", "rating": "/library", "votes": "/library", "views": "/library", "lastwatched": "/library", "requested": "/library", "size": "/library", "torrents": "/library"},
+		SizeLinks: []navLink{{Value: 50, URL: "/library"}},
+	}
+
+	without := base
+	without.HasTorrentClient = false
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.libraryTpl, without); err != nil {
+		t.Fatalf("render library template: %v", err)
+	}
+	if strings.Contains(recorder.Body.String(), "name=torrent") {
+		t.Fatalf("expected no Torrent filter without a torrent client, got:\n%s", recorder.Body.String())
+	}
+
+	with := base
+	with.HasTorrentClient = true
+	recorder = httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.libraryTpl, with); err != nil {
+		t.Fatalf("render library template: %v", err)
+	}
+	if !strings.Contains(recorder.Body.String(), "name=torrent") {
+		t.Fatalf("expected the Torrent filter with a torrent client configured, got:\n%s", recorder.Body.String())
+	}
 }
 
 func TestLibraryTemplateShowsTypeAndSourceFiltersWhenPopulated(t *testing.T) {

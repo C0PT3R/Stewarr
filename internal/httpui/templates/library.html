@@ -27,11 +27,11 @@
         <option value="any" {{if eq .WatchedFilter "any"}}selected{{end}}>Any</option>
         <option value="yes" {{if eq .WatchedFilter "yes"}}selected{{end}}>Watched</option>
         <option value="no" {{if eq .WatchedFilter "no"}}selected{{end}}>Unwatched</option>
-        </select></label><label>Torrent<select name=torrent>
+        </select></label>{{if .HasTorrentClient}}<label>Torrent<select name=torrent>
         <option value="any" {{if eq .TorrentFilter "any"}}selected{{end}}>Any</option>
         <option value="yes" {{if eq .TorrentFilter "yes"}}selected{{end}}>Current</option>
         <option value="no" {{if eq .TorrentFilter "no"}}selected{{end}}>None</option>
-        </select></label><label class=toggle><input type=checkbox name=show_no_files value=1 {{if .ShowNoFiles}}checked{{end}}> Show media with no files</label><input type=hidden name=sort value="{{.Sort}}"><input type=hidden name=order value="{{.Order}}"><input type=hidden name=page_size value="{{.PageSize}}"><a class=clear data-filter-clear href="{{.ClearURL}}">Clear</a>
+        </select></label>{{end}}<label class=toggle><input type=checkbox name=show_no_files value=1 {{if .ShowNoFiles}}checked{{end}}> Show media with no files</label><input type=hidden name=sort value="{{.Sort}}"><input type=hidden name=order value="{{.Order}}"><input type=hidden name=page_size value="{{.PageSize}}"><a class=clear data-filter-clear href="{{.ClearURL}}">Clear</a>
       </form>
     </div>
     <div id="library-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>

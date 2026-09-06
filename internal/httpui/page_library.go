@@ -26,35 +26,36 @@ type navLink struct {
 }
 
 type libraryData struct {
-	Rows            []mediaRow
-	Updated         time.Time
-	LastErr         error
-	Refreshing      bool
-	TotalItems      int
-	Page            int
-	PageSize        int
-	TotalPages      int
-	HasPrev         bool
-	HasNext         bool
-	PrevURL         string
-	NextURL         string
-	PageLinks       []navLink
-	Sort            string
-	Order           string
-	SortURLs        map[string]string
-	SizeLinks       []navLink
-	AllItems        int
-	Query           string
-	TypeFilter      string
-	TypeOptions     []mediaTypeOption
-	SourceFilter    string
-	SourceOptions   []mediaSource
-	RequestedFilter string
-	WatchedFilter   string
-	TorrentFilter   string
-	ShowNoFiles     bool
-	ClearURL        string
-	HasMediaLibrary bool
+	Rows             []mediaRow
+	Updated          time.Time
+	LastErr          error
+	Refreshing       bool
+	TotalItems       int
+	Page             int
+	PageSize         int
+	TotalPages       int
+	HasPrev          bool
+	HasNext          bool
+	PrevURL          string
+	NextURL          string
+	PageLinks        []navLink
+	Sort             string
+	Order            string
+	SortURLs         map[string]string
+	SizeLinks        []navLink
+	AllItems         int
+	Query            string
+	TypeFilter       string
+	TypeOptions      []mediaTypeOption
+	SourceFilter     string
+	SourceOptions    []mediaSource
+	RequestedFilter  string
+	WatchedFilter    string
+	TorrentFilter    string
+	ShowNoFiles      bool
+	ClearURL         string
+	HasMediaLibrary  bool
+	HasTorrentClient bool
 }
 
 func normalizeBoolFilter(v string) string {
@@ -260,6 +261,7 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	allItems := len(items)
 	cfg := server.inv.Config()
 	hasMediaLibrary := len(cfg.ServicesOfType("radarr")) > 0 || len(cfg.ServicesOfType("sonarr")) > 0
+	hasTorrentClient := len(cfg.ServicesOfType("qbittorrent")) > 0
 	serviceRoots := server.inv.ServiceRootPaths()
 
 	availableTypes := availableMediaTypes(items)
@@ -272,7 +274,10 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	typeFilter := normalizeMediaTypeFilter(r.URL.Query().Get("type"), availableTypes)
 	requestedFilter := normalizeBoolFilter(r.URL.Query().Get("requested"))
 	watchedFilter := normalizeBoolFilter(r.URL.Query().Get("watched"))
-	torrentFilter := normalizeBoolFilter(r.URL.Query().Get("torrent"))
+	torrentFilter := "any"
+	if hasTorrentClient {
+		torrentFilter = normalizeBoolFilter(r.URL.Query().Get("torrent"))
+	}
 	showNoFiles := r.URL.Query().Get("show_no_files") == "1"
 
 	// Source options are scoped to whatever Type is currently selected —
@@ -393,7 +398,7 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	for pg := maxInt(1, page-2); pg <= minInt(totalPages, page+2); pg++ {
 		pageLinks = append(pageLinks, navLink{Value: pg, URL: mkURL(pg, pageSize, sortKey, order)})
 	}
-	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, TypeOptions: typeOptions, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library", HasMediaLibrary: hasMediaLibrary}
+	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, TypeOptions: typeOptions, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library", HasMediaLibrary: hasMediaLibrary, HasTorrentClient: hasTorrentClient}
 	if showSourceFilter {
 		d.SourceFilter = sourceFilter
 		d.SourceOptions = sourceOptions

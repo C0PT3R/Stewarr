@@ -299,7 +299,11 @@ This file separates implemented behavior from intended direction. It is not a pr
   rootLabel`, reusing the same suppression rule as the removal plan's
   `displayPath` so a single-root service never shows a redundant "Radarr
   · Radarr") appears only when more than one source exists library-wide,
-  with its options scoped to whichever Type is currently selected.
+  with its options scoped to whichever Type is currently selected. The
+  Torrent filter follows the same never-show-a-no-op-filter rule: it's
+  hidden (and the filter forced closed server-side, not just visually)
+  when no torrent-client-type service is configured, since no media item
+  could ever have a torrent to filter by.
 
 ### Model and operations
 
