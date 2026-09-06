@@ -60,8 +60,7 @@
 }
 .removal-dialog {
   width: min(1100px, 96vw);
-  height: min(90vh, 900px);
-  max-height: 90vh;
+  max-height: min(90vh, 900px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
