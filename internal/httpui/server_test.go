@@ -273,6 +273,41 @@ func TestTorrentRemovalDisclosesButCannotSelectRelatedLibraryPath(t *testing.T) 
 	}
 }
 
+// TestTorrentRemovalDisclosesHardlinkedMediaButCannotSelectIt guards a real
+// gap: removing a torrent that's hardlinked to a service-owned library file
+// (not just an Unmanaged one) frees no space at all until that file is also
+// removed — but the removal plan must never let a torrent-kind submission
+// mutate a media-owned file directly (validateRemovalScope forbids
+// "managed_file" for kind "torrent", since owned objects are only ever
+// manipulated through their own service). The torrent removal view must
+// disclose the hardlink and point at the media, without offering a
+// checkbox that would just get rejected at admission.
+func TestTorrentRemovalDisclosesHardlinkedMediaButCannotSelectIt(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := removalData{
+		Plan:          removal.RemovalPlan{Kind: removal.TorrentObject, RequestedLabel: "Afterburn", Files: []removal.FileState{{Path: "/data/downloads/complete/Afterburn.mkv", Owner: removal.TorrentOwner}}},
+		TorrentTarget: true, TorrentSelected: true, SelectedActions: 1, Hash: "abc",
+		RelatedManaged: []relatedManagedMedia{{Media: model.MediaRef{Type: model.Movie, ServiceID: "radarr-1", SourceID: 42, Title: "Afterburn", Year: 2025}, FileCount: 1}},
+		FileGroups:     []removalPhysicalFileGroup{{Paths: []string{"/data/downloads/complete/Afterburn.mkv"}}},
+	}
+	var output bytes.Buffer
+	if err := server.removalTpl.Execute(&output, data); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	for _, expected := range []string{"Hardlinked library files", "will not free this space", "Afterburn (2025)", "/library/movie/42?service_id=radarr-1"} {
+		if !bytes.Contains(output.Bytes(), []byte(expected)) {
+			t.Fatalf("torrent removal missing hardlinked-media disclosure %q: %s", expected, html)
+		}
+	}
+	if bytes.Contains(output.Bytes(), []byte(`name="managed_file"`)) {
+		t.Fatalf("torrent removal exposed a cross-owner managed_file action: %s", html)
+	}
+}
+
 func TestRemovalSelectionCalculationIsLocal(t *testing.T) {
 	script, err := uiFiles.ReadFile("static/app.js")
 	if err != nil {

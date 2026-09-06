@@ -111,6 +111,14 @@
         {{range .RelatedUnmanaged}}<div class="row"><strong class="mono" title="{{.Path}}">{{shortPath .Path}}</strong> <span class="muted">· {{human .SizeBytes}} · preserved</span></div>{{end}}
       </section>
       {{end}}
+
+      {{if and .RelatedManaged (eq (printf "%s" .Plan.Kind) "torrent")}}
+      <section class="optional">
+        <h3>Hardlinked library files</h3>
+        <p class="bad">This torrent shares physical data with these library files. Removing only the torrent will not free this space — the library file must also be removed, from its own service, to reclaim it.</p>
+        {{range .RelatedManaged}}<div class="row"><a href="/library/{{.Media.Type}}/{{.Media.SourceID}}?service_id={{.Media.ServiceID}}"><strong>{{.Media.Title}}{{if .Media.Year}} ({{.Media.Year}}){{end}}</strong></a> <span class="muted">· {{.FileCount}} file{{if ne .FileCount 1}}s{{end}} hardlinked</span></div>{{end}}
+      </section>
+      {{end}}
     </form>
     {{end}}
 
