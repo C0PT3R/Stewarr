@@ -2,7 +2,7 @@
   <main class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="add-service-title" tabindex="-1">
     <div class="top">
       <div>
-        <h2 id="add-service-title">Add service</h2>
+        <h2 id="add-service-title">{{.Title}}</h2>
         <div class="muted" data-service-step-hint>Connarr checks the connection before showing the rest.</div>
       </div>
     </div>
@@ -10,11 +10,7 @@
       <form data-background-submit-then-overlay="/services/consistency-progress" method="post" action="/services/create">
         <div class="field-stack">
           <label for="service-type">Type<select id="service-type" name="type" required data-service-type>
-            <option value="radarr">Radarr</option>
-            <option value="sonarr">Sonarr</option>
-            <option value="qbittorrent">qBittorrent</option>
-            <option value="jellyfin">Jellyfin</option>
-            <option value="seerr">Seerr</option>
+            {{range .Types}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
           </select></label>
           <label for="service-name">Name<input id="service-name" name="name" required></label>
           <label for="service-url">URL<input id="service-url" name="url" type="url" required></label>
@@ -26,7 +22,7 @@
         <div class="actions">
           <button type="button" data-overlay-cancel>Cancel</button>
           <button type="button" data-service-test>Test connection</button>
-          <button type="submit" data-service-submit hidden>Add service</button>
+          <button type="submit" data-service-submit hidden>{{.Title}}</button>
         </div>
       </form>
     </div>

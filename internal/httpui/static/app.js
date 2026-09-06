@@ -3128,6 +3128,8 @@ Copyright © 2023 Basecamp, LLC
         root.innerHTML = content;
         window.htmx.process(root);
         this.refreshWizardProgress();
+        const serviceType = root.querySelector("[data-service-type]");
+        if (serviceType) this.syncServiceFields(serviceType);
       } catch (error) {
         if (error.name === "AbortError") return;
         root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;

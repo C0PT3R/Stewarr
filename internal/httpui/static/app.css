@@ -1051,6 +1051,13 @@ a {
   font-size: 13px;
   white-space: nowrap;
 }
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+.empty-state p {
+  margin-bottom: 12px;
+}
 .big {
   font-size: 32px;
   font-weight: 800;

@@ -347,6 +347,13 @@ export class ShellController extends window.Stimulus.Controller {
       root.innerHTML = content;
       window.htmx.process(root);
       this.refreshWizardProgress();
+      // A category-narrowed Type select (e.g. only qBittorrent, opened from
+      // the Torrents page) may default to a type whose credential fields
+      // don't match the template's static hidden attributes (written
+      // assuming Radarr is first/default) — sync once against whatever the
+      // select actually opened with, not just on a later change event.
+      const serviceType = root.querySelector<HTMLSelectElement>("[data-service-type]");
+      if (serviceType) this.syncServiceFields(serviceType);
     } catch (error) {
       if ((error as Error).name === "AbortError") return;
       root.innerHTML = `<div class="removal-overlay"><main class="removal-dialog" role="dialog" aria-modal="true"><p class="bad"></p><div class="actions"><button type="button" data-modal-cancel-loading>Close</button></div></main></div>`;

@@ -274,6 +274,33 @@ This file separates implemented behavior from intended direction. It is not a pr
   removals) now also reflects an in-flight consistency scan, reusing the
   same reactive SSE mechanism rather than adding a second UI element.
 
+### Category-aware empty states and dynamic Library filters (0.2.36-0.2.37)
+
+- The Torrents and Library pages no longer render an empty, filterable
+  list with a generic "nothing matches" row when the relevant service type
+  isn't configured at all — Torrents shows "No torrent client registered"
+  (gated on `cfg.ServicesOfType("qbittorrent")`), Library shows "No media
+  library registered" (gated on Radarr or Sonarr), each with an
+  Add-service button scoped to that category.
+- The Add-service overlay gained a `category` concept (`torrentclient`,
+  `medialibrary`) purely for presentation — it narrows the Type select and
+  changes the heading/submit label ("Add torrent client", "Add media
+  library"), so a future Transmission/Deluge or Lidarr/Readarr adapter
+  only needs adding to the relevant category's type list, not a new
+  overlay. Fixed a real bug this surfaced: credential-field visibility
+  (API key vs username/password) was a static template default assuming
+  Radarr is always first, which broke once a category could default to
+  qBittorrent — now synced whenever the overlay opens, not only on a
+  manual type change.
+- The Library page's Type filter is now derived from the types actually
+  present (not a hardcoded Movie/Series pair), future-proofing for
+  Lidarr/Readarr, and disappears entirely when the library only ever
+  holds one type. A new Source filter (`ServiceName` or `ServiceName ·
+  rootLabel`, reusing the same suppression rule as the removal plan's
+  `displayPath` so a single-root service never shows a redundant "Radarr
+  · Radarr") appears only when more than one source exists library-wide,
+  with its options scoped to whichever Type is currently selected.
+
 ### Model and operations
 
 - First-class generic File model with separate media/torrent ownership and

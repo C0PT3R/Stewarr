@@ -10,6 +10,7 @@
     {{chrome "torrents"}}
     <h1 class=page-title>Torrents</h1>
     {{if .Refreshing}}<span class=warn>Refreshing…</span>{{end}}{{if .LastErr}}<span class=bad>{{.LastErr}}</span>{{end}}
+    {{if .HasTorrentClient}}
     <div id="torrent-summary" class="inventory-summary muted" data-reactive-fragment data-live-policy="immediate">
       <span><b>{{.AllItems}}</b> torrents · <span class=current-status>{{.Current}} current</span> · <span class=superseded>{{.Superseded}} superseded</span> · <span class=unassociated>{{.Unassociated}} unassociated</span></span>{{if gt .ObsoleteKnown 0}}<br><span><b>{{human .ObsoleteReclaimable}}</b> reclaimable across {{.ObsoleteKnown}} torrents</span>{{end}}
     </div>
@@ -107,5 +108,13 @@
       </div>
       <p class=muted></p>
     </div>
+    {{else}}
+    <div id="torrent-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
+      <div class="card empty-state">
+        <p class="muted">No torrent client registered.</p>
+        <button type="button" class="card-link" data-overlay-url="/services/add?category=torrentclient">Add torrent client</button>
+      </div>
+    </div>
+    {{end}}
   </body>
 </html>

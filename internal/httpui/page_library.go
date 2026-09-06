@@ -46,11 +46,15 @@ type libraryData struct {
 	AllItems        int
 	Query           string
 	TypeFilter      string
+	TypeOptions     []mediaTypeOption
+	SourceFilter    string
+	SourceOptions   []mediaSource
 	RequestedFilter string
 	WatchedFilter   string
 	TorrentFilter   string
 	ShowNoFiles     bool
 	ClearURL        string
+	HasMediaLibrary bool
 }
 
 func normalizeBoolFilter(v string) string {
@@ -64,15 +68,117 @@ func normalizeBoolFilter(v string) string {
 	}
 }
 
-func normalizeMediaTypeFilter(v string) string {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "movie":
-		return "movie"
-	case "series":
-		return "series"
+// mediaTypeOption is one entry in the Library page's Type select.
+type mediaTypeOption struct {
+	Value, Label string
+}
+
+// mediaTypeLabel returns a display label for a MediaType. Movie/Series get
+// their established labels; an unrecognized future type (Lidarr's Artist,
+// Readarr's Book, ...) falls back to a naive title-case-plus-s, since the
+// Type filter must not assume the library only ever holds these two types.
+func mediaTypeLabel(t model.MediaType) string {
+	switch t {
+	case model.Movie:
+		return "Movies"
+	case model.Series:
+		return "Series"
 	default:
-		return "any"
+		s := string(t)
+		if s == "" {
+			return s
+		}
+		return strings.ToUpper(s[:1]) + s[1:] + "s"
 	}
+}
+
+// availableMediaTypes returns the distinct types actually present in items,
+// in a stable order (Movie, Series, then anything else alphabetically) —
+// the Type filter only ever offers types that exist, and disappears
+// entirely when the library only ever holds one.
+func availableMediaTypes(items []model.Media) []model.MediaType {
+	seen := map[model.MediaType]bool{}
+	for _, m := range items {
+		seen[m.Type] = true
+	}
+	preferred := []model.MediaType{model.Movie, model.Series}
+	out := make([]model.MediaType, 0, len(seen))
+	for _, t := range preferred {
+		if seen[t] {
+			out = append(out, t)
+			delete(seen, t)
+		}
+	}
+	rest := make([]model.MediaType, 0, len(seen))
+	for t := range seen {
+		rest = append(rest, t)
+	}
+	sort.Slice(rest, func(i, j int) bool { return rest[i] < rest[j] })
+	return append(out, rest...)
+}
+
+// normalizeMediaTypeFilter validates the query param against the types
+// actually present, rather than a hardcoded movie/series pair — a
+// future-proofing requirement given Lidarr/Readarr are planned.
+func normalizeMediaTypeFilter(v string, available []model.MediaType) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	for _, t := range available {
+		if string(t) == v {
+			return v
+		}
+	}
+	return "any"
+}
+
+// mediaSource identifies where one Media item comes from for the Source
+// filter: its service, and — only when that service has more than one
+// configured root — which root, mirroring removal_plan.go's displayPath
+// suppression rule so a single-root service never shows a redundant
+// "Radarr · Radarr" label.
+type mediaSource struct {
+	Key   string
+	Label string
+}
+
+func mediaSourceFor(m model.Media, serviceRoots map[string][]string) mediaSource {
+	if len(serviceRoots[m.ServiceName]) <= 1 {
+		return mediaSource{Key: m.ServiceName, Label: m.ServiceName}
+	}
+	best := ""
+	for _, root := range serviceRoots[m.ServiceName] {
+		if pathUnder(root, m.Path) && len(root) > len(best) {
+			best = root
+		}
+	}
+	if best == "" {
+		return mediaSource{Key: m.ServiceName, Label: m.ServiceName}
+	}
+	label := filepath.Base(best)
+	if strings.EqualFold(label, m.ServiceName) {
+		return mediaSource{Key: m.ServiceName + "|" + best, Label: m.ServiceName}
+	}
+	return mediaSource{Key: m.ServiceName + "|" + best, Label: m.ServiceName + " · " + label}
+}
+
+func pathUnder(root, path string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// availableMediaSources returns the distinct sources present in items,
+// sorted by label, deduplicated by Key.
+func availableMediaSources(items []model.Media, serviceRoots map[string][]string) []mediaSource {
+	seen := map[string]mediaSource{}
+	for _, m := range items {
+		source := mediaSourceFor(m, serviceRoots)
+		seen[source.Key] = source
+	}
+	out := make([]mediaSource, 0, len(seen))
+	for _, source := range seen {
+		out = append(out, source)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return out
 }
 
 func mediaMatchesSearch(m model.Media, q string) bool {
@@ -88,7 +194,7 @@ func mediaMatchesSearch(m model.Media, q string) bool {
 	return false
 }
 
-func filterMedia(items []model.Media, q, typeFilter, requestedFilter, watchedFilter, torrentFilter string, showNoFiles bool) []model.Media {
+func filterMedia(items []model.Media, q, typeFilter, sourceFilter string, serviceRoots map[string][]string, requestedFilter, watchedFilter, torrentFilter string, showNoFiles bool) []model.Media {
 	out := make([]model.Media, 0, len(items))
 	for _, m := range items {
 		if !showNoFiles && m.SizeBytes <= 0 {
@@ -98,6 +204,9 @@ func filterMedia(items []model.Media, q, typeFilter, requestedFilter, watchedFil
 			continue
 		}
 		if typeFilter != "any" && string(m.Type) != typeFilter {
+			continue
+		}
+		if sourceFilter != "any" && mediaSourceFor(m, serviceRoots).Key != sourceFilter {
 			continue
 		}
 		if requestedFilter == "yes" && !m.Requested {
@@ -149,14 +258,55 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	}
 
 	allItems := len(items)
+	cfg := server.inv.Config()
+	hasMediaLibrary := len(cfg.ServicesOfType("radarr")) > 0 || len(cfg.ServicesOfType("sonarr")) > 0
+	serviceRoots := server.inv.ServiceRootPaths()
+
+	availableTypes := availableMediaTypes(items)
+	typeOptions := make([]mediaTypeOption, len(availableTypes))
+	for i, t := range availableTypes {
+		typeOptions[i] = mediaTypeOption{Value: string(t), Label: mediaTypeLabel(t)}
+	}
 
 	qtext := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	typeFilter := normalizeMediaTypeFilter(r.URL.Query().Get("type"))
+	typeFilter := normalizeMediaTypeFilter(r.URL.Query().Get("type"), availableTypes)
 	requestedFilter := normalizeBoolFilter(r.URL.Query().Get("requested"))
 	watchedFilter := normalizeBoolFilter(r.URL.Query().Get("watched"))
 	torrentFilter := normalizeBoolFilter(r.URL.Query().Get("torrent"))
 	showNoFiles := r.URL.Query().Get("show_no_files") == "1"
-	items = filterMedia(items, qtext, typeFilter, requestedFilter, watchedFilter, torrentFilter, showNoFiles)
+
+	// Source options are scoped to whatever Type is currently selected —
+	// picking "Movies" should never offer a Sonarr source to filter by.
+	typeScopedItems := items
+	if typeFilter != "any" {
+		typeScopedItems = make([]model.Media, 0, len(items))
+		for _, m := range items {
+			if string(m.Type) == typeFilter {
+				typeScopedItems = append(typeScopedItems, m)
+			}
+		}
+	}
+	sourceOptions := availableMediaSources(typeScopedItems, serviceRoots)
+	// The filter itself only makes sense with more than one source across
+	// the whole library, independent of the current Type selection —
+	// otherwise "Source: Movies" would be the only option and do nothing.
+	showSourceFilter := len(availableMediaSources(items, serviceRoots)) > 1
+	sourceFilter := "any"
+	if showSourceFilter {
+		sourceFilter = r.URL.Query().Get("source")
+		valid := false
+		for _, source := range sourceOptions {
+			if source.Key == sourceFilter {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			sourceFilter = "any"
+		}
+	}
+
+	items = filterMedia(items, qtext, typeFilter, sourceFilter, serviceRoots, requestedFilter, watchedFilter, torrentFilter, showNoFiles)
 
 	pageSize := allowedPageSize(queryInt(r, "page_size", 50))
 	page := queryInt(r, "page", 1)
@@ -206,6 +356,9 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 		if typeFilter != "any" {
 			q.Set("type", typeFilter)
 		}
+		if sourceFilter != "any" {
+			q.Set("source", sourceFilter)
+		}
 		if requestedFilter != "any" {
 			q.Set("requested", requestedFilter)
 		}
@@ -240,7 +393,11 @@ func (server *Server) library(w http.ResponseWriter, r *http.Request) {
 	for pg := maxInt(1, page-2); pg <= minInt(totalPages, page+2); pg++ {
 		pageLinks = append(pageLinks, navLink{Value: pg, URL: mkURL(pg, pageSize, sortKey, order)})
 	}
-	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library"}
+	d := libraryData{Rows: rows, Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), TotalItems: total, AllItems: allItems, Page: page, PageSize: pageSize, TotalPages: totalPages, HasPrev: page > 1, HasNext: page < totalPages, Sort: sortKey, Order: order, SortURLs: sortURLs, SizeLinks: sizeLinks, PageLinks: pageLinks, Query: r.URL.Query().Get("q"), TypeFilter: typeFilter, TypeOptions: typeOptions, RequestedFilter: requestedFilter, WatchedFilter: watchedFilter, TorrentFilter: torrentFilter, ShowNoFiles: showNoFiles, ClearURL: "/library", HasMediaLibrary: hasMediaLibrary}
+	if showSourceFilter {
+		d.SourceFilter = sourceFilter
+		d.SourceOptions = sourceOptions
+	}
 	if d.HasPrev {
 		d.PrevURL = mkURL(page-1, pageSize, sortKey, order)
 	}

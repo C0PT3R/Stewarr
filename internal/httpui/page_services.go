@@ -44,6 +44,55 @@ type servicesData struct {
 	ServiceRoots map[string][]string
 }
 
+// serviceTypeOption is one entry in the Add-service overlay's Type select.
+type serviceTypeOption struct {
+	Value, Label string
+}
+
+// allServiceTypes is every adapter Connarr currently supports, in the
+// order they've always been presented — the default when no category
+// narrows the list (e.g. opened from the Services page directly).
+var allServiceTypes = []serviceTypeOption{
+	{"radarr", "Radarr"},
+	{"sonarr", "Sonarr"},
+	{"qbittorrent", "qBittorrent"},
+	{"jellyfin", "Jellyfin"},
+	{"seerr", "Seerr"},
+}
+
+// serviceCategory groups adapter types by the role they fill, purely for
+// presentation — it's never persisted. Opening the overlay from a
+// category-specific empty state (Torrents, Library) narrows the Type
+// select to just that category's adapters and changes the heading, so a
+// future Transmission/Deluge or Lidarr/Readarr adapter only ever needs
+// adding to the relevant category's Types list here, not a new overlay.
+type serviceCategory struct {
+	Title string
+	Types []serviceTypeOption
+}
+
+var serviceCategories = map[string]serviceCategory{
+	"torrentclient": {Title: "Add torrent client", Types: []serviceTypeOption{
+		{"qbittorrent", "qBittorrent"},
+	}},
+	"medialibrary": {Title: "Add media library", Types: []serviceTypeOption{
+		{"radarr", "Radarr"},
+		{"sonarr", "Sonarr"},
+	}},
+}
+
+type addServiceFormData struct {
+	Title string
+	Types []serviceTypeOption
+}
+
+func addServiceFormDataFor(category string) addServiceFormData {
+	if found, ok := serviceCategories[category]; ok {
+		return addServiceFormData{Title: found.Title, Types: found.Types}
+	}
+	return addServiceFormData{Title: "Add service", Types: allServiceTypes}
+}
+
 func (server *Server) servicesPage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/services" {
 		http.NotFound(w, r)
@@ -67,7 +116,8 @@ func (server *Server) addServiceForm(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if err := renderTemplate(w, server.addServiceTpl, nil); err != nil {
+	data := addServiceFormDataFor(r.URL.Query().Get("category"))
+	if err := renderTemplate(w, server.addServiceTpl, data); err != nil {
 		log.Printf("[http] render add-service overlay: %v", err)
 	}
 }

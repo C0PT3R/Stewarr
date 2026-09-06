@@ -297,7 +297,7 @@ func TestLibraryTemplateRenders(t *testing.T) {
 	}
 	data := libraryData{
 		Rows: []mediaRow{{Media: model.Media{Type: model.Movie, SourceID: 1, Title: "Test", Year: 2026, RetentionValue: 12.5, SizeBytes: 1024}}},
-		Page: 1, PageSize: 50, TotalPages: 1, TotalItems: 1, Sort: "title", Order: "asc",
+		Page: 1, PageSize: 50, TotalPages: 1, TotalItems: 1, Sort: "title", Order: "asc", HasMediaLibrary: true,
 		SortURLs:  map[string]string{"value": "/library", "title": "/library", "type": "/library", "rating": "/library", "votes": "/library", "views": "/library", "lastwatched": "/library", "requested": "/library", "size": "/library", "torrents": "/library"},
 		SizeLinks: []navLink{{Value: 25, URL: "/library"}, {Value: 50, URL: "/library"}, {Value: 100, URL: "/library"}, {Value: 250, URL: "/library"}},
 	}
@@ -312,7 +312,7 @@ func TestTorrentTemplateRendersPaged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := torrentData{Torrents: []model.Torrent{{Hash: "abc", Name: "Torrent", AssociationStatus: "ASSOCIATED"}}, TotalItems: 1, Page: 1, PageSize: 50, TotalPages: 1, Sort: "status", Order: "asc", SortURLs: map[string]string{"status": "/torrents", "name": "/torrents", "media": "/torrents", "state": "/torrents", "size": "/torrents", "ratio": "/torrents", "upload": "/torrents", "seeds": "/torrents", "leechers": "/torrents", "activity": "/torrents"}, SizeLinks: []navLink{{Value: 50, URL: "/torrents"}}}
+	data := torrentData{Torrents: []model.Torrent{{Hash: "abc", Name: "Torrent", AssociationStatus: "ASSOCIATED"}}, TotalItems: 1, Page: 1, PageSize: 50, TotalPages: 1, Sort: "status", Order: "asc", HasTorrentClient: true, SortURLs: map[string]string{"status": "/torrents", "name": "/torrents", "media": "/torrents", "state": "/torrents", "size": "/torrents", "ratio": "/torrents", "upload": "/torrents", "seeds": "/torrents", "leechers": "/torrents", "activity": "/torrents"}, SizeLinks: []navLink{{Value: 50, URL: "/torrents"}}}
 	var b bytes.Buffer
 	if err := s.torrentTpl.Execute(&b, data); err != nil {
 		t.Fatal(err)
@@ -324,11 +324,11 @@ func TestFilterMedia(t *testing.T) {
 		{Type: model.Movie, SourceID: 1, Title: "Alien", Requested: true, Views: 2, Torrents: []model.Torrent{{Hash: "a", AssociationStatus: model.TorrentCurrent}}, Tags: []string{"keep"}},
 		{Type: model.Series, SourceID: 2, Title: "Severance", Requested: false, Views: 0},
 	}
-	got := filterMedia(items, "alien", "movie", "yes", "yes", "yes", true)
+	got := filterMedia(items, "alien", "movie", "any", nil, "yes", "yes", "yes", true)
 	if len(got) != 1 || got[0].Title != "Alien" {
 		t.Fatalf("unexpected media filter result: %#v", got)
 	}
-	got = filterMedia(items, "", "series", "any", "no", "no", true)
+	got = filterMedia(items, "", "series", "any", nil, "any", "no", "no", true)
 	if len(got) != 1 || got[0].Title != "Severance" {
 		t.Fatalf("unexpected series filter result: %#v", got)
 	}
@@ -373,11 +373,11 @@ func TestFilterMediaHidesNoFileMediaByDefault(t *testing.T) {
 		{Type: model.Movie, SourceID: 1, Title: "Present", SizeBytes: 1024},
 		{Type: model.Movie, SourceID: 2, Title: "Missing", SizeBytes: 0},
 	}
-	got := filterMedia(items, "", "any", "any", "any", "any", false)
+	got := filterMedia(items, "", "any", "any", nil, "any", "any", "any", false)
 	if len(got) != 1 || got[0].Title != "Present" {
 		t.Fatalf("unexpected default file filter: %#v", got)
 	}
-	got = filterMedia(items, "", "any", "any", "any", "any", true)
+	got = filterMedia(items, "", "any", "any", nil, "any", "any", "any", true)
 	if len(got) != 2 {
 		t.Fatalf("show-no-files should include both media, got %d", len(got))
 	}
@@ -496,7 +496,7 @@ func TestTorrentTemplateShowsHistoricalMediaForSupersededTorrent(t *testing.T) {
 	}
 	data := torrentData{
 		Torrents:   []model.Torrent{{Hash: "old", Name: "Old.Release", AssociationStatus: "SUPERSEDED", FormerMediaItems: []model.MediaRef{{Type: model.Movie, SourceID: 42, Title: "Example", Year: 2025}}}},
-		TotalItems: 1, Page: 1, PageSize: 50, TotalPages: 1, Sort: "status", Order: "asc",
+		TotalItems: 1, Page: 1, PageSize: 50, TotalPages: 1, Sort: "status", Order: "asc", HasTorrentClient: true,
 		SortURLs:  map[string]string{"status": "/torrents", "name": "/torrents", "media": "/torrents", "state": "/torrents", "size": "/torrents", "reclaimable": "/torrents", "ratio": "/torrents", "upload": "/torrents", "seeds": "/torrents", "leechers": "/torrents", "activity": "/torrents"},
 		SizeLinks: []navLink{{Value: 50, URL: "/torrents"}},
 	}

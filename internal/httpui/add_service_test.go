@@ -241,3 +241,50 @@ func TestTestServiceConnectionPersistsNothing(t *testing.T) {
 		t.Fatalf("expected no service to be persisted by a connection test, got %#v", reloaded.Services)
 	}
 }
+
+// TestAddServiceFormNarrowsTypeOptionsByCategory guards the Torrents/Library
+// empty-state buttons: each opens the same overlay with a category query
+// param, which must narrow the Type select and change the heading, rather
+// than always showing every adapter type regardless of where it was opened
+// from.
+func TestAddServiceFormNarrowsTypeOptionsByCategory(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	cases := []struct {
+		category    string
+		wantTitle   string
+		wantTypes   []string
+		unwantTypes []string
+	}{
+		{"torrentclient", "Add torrent client", []string{"qbittorrent"}, []string{"radarr", "sonarr", "jellyfin", "seerr"}},
+		{"medialibrary", "Add media library", []string{"radarr", "sonarr"}, []string{"qbittorrent", "jellyfin", "seerr"}},
+		{"", "Add service", []string{"radarr", "sonarr", "qbittorrent", "jellyfin", "seerr"}, nil},
+		{"unknown", "Add service", []string{"radarr", "sonarr", "qbittorrent", "jellyfin", "seerr"}, nil},
+	}
+	for _, c := range cases {
+		url := "/services/add"
+		if c.category != "" {
+			url += "?category=" + c.category
+		}
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, url, nil))
+		body := recorder.Body.String()
+		if !strings.Contains(body, c.wantTitle) {
+			t.Fatalf("category=%q: expected title %q, got:\n%s", c.category, c.wantTitle, body)
+		}
+		for _, want := range c.wantTypes {
+			if !strings.Contains(body, `value="`+want+`"`) {
+				t.Fatalf("category=%q: expected type option %q, got:\n%s", c.category, want, body)
+			}
+		}
+		for _, unwant := range c.unwantTypes {
+			if strings.Contains(body, `value="`+unwant+`"`) {
+				t.Fatalf("category=%q: expected type option %q to be absent, got:\n%s", c.category, unwant, body)
+			}
+		}
+	}
+}
