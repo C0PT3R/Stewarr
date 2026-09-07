@@ -785,6 +785,33 @@ prune entries for devices no longer found, which is being held for a
 follow-up rather than rushed into this change. Until then, a device's
 Name is simply empty until someone sets one by hand.
 
+### Stable device ids and default "Device #N" naming (0.4.5)
+
+The follow-up promised in 0.4.4. `DeviceThreshold` gains an `ID int`,
+and `config.SyncDeviceRegistry(configuration, liveRepresentativePaths)`
+assigns the lowest currently-unused id to any live device that doesn't
+have one yet, sets its `Name` to the literal string `"Device #<id>"` at
+that moment (a real stored value from then on, not a computed fallback
+— never overwrites a name that's already set, whether user-chosen or a
+prior default), and prunes entries for devices no longer discovered so
+ids actually get reused instead of only ever climbing.
+
+Wired into `internal/inventory/reconcile.go`'s `reconcileFiles`, right
+after it commits the fresh `storageRoots` — the one point with the
+complete current device set. Deliberately not called from the
+targeted/delta reconciliation path (`reconcileTargeted`), which only
+ever sees a partial scope: running the prune there would wrongly delete
+a device merely absent from that narrower view. Best-effort: a persist
+failure here is logged rather than failing reconciliation, since the
+authoritative file/media state is already committed by that point and
+cosmetic device identity isn't worth discarding real work over.
+
+Also fixed in the same change: `SetDeviceThreshold`'s upsert built a
+fresh `DeviceThreshold` from scratch on every save, which would have
+silently wiped whatever id this feature assigned the moment someone
+saved the Device settings overlay. Guarded by
+`TestSetDeviceThresholdPreservesAssignedID`.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

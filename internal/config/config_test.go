@@ -144,6 +144,109 @@ func TestSetDeviceThresholdPersistsAndTrimsName(t *testing.T) {
 	}
 }
 
+// TestSetDeviceThresholdPreservesAssignedID guards a real bug: this
+// function's original upsert built a fresh DeviceThreshold from scratch,
+// which would have silently wiped whatever id SyncDeviceRegistry had
+// already assigned every time someone saved the Device settings overlay.
+func TestSetDeviceThresholdPreservesAssignedID(t *testing.T) {
+	registered, changed := SyncDeviceRegistry(Config{}, []string{"/data"})
+	if !changed || registered.Storage.DeviceThresholds["/data"].ID == 0 {
+		t.Fatalf("setup: expected an id to be assigned, got %#v", registered.Storage.DeviceThresholds)
+	}
+	saved, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.Storage.DeviceThresholds["/data"].ID; got != registered.Storage.DeviceThresholds["/data"].ID {
+		t.Fatalf("expected the assigned id to survive a threshold/name save, got %d want %d", got, registered.Storage.DeviceThresholds["/data"].ID)
+	}
+}
+
+// TestSyncDeviceRegistryAssignsLowestUnusedIDAndDefaultName guards the
+// actual assignment algorithm: a brand-new device gets the lowest id not
+// already in use, and its Name is set to the literal "Device #<id>" string
+// at that moment — a real stored value, not a computed fallback — only
+// because it had no name at all yet.
+func TestSyncDeviceRegistryAssignsLowestUnusedIDAndDefaultName(t *testing.T) {
+	var c Config
+	updated, changed := SyncDeviceRegistry(c, []string{"/data/a"})
+	if !changed {
+		t.Fatal("expected assigning a fresh device to report a change")
+	}
+	entry := updated.Storage.DeviceThresholds["/data/a"]
+	if entry.ID != 1 || entry.Name != "Device #1" {
+		t.Fatalf("expected id=1 name=%q, got %#v", "Device #1", entry)
+	}
+
+	// A second device fills the next slot, not necessarily 2 if 1 were
+	// somehow taken — exercised properly below by the reuse test.
+	updated2, changed2 := SyncDeviceRegistry(updated, []string{"/data/a", "/data/b"})
+	if !changed2 {
+		t.Fatal("expected adding a second device to report a change")
+	}
+	if got := updated2.Storage.DeviceThresholds["/data/b"].ID; got != 2 {
+		t.Fatalf("expected the second device to get id=2, got %d", got)
+	}
+	// Re-running with nothing new must be a no-op.
+	_, changed3 := SyncDeviceRegistry(updated2, []string{"/data/a", "/data/b"})
+	if changed3 {
+		t.Fatal("expected re-running with the same live set to report no change")
+	}
+}
+
+// TestSyncDeviceRegistryNeverOverwritesAnExistingName guards a device that
+// already has a name (whether user-chosen or a prior default) — gaining an
+// id (e.g. backfilled for an entry that predates this feature) must never
+// clobber it.
+func TestSyncDeviceRegistryNeverOverwritesAnExistingName(t *testing.T) {
+	var c Config
+	c.Storage.DeviceThresholds = map[string]DeviceThreshold{"/data/a": {TargetUsagePercent: 80, CriticalUsagePercent: 90, Name: "Media Drive"}}
+	updated, changed := SyncDeviceRegistry(c, []string{"/data/a"})
+	if !changed {
+		t.Fatal("expected backfilling a missing id to report a change")
+	}
+	entry := updated.Storage.DeviceThresholds["/data/a"]
+	if entry.ID != 1 {
+		t.Fatalf("expected the id to still be backfilled, got %#v", entry)
+	}
+	if entry.Name != "Media Drive" {
+		t.Fatalf("expected the existing name to survive id backfill untouched, got %q", entry.Name)
+	}
+}
+
+// TestSyncDeviceRegistryPrunesAndReusesIDs guards the actual point of
+// pruning: once a device is no longer discovered, its entry (and the id
+// it was holding) must be removed so a later new device can reuse that
+// id — otherwise ids would only ever climb.
+func TestSyncDeviceRegistryPrunesAndReusesIDs(t *testing.T) {
+	var c Config
+	withTwo, _ := SyncDeviceRegistry(c, []string{"/data/a", "/data/b"})
+	if withTwo.Storage.DeviceThresholds["/data/a"].ID != 1 || withTwo.Storage.DeviceThresholds["/data/b"].ID != 2 {
+		t.Fatalf("setup: expected ids 1 and 2, got %#v", withTwo.Storage.DeviceThresholds)
+	}
+
+	// /data/a disappears (unplugged, service removed, etc.).
+	pruned, changed := SyncDeviceRegistry(withTwo, []string{"/data/b"})
+	if !changed {
+		t.Fatal("expected pruning a disappeared device to report a change")
+	}
+	if _, exists := pruned.Storage.DeviceThresholds["/data/a"]; exists {
+		t.Fatalf("expected /data/a's entry to be pruned, got %#v", pruned.Storage.DeviceThresholds)
+	}
+
+	// A new device now reuses id 1, since it's free again.
+	withNew, changed := SyncDeviceRegistry(pruned, []string{"/data/b", "/data/c"})
+	if !changed {
+		t.Fatal("expected the new device to report a change")
+	}
+	if got := withNew.Storage.DeviceThresholds["/data/c"].ID; got != 1 {
+		t.Fatalf("expected the freed id 1 to be reused, got %d", got)
+	}
+	if got := withNew.Storage.DeviceThresholds["/data/b"].ID; got != 2 {
+		t.Fatalf("expected /data/b's id to be untouched, got %d", got)
+	}
+}
+
 func TestSetCredentialsHashesPasswordAndVerifyPasswordChecksIt(t *testing.T) {
 	var c Config
 	if c.VerifyPassword("anything") {

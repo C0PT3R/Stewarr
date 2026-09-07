@@ -621,5 +621,10 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	service.mu.Unlock()
 	metrics["publish"] = time.Since(stageStarted).Round(time.Millisecond)
 	service.setStageTiming("file reconciliation", started)
+	// This is the one point with the complete current device set (a
+	// targeted/delta reconciliation only ever sees a partial scope, so
+	// syncDeviceRegistry must never run from there — it would wrongly
+	// prune a device merely absent from that scope).
+	service.syncDeviceRegistry()
 	return nil
 }

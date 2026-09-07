@@ -353,6 +353,10 @@ type DeviceThreshold struct {
 	// shown in place of its raw root paths once set. Empty means no name
 	// has been assigned yet — see DeviceName.
 	Name string `json:"name,omitempty"`
+	// ID is a stable number assigned once per physical device, starting
+	// from 1 — see SyncDeviceRegistry. It's what a default "Device #<ID>"
+	// name is built from; 0 means no id has been assigned yet.
+	ID int `json:"id,omitempty"`
 }
 
 // defaultTargetUsagePercent and defaultCriticalUsagePercent are used for any
@@ -405,8 +409,69 @@ func SetDeviceThreshold(configuration Config, representativePath, name string, t
 	for path, threshold := range configuration.Storage.DeviceThresholds {
 		updated.Storage.DeviceThresholds[path] = threshold
 	}
-	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: strings.TrimSpace(name)}
+	// Preserve whatever id SyncDeviceRegistry already assigned — this call
+	// only ever touches thresholds/name, never identity.
+	existingID := configuration.Storage.DeviceThresholds[representativePath].ID
+	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: strings.TrimSpace(name), ID: existingID}
 	return updated, nil
+}
+
+// SyncDeviceRegistry assigns a stable id (and, for a device with no name
+// yet, a default "Device #<id>" name — a real stored value from that point
+// on, not a computed fallback) to every currently-discovered physical
+// device that doesn't already have one, and prunes entries for devices no
+// longer discovered — so ids actually get reused rather than only ever
+// climbing. Call this once per full file reconciliation, the one point
+// that knows the complete current device set; it must never run against a
+// partial/targeted view, or a device merely absent from that scope would
+// be wrongly pruned. Returns whether anything actually changed, so a
+// no-op cycle (the common case) can skip persisting.
+func SyncDeviceRegistry(configuration Config, liveRepresentativePaths []string) (Config, bool) {
+	live := make(map[string]bool, len(liveRepresentativePaths))
+	for _, path := range liveRepresentativePaths {
+		live[path] = true
+	}
+	changed := false
+	merged := make(map[string]DeviceThreshold, len(configuration.Storage.DeviceThresholds))
+	for path, entry := range configuration.Storage.DeviceThresholds {
+		if !live[path] {
+			changed = true
+			continue
+		}
+		merged[path] = entry
+	}
+	usedIDs := make(map[int]bool, len(merged))
+	for _, entry := range merged {
+		if entry.ID > 0 {
+			usedIDs[entry.ID] = true
+		}
+	}
+	nextID := func() int {
+		id := 1
+		for usedIDs[id] {
+			id++
+		}
+		usedIDs[id] = true
+		return id
+	}
+	for _, path := range liveRepresentativePaths {
+		entry := merged[path]
+		if entry.ID > 0 {
+			continue
+		}
+		entry.ID = nextID()
+		if entry.Name == "" {
+			entry.Name = fmt.Sprintf("Device #%d", entry.ID)
+		}
+		merged[path] = entry
+		changed = true
+	}
+	if !changed {
+		return configuration, false
+	}
+	updated := configuration
+	updated.Storage.DeviceThresholds = merged
+	return updated, true
 }
 
 type QBittorrentService struct {

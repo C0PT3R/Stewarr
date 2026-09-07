@@ -3,6 +3,7 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"connarr/internal/config"
 	"connarr/internal/integrations/jellyfin"
@@ -198,6 +199,46 @@ func (service *Service) SetDeviceThreshold(representativePath, name string, targ
 	service.cfg = updatedCfg
 	service.mu.Unlock()
 	return nil
+}
+
+// syncDeviceRegistry assigns a stable id/default name to any newly
+// discovered device and prunes entries for devices no longer discovered —
+// see config.SyncDeviceRegistry. Called once at the end of a full file
+// reconciliation (reconcileFiles), the one point with the complete live
+// device set; must never be called from the targeted/delta reconciliation
+// path, which only knows a partial scope. Best-effort: the authoritative
+// file/media state has already been committed by the time this runs, so a
+// persist failure here is logged rather than surfaced as a reconciliation
+// failure — cosmetic device identity isn't worth discarding real work
+// over.
+func (service *Service) syncDeviceRegistry() {
+	if service.configPath == "" {
+		return
+	}
+	groups, order := service.knownDeviceRoots()
+	livePaths := make([]string, 0, len(order))
+	for _, device := range order {
+		livePaths = append(livePaths, groups[device].representative)
+	}
+
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	updatedCfg, changed := config.SyncDeviceRegistry(currentCfg, livePaths)
+	if !changed {
+		return
+	}
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		log.Printf("[inventory] persist device registry sync: %v", err)
+		return
+	}
+	service.mu.Lock()
+	service.cfg = updatedCfg
+	service.mu.Unlock()
 }
 
 // SetTMDBAPIKey idempotently persists the TMDB enrichment API key (an

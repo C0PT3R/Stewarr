@@ -103,6 +103,7 @@ internal/integrations/tmdb/client.go
 internal/integrations/tmdb/client_test.go
 internal/inventory/live_config.go
 internal/inventory/live_config_test.go
+internal/inventory/device_registry_test.go
 internal/inventory/reconcile.go
 internal/inventory/reconcile_test.go
 internal/inventory/reconcile_delta.go
