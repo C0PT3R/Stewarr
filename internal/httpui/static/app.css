@@ -1062,6 +1062,54 @@ td:has(> a > strong) > a {
   font-size: 14px;
   color: #eee;
 }
+/* A <select>'s options rarely need the full stretched width every text
+   input gets by default — size it to its content instead. */
+.field-stack select {
+  width: auto;
+  min-width: 180px;
+}
+/* A percentage/count field only ever needs a couple of digits — stretching
+   it the full width of the card (the flex-column default every other
+   .field-stack input gets) looked absurd. Explicit width wins over the
+   inherited stretch regardless of nesting. */
+.field-stack input[type="number"] {
+  width: 90px;
+  flex: 0 0 auto;
+}
+/* Wrap a handful of short/narrow fields (e.g. Target %/Critical %) in
+   <div class="field-row"> instead of .field-stack's default one-per-row
+   stacking, so they can sit side by side. */
+.field-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+/* .toggle (a checkbox + title + description, all in one <label>) falls
+   through to .field-stack label's column layout by default — meant for a
+   text input's label-above-field shape, not a checkbox, so the box ended
+   up centered above its own text instead of sitting next to it. Scoped to
+   .field-stack for higher specificity than that rule; .filters .toggle
+   already has its own row layout and is unaffected. */
+.field-stack .toggle {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+.toggle input[type="checkbox"] {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+.toggle > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* Settings' cards were pinned to a narrow 420px regardless of how much
+   page width was actually available — stacked vertically still (no
+   grid), just wide enough to stop feeling cramped. */
+.settings-card {
+  max-width: 720px;
+}
 
 body {
   font-family: system-ui, sans-serif;

@@ -20,7 +20,7 @@
           <label for="service-api-key">API key<input id="service-api-key" name="api_key" type="password" value="{{.APIKey}}" autocomplete="off"></label>
           {{end}}
           {{if or (eq .Type "radarr") (eq .Type "sonarr") (eq .Type "qbittorrent")}}
-          <label class="toggle"><input type="checkbox" name="allow_automatic_removal" {{if .AllowAutomaticRemoval}}checked{{end}}> Allow automatic removal<br><span class="muted">Lets unattended cleanup remove what this service owns, once automatic removal is enabled in Settings.</span></label>
+          <label class="toggle"><input type="checkbox" name="allow_automatic_removal" {{if .AllowAutomaticRemoval}}checked{{end}}><span>Allow automatic removal<span class="muted">Lets unattended cleanup remove what this service owns, once automatic removal is enabled in Settings.</span></span></label>
           {{end}}
         </div>
         <p data-modal-error hidden class="bad"></p>

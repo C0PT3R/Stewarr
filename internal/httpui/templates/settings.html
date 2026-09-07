@@ -9,7 +9,7 @@
   <body data-controller="shell revisions">
     {{chrome "settings"}}
     <h1 class="page-title">Settings</h1>
-    <div class="card" style="max-width:420px">
+    <div class="card settings-card">
       <h2>Change password</h2>
       {{if .Error}}<p class="bad">{{.Error}}</p>{{end}}
       {{if .Success}}<p class="positive">Password updated.</p>{{end}}
@@ -22,13 +22,13 @@
         <button type="submit">Update password</button>
       </form>
     </div>
-    <div class="card" style="max-width:420px">
+    <div class="card settings-card">
       <h2>TMDB enrichment</h2>
       {{if .TMDBError}}<p class="bad">{{.TMDBError}}</p>{{end}}
       {{if .TMDBSuccess}}<p class="positive">{{if .TMDBEnabled}}TMDB enrichment enabled.{{else}}TMDB enrichment disabled.{{end}}</p>{{end}}
       <form method="post" action="/settings/tmdb">
         <div class="field-stack">
-          <label class="toggle"><input type="checkbox" data-tmdb-toggle {{if .TMDBEnabled}}checked{{end}}> Use TMDB enrichment<br><span class="muted">Adds popularity and trending to the media value.</span></label>
+          <label class="toggle"><input type="checkbox" data-tmdb-toggle {{if .TMDBEnabled}}checked{{end}}><span>Use TMDB enrichment<span class="muted">Adds popularity and trending to the media value.</span></span></label>
           <label for="settings-tmdb-key" data-tmdb-field {{if not .TMDBEnabled}}hidden{{end}}>API key<input id="settings-tmdb-key" name="tmdb_api_key" type="password" autocomplete="off" value="{{.TMDBAPIKey}}"></label>
         </div>
         <div class="actions">
@@ -38,7 +38,7 @@
         </div>
       </form>
     </div>
-    <div class="card" style="max-width:420px">
+    <div class="card settings-card">
       <h2>Automatic removal</h2>
       {{if .RemovalError}}<p class="bad">{{.RemovalError}}</p>{{end}}
       {{if .RemovalSuccess}}<p class="positive">Removal settings saved.</p>{{end}}
@@ -52,8 +52,8 @@
             </select>
             <span class="muted">Disabled: the evaluation never runs. Confirm: it evaluates candidates on schedule but never submits anything — review and remove them yourself. Auto: it submits them on its own. Each service also needs "Allow automatic removal" checked in its own settings before anything it owns is touched.</span>
           </label>
-          <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}> Also remove torrents with no known owner<br><span class="muted">Off by default: Connarr has no relationship to judge these safe to delete unattended.</span></label>
-          <label class="toggle"><input type="checkbox" name="dry_run" {{if .DryRun}}checked{{end}}> Dry run<br><span class="muted">Simulates every removal, manual or automatic, without deleting anything. Turn this off once you trust what's being selected.</span></label>
+          <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}><span>Also remove torrents with no known owner<span class="muted">Off by default: Connarr has no relationship to judge these safe to delete unattended.</span></span></label>
+          <label class="toggle"><input type="checkbox" name="dry_run" {{if .DryRun}}checked{{end}}><span>Dry run<span class="muted">Simulates every removal, manual or automatic, without deleting anything. Turn this off once you trust what's being selected.</span></span></label>
         </div>
         <button type="submit">Save</button>
       </form>
