@@ -19,6 +19,7 @@
           {{else}}
           <label for="service-api-key">API key<input id="service-api-key" name="api_key" type="password" value="{{.APIKey}}" autocomplete="off"></label>
           {{end}}
+          <label class="toggle"><input type="checkbox" name="allow_automatic_removal" {{if .AllowAutomaticRemoval}}checked{{end}}> Allow automatic removal<br><span class="muted">Lets unattended cleanup remove what this service owns, once automatic removal is enabled in Settings.</span></label>
         </div>
         <p data-modal-error hidden class="bad"></p>
         <div class="actions">

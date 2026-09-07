@@ -246,6 +246,36 @@ func (service *Service) SetTMDBAPIKey(apiKey string) error {
 	return nil
 }
 
+// SetRemovalSettings idempotently persists the global auto-removal switches
+// (auto-removal is also still gated per-service by Service.
+// AllowAutomaticRemoval — see EditService). Nothing here needs a connection
+// check or an in-memory side effect beyond swapping the config: unlike
+// TMDB, these flags only change what the next scheduled evaluation or
+// removal submission does, never anything already published.
+func (service *Service) SetRemovalSettings(autoEnabled, autoRemoveUnassociated, dryRun bool) error {
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	if service.configPath == "" {
+		return fmt.Errorf("live config editing is unavailable: no config file path is set")
+	}
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	updatedCfg := config.SetRemovalSettings(currentCfg, autoEnabled, autoRemoveUnassociated, dryRun)
+
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
+
+	service.mu.Lock()
+	service.cfg = updatedCfg
+	service.mu.Unlock()
+	return nil
+}
+
 // buildRadarrClients/buildSonarrClients/buildQBittorrentClients construct one
 // live client per configured instance of their type, keyed by the
 // service's stable ID. Radarr/Sonarr/qBittorrent are the three types

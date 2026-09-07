@@ -651,6 +651,29 @@ popularity metric at all, just a redundant rating).
   weight would silently sit at Go's zero value and Popularity would never
   affect `RetentionValue` until someone happened to hand-edit the config.
 
+### Automatic removal controls moved into Settings/Service UI (0.3.6)
+
+The automatic-removal execution pipeline itself (`runAutoRemovalEvaluation`,
+the global `removal.auto_enabled` switch, the per-service `Service.
+AllowAutomaticRemoval` opt-in, `removal.dry_run`) has been fully built and
+scheduled since 0.2.12 — this only closes the last gap, that every one of
+those flags could so far only be changed by hand-editing `config.json`.
+
+- Settings gained an "Automatic removal" card
+  (`internal/httpui/templates/settings.html`, `page_settings.go`,
+  `POST /settings/removal`) with three checkboxes: the global enable
+  switch, whether to also remove torrents with no known owner
+  (`auto_remove_unassociated_torrents`), and dry run — which applies to
+  every removal, manual or automatic, not just this feature.
+- The add/edit service forms gained an "Allow automatic removal" checkbox.
+  Fixed in the same change: `submitEditService`'s `updates` struct was
+  never populated from a form field for this at all, and
+  `config.EditService` replaces a service's fields wholesale rather than
+  merging — so before this, *any* unrelated edit (a rename, a URL change)
+  would have silently reset a service's automatic-removal opt-in back to
+  false the moment the checkbox existed to set it. Guarded by
+  `TestEditServiceRoundTripsAllowAutomaticRemoval`.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

@@ -259,6 +259,40 @@ func TestSetTMDBAPIKeySavesAndClears(t *testing.T) {
 	}
 }
 
+// TestSetRemovalSettingsPersistsCheckboxState guards the Settings-page path
+// for the global auto-removal switches: an absent checkbox field must be
+// read as false (an HTML form never submits an unchecked checkbox at all),
+// not left at whatever the previous save happened to be.
+func TestSetRemovalSettingsPersistsCheckboxState(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+	session := sessionCookieFrom(setupResponse)
+
+	allOn := postForm(t, handler, "/settings/removal", url.Values{"auto_enabled": {"on"}, "auto_remove_unassociated_torrents": {"on"}, "dry_run": {"on"}}, session)
+	if allOn.Code != http.StatusOK || !strings.Contains(allOn.Body.String(), "Removal settings saved") {
+		t.Fatalf("status=%d body=%q", allOn.Code, allOn.Body.String())
+	}
+	body := allOn.Body.String()
+	for _, name := range []string{"auto_enabled", "auto_remove_unassociated_torrents", "dry_run"} {
+		if !strings.Contains(body, `name="`+name+`" checked`) {
+			t.Fatalf("expected %s to be reflected back as checked: %q", name, body)
+		}
+	}
+
+	// Submitting with every checkbox absent (the real shape of an all-off
+	// form) must turn every switch off, not leave the previous save in place.
+	allOff := postForm(t, handler, "/settings/removal", url.Values{}, session)
+	if allOff.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", allOff.Code, allOff.Body.String())
+	}
+	body = allOff.Body.String()
+	for _, name := range []string{"auto_enabled", "auto_remove_unassociated_torrents", "dry_run"} {
+		if strings.Contains(body, `name="`+name+`" checked`) {
+			t.Fatalf("expected %s to be unchecked after an all-off submit: %q", name, body)
+		}
+	}
+}
+
 // TestTestTMDBAPIKeyRequiresAKey guards the one deterministic, network-free
 // case of the "test before you save" endpoint: an empty key is rejected
 // before ever reaching TMDB. A real key's validity can only be checked

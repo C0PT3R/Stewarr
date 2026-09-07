@@ -168,12 +168,13 @@ func (server *Server) addService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	candidate := config.Service{
-		Type:     r.FormValue("type"),
-		Name:     r.FormValue("name"),
-		URL:      r.FormValue("url"),
-		APIKey:   r.FormValue("api_key"),
-		Username: r.FormValue("username"),
-		Password: r.FormValue("password"),
+		Type:                  r.FormValue("type"),
+		Name:                  r.FormValue("name"),
+		URL:                   r.FormValue("url"),
+		APIKey:                r.FormValue("api_key"),
+		Username:              r.FormValue("username"),
+		Password:              r.FormValue("password"),
+		AllowAutomaticRemoval: r.FormValue("allow_automatic_removal") == "on",
 	}
 	if err := server.inv.AddService(r.Context(), candidate); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -185,6 +186,7 @@ func (server *Server) addService(w http.ResponseWriter, r *http.Request) {
 
 type editServiceData struct {
 	ID, Type, Name, URL, APIKey, Username, Password string
+	AllowAutomaticRemoval                           bool
 }
 
 // editServiceForm dispatches by method the same way scheduled removal
@@ -215,7 +217,7 @@ func (server *Server) renderEditServiceForm(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "service not found", http.StatusNotFound)
 		return
 	}
-	data := editServiceData{ID: found.ID, Type: found.Type, Name: found.Name, URL: found.URL, APIKey: found.APIKey, Username: found.Username, Password: found.Password}
+	data := editServiceData{ID: found.ID, Type: found.Type, Name: found.Name, URL: found.URL, APIKey: found.APIKey, Username: found.Username, Password: found.Password, AllowAutomaticRemoval: found.AllowAutomaticRemoval}
 	if err := renderTemplate(w, server.editServiceTpl, data); err != nil {
 		log.Printf("[http] render edit-service overlay: %v", err)
 	}
@@ -242,11 +244,12 @@ func (server *Server) submitEditService(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	updates := config.Service{
-		Name:     r.FormValue("name"),
-		URL:      r.FormValue("url"),
-		APIKey:   existing.APIKey,
-		Username: existing.Username,
-		Password: existing.Password,
+		Name:                  r.FormValue("name"),
+		URL:                   r.FormValue("url"),
+		APIKey:                existing.APIKey,
+		Username:              existing.Username,
+		Password:              existing.Password,
+		AllowAutomaticRemoval: r.FormValue("allow_automatic_removal") == "on",
 	}
 	if strings.EqualFold(existing.Type, "qbittorrent") {
 		updates.Username = r.FormValue("username")

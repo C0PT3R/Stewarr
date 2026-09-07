@@ -306,6 +306,19 @@ func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 	return updated
 }
 
+// SetRemovalSettings updates the global removal switches together, since
+// the Settings page always submits all three as one form. autoEnabled and
+// autoRemoveUnassociated are meaningless without a service's own
+// Service.AllowAutomaticRemoval also opted in (see actionServicesOptedIn);
+// dryRun applies to every removal, manual or automatic, not just this one.
+func SetRemovalSettings(configuration Config, autoEnabled, autoRemoveUnassociated, dryRun bool) Config {
+	updated := configuration
+	updated.Removal.AutoEnabled = autoEnabled
+	updated.Removal.AutoRemoveUnassociatedTorrents = autoRemoveUnassociated
+	updated.Removal.DryRun = dryRun
+	return updated
+}
+
 // DeviceThreshold is one storage device's reclamation targets. Values
 // outside (0,100) are treated as absent by ThresholdsFor rather than
 // rejected outright, so one malformed entry in a hand-edited config.json

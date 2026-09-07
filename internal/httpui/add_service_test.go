@@ -242,6 +242,50 @@ func TestTestServiceConnectionPersistsNothing(t *testing.T) {
 	}
 }
 
+// TestAddServiceSetsAllowAutomaticRemoval guards the add-service form's new
+// checkbox actually reaching config.Service.AllowAutomaticRemoval, the flag
+// runAutoRemovalEvaluation checks per service before touching anything it
+// owns.
+func TestAddServiceSetsAllowAutomaticRemoval(t *testing.T) {
+	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"version":"5.0.0"}`))
+	}))
+	defer radarrSrv.Close()
+
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"storage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := inventory.New(cfg, nil)
+	inv.SetConfigPath(configPath)
+	server, err := New(inv, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	body, contentType := multipartServiceForm(t, map[string]string{"type": "radarr", "name": "Movies", "url": radarrSrv.URL, "api_key": "key", "allow_automatic_removal": "on"})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/services/create", body)
+	request.Header.Set("Content-Type", contentType)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	reloaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Services) != 1 || !reloaded.Services[0].AllowAutomaticRemoval {
+		t.Fatalf("expected the checked checkbox to persist as AllowAutomaticRemoval=true, got %#v", reloaded.Services)
+	}
+}
+
 // TestAddServiceFormNarrowsTypeOptionsByCategory guards the Torrents/Library
 // empty-state buttons: each opens the same overlay with a category query
 // param, which must narrow the Type select and change the heading, rather

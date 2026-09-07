@@ -14,11 +14,23 @@ type settingsPageData struct {
 	TMDBSuccess bool
 	TMDBAPIKey  string
 	TMDBEnabled bool
+
+	RemovalError                   string
+	RemovalSuccess                 bool
+	AutoRemovalEnabled             bool
+	AutoRemoveUnassociatedTorrents bool
+	DryRun                         bool
 }
 
 func (server *Server) settingsData() settingsPageData {
 	cfg := server.inv.Config()
-	return settingsPageData{TMDBAPIKey: cfg.TMDB.APIKey, TMDBEnabled: cfg.TMDB.APIKey != ""}
+	return settingsPageData{
+		TMDBAPIKey:                     cfg.TMDB.APIKey,
+		TMDBEnabled:                    cfg.TMDB.APIKey != "",
+		AutoRemovalEnabled:             cfg.Removal.AutoEnabled,
+		AutoRemoveUnassociatedTorrents: cfg.Removal.AutoRemoveUnassociatedTorrents,
+		DryRun:                         cfg.Removal.DryRun,
+	}
 }
 
 func (server *Server) settingsPage(w http.ResponseWriter, r *http.Request) {
@@ -88,6 +100,37 @@ func (server *Server) setTMDBAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	data = server.settingsData()
 	data.TMDBSuccess = true
+	_ = renderTemplate(w, server.settingsTpl, data)
+}
+
+// setRemovalSettings saves the global automatic-removal switches. Automatic
+// removal also still requires each service's own "Allow automatic removal"
+// checkbox (see the service edit form) — this only controls whether the
+// evaluation runs at all, whether it's allowed to touch torrents with no
+// known owner, and whether any removal (manual or automatic) actually
+// deletes anything or just simulates it. Checkboxes only submit when
+// checked, so an absent field means false, the same as an HTML form always
+// behaves.
+func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	autoEnabled := r.FormValue("auto_enabled") == "on"
+	autoRemoveUnassociated := r.FormValue("auto_remove_unassociated_torrents") == "on"
+	dryRun := r.FormValue("dry_run") == "on"
+	data := server.settingsData()
+	if err := server.inv.SetRemovalSettings(autoEnabled, autoRemoveUnassociated, dryRun); err != nil {
+		data.RemovalError = err.Error()
+		_ = renderTemplate(w, server.settingsTpl, data)
+		return
+	}
+	data = server.settingsData()
+	data.RemovalSuccess = true
 	_ = renderTemplate(w, server.settingsTpl, data)
 }
 

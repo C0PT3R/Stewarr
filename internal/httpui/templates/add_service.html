@@ -17,6 +17,7 @@
           <label for="service-api-key" data-service-field="radarr sonarr jellyfin seerr">API key<input id="service-api-key" name="api_key" type="password" autocomplete="off"></label>
           <label for="service-username" data-service-field="qbittorrent" hidden>Username<input id="service-username" name="username" autocomplete="off"></label>
           <label for="service-password" data-service-field="qbittorrent" hidden>Password<input id="service-password" name="password" type="password" autocomplete="off"></label>
+          <label class="toggle"><input type="checkbox" name="allow_automatic_removal"> Allow automatic removal<br><span class="muted">Lets unattended cleanup remove what this service owns, once automatic removal is enabled in Settings.</span></label>
         </div>
         <p data-modal-error hidden class="bad"></p>
         <div class="actions">

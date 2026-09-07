@@ -164,6 +164,18 @@ func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
 	}
 }
 
+func TestSetRemovalSettings(t *testing.T) {
+	var c Config
+	updated := SetRemovalSettings(c, true, true, false)
+	if !updated.Removal.AutoEnabled || !updated.Removal.AutoRemoveUnassociatedTorrents || updated.Removal.DryRun {
+		t.Fatalf("expected all three fields to be set as given, got %#v", updated.Removal)
+	}
+	reverted := SetRemovalSettings(updated, false, false, true)
+	if reverted.Removal.AutoEnabled || reverted.Removal.AutoRemoveUnassociatedTorrents || !reverted.Removal.DryRun {
+		t.Fatalf("expected all three fields to flip independently, got %#v", reverted.Removal)
+	}
+}
+
 func TestRemovalDryRunDefaultsTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
