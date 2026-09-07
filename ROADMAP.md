@@ -674,6 +674,25 @@ those flags could so far only be changed by hand-editing `config.json`.
   false the moment the checkbox existed to set it. Guarded by
   `TestEditServiceRoundTripsAllowAutomaticRemoval`.
 
+### Enrichment reliability trusts a restored cache instead of resetting stale (0.3.7)
+
+A process restart that successfully loaded persisted media from the
+database (`New()`, `internal/inventory/service.go`) was unconditionally
+marking every configured enrichment source (Jellyfin, Seerr, TMDB)
+`"stale"` via `enrichmentInitialState` — the same helper used for a
+genuine cold start with no cache at all. That state only self-corrects
+once that source's own periodic task completes again from scratch:
+Jellyfin/Seerr's hourly interval hid this within an hour, but TMDB's 24h
+interval meant "automatic removal planning is paused" for a full day
+after every single restart, even though the just-loaded facts were
+already good. New `enrichmentInitialStateFromCache` marks a successfully
+restored cache `"reliable"` immediately instead. This doesn't weaken any
+real protection: the precise per-item staleness check
+(`mediaTMDBDataStale`, `internal/httpui/auto_removal.go`) still
+independently excludes any specific item whose own `TMDBEnrichedAt`
+really is too old, regardless of this coarser reliability flag. Guarded
+by `TestNewTrustsCachedEnrichmentAfterRestart`.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

@@ -128,10 +128,24 @@ func New(configuration config.Config, database *store.Store) *Service {
 			service.items, service.updated = items, updated
 			if !updated.IsZero() {
 				service.reliability.Inventory = true
-				service.reliability.Jellyfin = enrichmentInitialState(configuration.Jellyfin.URL != "")
-				service.reliability.Seerr = enrichmentInitialState(configuration.Seerr.URL != "")
-				service.reliability.TMDB = enrichmentInitialState(configuration.TMDB.APIKey != "")
-				service.reliability.Valuation = configuration.Jellyfin.URL == "" && configuration.Seerr.URL == "" && configuration.TMDB.APIKey == ""
+				// Trust facts a database load just restored, rather than
+				// enrichmentInitialState's "stale" — that's correct for a
+				// genuine cold start (no cache) or a fingerprint-changed
+				// reset (see Refresh), but here the persisted values were
+				// already reliable the moment they were saved. Marking them
+				// stale regardless would pause automatic removal planning
+				// for up to that source's own refresh interval after every
+				// single restart — TMDB's is 24h, so this was highly
+				// visible there even though nothing about the data actually
+				// changed. The genuinely precise per-item staleness check
+				// (mediaTMDBDataStale, internal/httpui/auto_removal.go)
+				// still independently excludes any item whose own
+				// TMDBEnrichedAt really is too old, regardless of this
+				// coarser reliability flag.
+				service.reliability.Jellyfin = enrichmentInitialStateFromCache(configuration.Jellyfin.URL != "")
+				service.reliability.Seerr = enrichmentInitialStateFromCache(configuration.Seerr.URL != "")
+				service.reliability.TMDB = enrichmentInitialStateFromCache(configuration.TMDB.APIKey != "")
+				service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
 				service.baseReadyOnce.Do(func() { close(service.baseReady) })
 			}
 		} else {
@@ -257,6 +271,17 @@ func inventoryFingerprint(items []model.Media, torrents []model.Torrent) [32]byt
 func enrichmentInitialState(configured bool) string {
 	if configured {
 		return "stale"
+	}
+	return "not configured"
+}
+
+// enrichmentInitialStateFromCache is enrichmentInitialState's counterpart
+// for the one case where "stale" is wrong: a process restart that just
+// successfully loaded persisted media from the database. See its call site
+// in New() for why.
+func enrichmentInitialStateFromCache(configured bool) string {
+	if configured {
+		return "reliable"
 	}
 	return "not configured"
 }

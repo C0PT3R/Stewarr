@@ -110,6 +110,7 @@ internal/inventory/reconcile_targeted.go
 internal/inventory/reconcile_targeted_test.go
 internal/inventory/reconciliation_scope.go
 internal/inventory/reconciliation_scope_test.go
+internal/inventory/restart_reliability_test.go
 internal/inventory/seasons.go
 internal/inventory/seasons_test.go
 internal/inventory/service.go
