@@ -21,6 +21,19 @@ func clamp(value, minimum, maximum float64) float64 {
 	}
 	return value
 }
+
+// serviceAllowsRemoval reports whether serviceID's own service has checked
+// "Allow automatic removal" — an unknown or empty serviceID fails closed,
+// the same as a removed/never-configured service would.
+func serviceAllowsRemoval(configuration config.Config, serviceID string) bool {
+	for _, service := range configuration.Services {
+		if service.ID == serviceID {
+			return service.AllowAutomaticRemoval
+		}
+	}
+	return false
+}
+
 func hasTag(tags, protectedTags []string) bool {
 	for _, mediaTag := range tags {
 		for _, protectedTag := range protectedTags {
@@ -74,6 +87,7 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 		mediaItem.RetentionValueReasons = nil
 		mediaItem.Protected = false
 		mediaItem.ProtectionReason = ""
+		mediaItem.RemovalRestricted = !serviceAllowsRemoval(configuration, mediaItem.ServiceID)
 		if hasTag(mediaItem.Tags, configuration.Protection.KeepTags) {
 			mediaItem.Protected = true
 			mediaItem.ProtectionReason = "Keep tag"
@@ -199,6 +213,7 @@ func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWi
 		season := &mediaItem.Seasons[seasonIndex]
 		season.Protected = mediaItem.Protected
 		season.ProtectionReason = mediaItem.ProtectionReason
+		season.RemovalRestricted = mediaItem.RemovalRestricted
 		value := seriesWideValue
 		reasons := append([]model.Reason(nil), seriesWideReasons...)
 		if !season.LastAiredAt.IsZero() {
@@ -259,6 +274,7 @@ func ApplyTorrents(torrents []model.Torrent, configuration config.Config) {
 		torrent.SwarmValueReasons = nil
 		torrent.Protected = false
 		torrent.ProtectionReason = ""
+		torrent.RemovalRestricted = !serviceAllowsRemoval(configuration, torrent.ServiceID)
 		if configuration.Protection.MinTorrentRatio > 0 && torrent.Ratio < configuration.Protection.MinTorrentRatio {
 			torrent.Protected = true
 			torrent.ProtectionReason = "Below minimum ratio"

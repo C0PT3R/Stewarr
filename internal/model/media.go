@@ -68,11 +68,21 @@ type MediaRef struct {
 }
 
 type Torrent struct {
-	ServiceID         string     `json:"serviceId,omitempty"`
-	SwarmValue        float64    `json:"swarmValue"`
-	SwarmValueReasons []Reason   `json:"swarmValueReasons,omitempty"`
-	Protected         bool       `json:"protected,omitempty"`
-	ProtectionReason  string     `json:"protectionReason,omitempty"`
+	ServiceID         string   `json:"serviceId,omitempty"`
+	SwarmValue        float64  `json:"swarmValue"`
+	SwarmValueReasons []Reason `json:"swarmValueReasons,omitempty"`
+	Protected         bool     `json:"protected,omitempty"`
+	ProtectionReason  string   `json:"protectionReason,omitempty"`
+	// RemovalRestricted is true when this torrent's own service has not
+	// checked "Allow automatic removal" — distinct from Protected (a
+	// KeepTag/ratio/etc. judgment the item earns on its own merits, shown
+	// as such throughout the UI). This is a plain administrative
+	// permission: the owning service simply hasn't been opted in, so the
+	// planner (internal/cleanup) must never offer it, or any bundle it's
+	// part of, as a removal candidate at all — not even for manual review.
+	// It does not gate a human directly removing this one torrent by hand
+	// from its own detail page.
+	RemovalRestricted bool       `json:"-"`
 	AssociationStatus string     `json:"torrentStatus,omitempty"`
 	AssociationReason string     `json:"associationReason,omitempty"`
 	MediaItems        []MediaRef `json:"media,omitempty"`
@@ -264,8 +274,14 @@ type Media struct {
 	DownloadIDs []string  `json:"downloadIds,omitempty"`
 	Torrents    []Torrent `json:"torrents,omitempty"`
 
-	Protected              bool     `json:"protected"`
-	ProtectionReason       string   `json:"protectionReason,omitempty"`
+	Protected        bool   `json:"protected"`
+	ProtectionReason string `json:"protectionReason,omitempty"`
+	// RemovalRestricted mirrors Torrent.RemovalRestricted for Media: true
+	// when this item's own service has not checked "Allow automatic
+	// removal", so internal/cleanup must never offer it (or a bundle it's
+	// part of) as a removal candidate — see the doc comment there for why
+	// this is deliberately separate from Protected.
+	RemovalRestricted      bool     `json:"-"`
 	ReclaimableKnown       bool     `json:"reclaimableKnown,omitempty"`
 	ReclaimableBytes       int64    `json:"reclaimableBytes,omitempty"`
 	BundleReclaimableKnown bool     `json:"bundleReclaimableKnown,omitempty"`
@@ -289,16 +305,19 @@ type Season struct {
 	// how recently the content itself is, not when Connarr's library
 	// happened to import it (a show backfilled all at once would otherwise
 	// give every season nearly the same import date).
-	LastAiredAt            time.Time `json:"lastAiredAt,omitempty"`
-	EpisodeFileCount       int       `json:"episodeFileCount"`
-	Protected              bool      `json:"protected,omitempty"`
-	ProtectionReason       string    `json:"protectionReason,omitempty"`
-	ReclaimableKnown       bool      `json:"reclaimableKnown,omitempty"`
-	ReclaimableBytes       int64     `json:"reclaimableBytes,omitempty"`
-	BundleReclaimableKnown bool      `json:"bundleReclaimableKnown,omitempty"`
-	BundleReclaimableBytes int64     `json:"bundleReclaimableBytes,omitempty"`
-	RetentionValue         float64   `json:"retentionValue"`
-	RetentionValueReasons  []Reason  `json:"retentionValueReasons,omitempty"`
+	LastAiredAt      time.Time `json:"lastAiredAt,omitempty"`
+	EpisodeFileCount int       `json:"episodeFileCount"`
+	Protected        bool      `json:"protected,omitempty"`
+	ProtectionReason string    `json:"protectionReason,omitempty"`
+	// RemovalRestricted inherits from the parent Media's field of the same
+	// name — a season of a series owned by a non-opted-in service.
+	RemovalRestricted      bool     `json:"-"`
+	ReclaimableKnown       bool     `json:"reclaimableKnown,omitempty"`
+	ReclaimableBytes       int64    `json:"reclaimableBytes,omitempty"`
+	BundleReclaimableKnown bool     `json:"bundleReclaimableKnown,omitempty"`
+	BundleReclaimableBytes int64    `json:"bundleReclaimableBytes,omitempty"`
+	RetentionValue         float64  `json:"retentionValue"`
+	RetentionValueReasons  []Reason `json:"retentionValueReasons,omitempty"`
 	// FileGroup is the exact "Season %d" label MediaFileRef.Parts already
 	// uses, so removal code can select this season's files without
 	// re-deriving the format.

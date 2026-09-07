@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"connarr/internal/cleanup"
-	"connarr/internal/config"
 	"connarr/internal/model"
 	"connarr/internal/store"
 	"connarr/internal/tasks"
@@ -56,10 +55,6 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	reliable := server.planningReliable(server.inv.ReliabilitySnapshot())
 	mediaByDevice := server.inv.MediaByDevice(items)
 	torrentsByDevice := server.inv.TorrentsByDevice(torrents)
-	serviceByID := make(map[string]config.Service, len(cfg.Services))
-	for _, service := range cfg.Services {
-		serviceByID[service.ID] = service
-	}
 	tmdbConfigured := cfg.TMDB.APIKey != ""
 	for _, device := range server.inv.StorageDevices() {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
@@ -72,9 +67,6 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 				continue
 			}
 			if mediaTMDBDataStale(action, tmdbConfigured) {
-				continue
-			}
-			if !actionServicesOptedIn(action, serviceByID) {
 				continue
 			}
 			form, err := server.formForAction(action)
@@ -118,28 +110,6 @@ func mediaTMDBDataStale(action cleanup.Action, tmdbConfigured bool) bool {
 	}
 	enrichedAt := action.Media.TMDBEnrichedAt
 	return enrichedAt.IsZero() || time.Since(enrichedAt) > tmdbStalenessThreshold
-}
-
-// actionServicesOptedIn reports whether every service an Action
-// touches has explicitly allowed automatic removal. A HardlinkedBundle spans
-// a Media service and one or more Torrent services; all of them must
-// have opted in, or the whole bundle is skipped, never partially executed.
-func actionServicesOptedIn(action cleanup.Action, serviceByID map[string]config.Service) bool {
-	if action.Kind != cleanup.StandaloneTorrent {
-		integ, ok := serviceByID[action.Media.ServiceID]
-		if !ok || !integ.AllowAutomaticRemoval {
-			return false
-		}
-	}
-	if action.Kind != cleanup.StandaloneMedia {
-		for _, t := range action.Torrents {
-			integ, ok := serviceByID[t.ServiceID]
-			if !ok || !integ.AllowAutomaticRemoval {
-				return false
-			}
-		}
-	}
-	return true
 }
 
 // formForAction builds the exact url.Values shape a browser's manual removal

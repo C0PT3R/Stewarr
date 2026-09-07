@@ -127,6 +127,53 @@ func TestBuildBlocksWholeBundleWhenAHardlinkedTorrentIsProtected(t *testing.T) {
 	}
 }
 
+// TestBuildExcludesMediaAndTorrentsFromNonOptedInServices guards a real
+// bug: a standalone Media/Torrent item's own service not having checked
+// "Allow automatic removal" must exclude it from the plan entirely — for
+// manual review on the Storage page just as much as automatic execution,
+// since both read the same Plan.Actions. RemovalRestricted is deliberately
+// a separate field from Protected (see model.Media) so this isn't shown as
+// a KeepTag/ratio-style "Protected" judgment elsewhere in the UI.
+func TestBuildExcludesMediaAndTorrentsFromNonOptedInServices(t *testing.T) {
+	media := model.Media{Title: "Restricted Movie", RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100, SizeBytes: 100}
+	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100}
+	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Actions) != 0 {
+		t.Fatalf("a removal-restricted media item and torrent must never appear in the plan, got %#v", p.Actions)
+	}
+}
+
+// TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted guards the
+// bidirectional case: a bundle spans a Media service and one or more
+// Torrent services, and either side not being opted in must veto the whole
+// bundle, the same as either side being Protected already does — offering
+// only the opted-in side alone would still delete files the other side
+// needs.
+func TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted(t *testing.T) {
+	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, RemovalRestricted: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
+	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Actions) != 0 {
+		t.Fatalf("a removal-restricted hardlinked torrent must veto the whole bundle, got %#v", p.Actions)
+	}
+
+	restrictedMediaTorrent := model.Torrent{Hash: "def", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	restrictedMedia := model.Media{Title: "Movie 2", RemovalRestricted: true, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{restrictedMediaTorrent}}
+	p2, err := Build(t.TempDir(), 0, 0, []model.Media{restrictedMedia}, []model.Torrent{restrictedMediaTorrent}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p2.Actions) != 0 {
+		t.Fatalf("a removal-restricted media item must veto its own hardlinked bundle too, got %#v", p2.Actions)
+	}
+}
+
 func TestBuildRanksSeriesPerSeasonInsteadOfWholeSeries(t *testing.T) {
 	series := model.Media{
 		Type: model.Series, Title: "Show", RetentionValue: 999,
@@ -187,6 +234,7 @@ func TestBuildSkipsProtectedOrUnknownSeasons(t *testing.T) {
 			{Number: 1, Protected: true, ReclaimableKnown: true, ReclaimableBytes: 100},
 			{Number: 2, ReclaimableKnown: false, ReclaimableBytes: 100},
 			{Number: 3, ReclaimableKnown: true, ReclaimableBytes: 0},
+			{Number: 4, RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100},
 		},
 	}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{series}, nil, true)
@@ -194,7 +242,7 @@ func TestBuildSkipsProtectedOrUnknownSeasons(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(p.Actions) != 0 {
-		t.Fatalf("expected protected/unknown/zero-byte seasons to produce no actions, got %#v", p.Actions)
+		t.Fatalf("expected protected/unknown/zero-byte/removal-restricted seasons to produce no actions, got %#v", p.Actions)
 	}
 }
 

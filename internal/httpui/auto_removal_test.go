@@ -40,44 +40,6 @@ func TestMediaTMDBDataStale(t *testing.T) {
 	}
 }
 
-func TestActionServicesOptedInRequiresEveryInvolvedService(t *testing.T) {
-	serviceByID := map[string]config.Service{
-		"radarr-in":      {ID: "radarr-in", AllowAutomaticRemoval: true},
-		"radarr-out":     {ID: "radarr-out", AllowAutomaticRemoval: false},
-		"qbittorrent-in": {ID: "qbittorrent-in", AllowAutomaticRemoval: true},
-	}
-
-	media := cleanup.Action{Kind: cleanup.StandaloneMedia, Media: model.Media{ServiceID: "radarr-in"}}
-	if !actionServicesOptedIn(media, serviceByID) {
-		t.Fatal("expected opted-in media action to be allowed")
-	}
-
-	mediaOut := cleanup.Action{Kind: cleanup.StandaloneMedia, Media: model.Media{ServiceID: "radarr-out"}}
-	if actionServicesOptedIn(mediaOut, serviceByID) {
-		t.Fatal("expected opted-out media action to be rejected")
-	}
-
-	torrent := cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{ServiceID: "qbittorrent-in"}}}
-	if !actionServicesOptedIn(torrent, serviceByID) {
-		t.Fatal("expected opted-in torrent action to be allowed")
-	}
-
-	bundle := cleanup.Action{Kind: cleanup.HardlinkedBundle, Media: model.Media{ServiceID: "radarr-in"}, Torrents: []model.Torrent{{ServiceID: "qbittorrent-in"}}}
-	if !actionServicesOptedIn(bundle, serviceByID) {
-		t.Fatal("expected fully opted-in bundle to be allowed")
-	}
-
-	mixedBundle := cleanup.Action{Kind: cleanup.HardlinkedBundle, Media: model.Media{ServiceID: "radarr-out"}, Torrents: []model.Torrent{{ServiceID: "qbittorrent-in"}}}
-	if actionServicesOptedIn(mixedBundle, serviceByID) {
-		t.Fatal("expected a bundle with any opted-out service to be rejected entirely")
-	}
-
-	unknownService := cleanup.Action{Kind: cleanup.StandaloneMedia, Media: model.Media{ServiceID: "does-not-exist"}}
-	if actionServicesOptedIn(unknownService, serviceByID) {
-		t.Fatal("expected an unrecognized service id to be treated as not opted in")
-	}
-}
-
 // TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown guards the
 // distinction between "Connarr has never had any relationship for this
 // torrent at all" (the case automatic removal excludes by default, since it

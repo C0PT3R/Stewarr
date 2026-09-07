@@ -87,14 +87,14 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 					for _, t := range hardlinked {
 						bundledHashes[strings.ToLower(t.Hash)] = true
 					}
-					anyTorrentProtected := false
+					anyTorrentRestricted := false
 					for _, t := range hardlinked {
-						if t.Protected {
-							anyTorrentProtected = true
+						if t.Protected || t.RemovalRestricted {
+							anyTorrentRestricted = true
 							break
 						}
 					}
-					if season.Protected || anyTorrentProtected || !season.BundleReclaimableKnown || season.BundleReclaimableBytes <= 0 {
+					if season.Protected || season.RemovalRestricted || anyTorrentRestricted || !season.BundleReclaimableKnown || season.BundleReclaimableBytes <= 0 {
 						continue
 					}
 					value := season.RetentionValue
@@ -107,7 +107,7 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 					mediaTier = append(mediaTier, Action{Kind: HardlinkedBundle, Media: m, Season: &season, Torrents: hardlinked, Value: value, ReclaimableBytes: season.BundleReclaimableBytes, Reasons: reasons})
 					continue
 				}
-				if season.Protected || !season.ReclaimableKnown || season.ReclaimableBytes <= 0 {
+				if season.Protected || season.RemovalRestricted || !season.ReclaimableKnown || season.ReclaimableBytes <= 0 {
 					continue
 				}
 				mediaTier = append(mediaTier, Action{Kind: StandaloneSeason, Media: m, Season: &season, Value: season.RetentionValue, ReclaimableBytes: season.ReclaimableBytes, Reasons: season.RetentionValueReasons})
@@ -119,20 +119,21 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 			for _, t := range hardlinked {
 				bundledHashes[strings.ToLower(t.Hash)] = true
 			}
-			anyTorrentProtected := false
+			anyTorrentRestricted := false
 			for _, t := range hardlinked {
-				if t.Protected {
-					anyTorrentProtected = true
+				if t.Protected || t.RemovalRestricted {
+					anyTorrentRestricted = true
 					break
 				}
 			}
-			if m.Protected || anyTorrentProtected || !m.BundleReclaimableKnown || m.BundleReclaimableBytes <= 0 {
+			if m.Protected || m.RemovalRestricted || anyTorrentRestricted || !m.BundleReclaimableKnown || m.BundleReclaimableBytes <= 0 {
 				// Never offer the media or any of its hardlinked torrents
 				// alone: doing so would free ~0 bytes while still destroying
 				// real value, which is worse than doing nothing. A protected
 				// hardlinked torrent vetoes the whole bundle for the same
 				// reason: removing the bundle would still delete files that
-				// torrent needs.
+				// torrent needs. A torrent or media item whose own service
+				// hasn't allowed removal vetoes it the same way.
 				continue
 			}
 			value := m.RetentionValue
@@ -145,14 +146,14 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 			mediaTier = append(mediaTier, Action{Kind: HardlinkedBundle, Media: m, Torrents: hardlinked, Value: value, ReclaimableBytes: m.BundleReclaimableBytes, Reasons: reasons})
 			continue
 		}
-		if m.Protected || !m.ReclaimableKnown || m.ReclaimableBytes <= 0 {
+		if m.Protected || m.RemovalRestricted || !m.ReclaimableKnown || m.ReclaimableBytes <= 0 {
 			continue
 		}
 		mediaTier = append(mediaTier, Action{Kind: StandaloneMedia, Media: m, Value: m.RetentionValue, ReclaimableBytes: m.ReclaimableBytes, Reasons: m.RetentionValueReasons})
 	}
 
 	for _, t := range torrents {
-		if t.Protected {
+		if t.Protected || t.RemovalRestricted {
 			continue
 		}
 		if model.NormalizeTorrentStatus(t.AssociationStatus) == model.TorrentCurrent {

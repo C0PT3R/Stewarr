@@ -693,6 +693,33 @@ independently excludes any specific item whose own `TMDBEnrichedAt`
 really is too old, regardless of this coarser reliability flag. Guarded
 by `TestNewTrustsCachedEnrichmentAfterRestart`.
 
+### Non-opted-in services excluded from the removal candidate list itself (0.4.0)
+
+`Service.AllowAutomaticRemoval` previously only gated automatic
+(unattended) execution (`actionServicesOptedIn`, `internal/httpui/
+auto_removal.go`) — the Storage page's manual candidate list came from
+the exact same `cleanup.Build` plan and showed everything regardless, so
+a series (or any media/torrent) from a service that had never opted in
+could still appear as something to remove.
+
+Fixed at the source instead of filtering the result: new `Media.
+RemovalRestricted` / `Torrent.RemovalRestricted` (`internal/model/
+media.go`) are computed by `valuation.ApplyMedia`/`ApplyTorrents` from
+each item's own `ServiceID` (an unrecognized or opted-out id fails
+closed), and `internal/cleanup`'s planner excludes a restricted item —
+and vetoes a whole hardlinked bundle if either side is restricted — the
+same way an already-`Protected` item already is. This keeps `NeedBytes`/
+selection math consistent (an excluded item's hardlink partner is still
+visible to the bundling logic, just never offered) instead of filtering
+`Plan.Actions` after the fact. Deliberately a separate field from
+`Protected`: this is an administrative permission, not a KeepTag/ratio
+judgment the item earns on its own merits, so it's never shown as
+"Protected" on the Library or media detail pages, and it does not gate a
+human manually removing that one item by hand from its own page — only
+the batch planner. `actionServicesOptedIn` is now redundant by
+construction (no `Plan.Action` can reference a restricted item at all)
+and was removed.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

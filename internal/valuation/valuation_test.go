@@ -197,6 +197,55 @@ func TestTorrentValueIsIndependentFromMediaAndStorage(t *testing.T) {
 	}
 }
 
+// TestApplyMediaSetsRemovalRestrictedFromServiceOptIn guards the fix for
+// series (and any other media) appearing as removal candidates even though
+// their owning service hasn't checked "Allow automatic removal": an
+// unrecognized or opted-out ServiceID must fail closed to restricted, an
+// opted-in one must not, and a season must inherit its parent series' value
+// exactly like Protected already does.
+func TestApplyMediaSetsRemovalRestrictedFromServiceOptIn(t *testing.T) {
+	c := testConfig()
+	c.Services = []config.Service{
+		{ID: "radarr-in", AllowAutomaticRemoval: true},
+		{ID: "radarr-out", AllowAutomaticRemoval: false},
+	}
+	items := []model.Media{
+		{Title: "Opted in", ServiceID: "radarr-in"},
+		{Title: "Opted out", ServiceID: "radarr-out"},
+		{Title: "Unknown service", ServiceID: "does-not-exist"},
+		{Title: "Series", Type: model.Series, ServiceID: "radarr-out", Seasons: []model.Season{{Number: 1}}},
+	}
+	ApplyMedia(items, c)
+	if items[0].RemovalRestricted {
+		t.Fatalf("expected an opted-in service's media to not be removal-restricted: %#v", items[0])
+	}
+	if !items[1].RemovalRestricted {
+		t.Fatalf("expected an opted-out service's media to be removal-restricted: %#v", items[1])
+	}
+	if !items[2].RemovalRestricted {
+		t.Fatalf("expected an unrecognized service id to fail closed to removal-restricted: %#v", items[2])
+	}
+	if !items[3].RemovalRestricted || !items[3].Seasons[0].RemovalRestricted {
+		t.Fatalf("expected a season to inherit its series' RemovalRestricted: %#v", items[3])
+	}
+}
+
+func TestApplyTorrentsSetsRemovalRestrictedFromServiceOptIn(t *testing.T) {
+	c := testConfig()
+	c.Services = []config.Service{{ID: "qbittorrent-in", AllowAutomaticRemoval: true}}
+	torrents := []model.Torrent{
+		{Hash: "in", ServiceID: "qbittorrent-in"},
+		{Hash: "out", ServiceID: "does-not-exist"},
+	}
+	ApplyTorrents(torrents, c)
+	if torrents[0].RemovalRestricted {
+		t.Fatalf("expected an opted-in service's torrent to not be removal-restricted: %#v", torrents[0])
+	}
+	if !torrents[1].RemovalRestricted {
+		t.Fatalf("expected an unrecognized service id to fail closed to removal-restricted: %#v", torrents[1])
+	}
+}
+
 func TestApplyMediaSeasonsInheritSeriesWideProtection(t *testing.T) {
 	c := testConfig()
 	items := []model.Media{{
