@@ -44,7 +44,14 @@
       {{if .RemovalSuccess}}<p class="positive">Removal settings saved.</p>{{end}}
       <form method="post" action="/settings/removal">
         <div class="field-stack">
-          <label class="toggle"><input type="checkbox" name="auto_enabled" {{if .AutoRemovalEnabled}}checked{{end}}> Enable automatic removal<br><span class="muted">Periodically submits each device's cleanup plan for removal on its own. Each service also needs "Allow automatic removal" checked in its own settings before anything it owns is touched.</span></label>
+          <label for="settings-auto-mode">Automatic removal
+            <select id="settings-auto-mode" name="auto_mode">
+              <option value="disabled" {{if eq .AutoMode "disabled"}}selected{{end}}>Disabled</option>
+              <option value="confirm" {{if eq .AutoMode "confirm"}}selected{{end}}>Confirm</option>
+              <option value="auto" {{if eq .AutoMode "auto"}}selected{{end}}>Auto</option>
+            </select>
+            <span class="muted">Disabled: the evaluation never runs. Confirm: it evaluates candidates on schedule but never submits anything — review and remove them yourself. Auto: it submits them on its own. Each service also needs "Allow automatic removal" checked in its own settings before anything it owns is touched.</span>
+          </label>
           <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}> Also remove torrents with no known owner<br><span class="muted">Off by default: Connarr has no relationship to judge these safe to delete unattended.</span></label>
           <label class="toggle"><input type="checkbox" name="dry_run" {{if .DryRun}}checked{{end}}> Dry run<br><span class="muted">Simulates every removal, manual or automatic, without deleting anything. Turn this off once you trust what's being selected.</span></label>
         </div>

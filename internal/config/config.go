@@ -45,9 +45,27 @@ type ValuationConfig struct {
 	KeepTagValueBonus  float64             `json:"keep_tag_value_bonus"`
 }
 
+// Removal.AutoMode's three valid values. Empty (a config.json written
+// before this field existed, or an invalid hand-edited value) behaves as
+// RemovalAutoDisabled — see SetRemovalSettings.
+const (
+	RemovalAutoDisabled = "disabled"
+	// RemovalAutoConfirm runs the evaluation task on its normal schedule,
+	// applying every automatic-removal-only filter (unassociated-torrent
+	// gate, TMDB staleness) so the results are exactly what RemovalAutoAuto
+	// would touch — but never submits anything; a human still has to act
+	// via the normal manual removal flow.
+	RemovalAutoConfirm = "confirm"
+	RemovalAutoAuto    = "auto"
+)
+
 type RemovalConfig struct {
-	DryRun      bool `json:"dry_run"`
-	AutoEnabled bool `json:"auto_enabled"`
+	DryRun bool `json:"dry_run"`
+	// AutoMode is one of RemovalAutoDisabled/RemovalAutoConfirm/
+	// RemovalAutoAuto. Disabled means the evaluation task itself does
+	// nothing — no snapshot, no cleanup.Build — not just that it withholds
+	// submission.
+	AutoMode string `json:"auto_mode"`
 	// AutoRemoveUnassociatedTorrents gates automatic removal of torrents
 	// Connarr has no owning-media relationship for. Defaults to false: an
 	// Unassociated torrent may simply be something the user downloaded
@@ -307,16 +325,21 @@ func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 }
 
 // SetRemovalSettings updates the global removal switches together, since
-// the Settings page always submits all three as one form. autoEnabled and
-// autoRemoveUnassociated are meaningless without a service's own
-// Service.AllowAutomaticRemoval also opted in (see actionServicesOptedIn);
+// the Settings page always submits all three as one form. autoMode and
+// autoRemoveUnassociated are meaningless for an item whose own service
+// hasn't checked "Allow automatic removal" (see Media.RemovalRestricted);
 // dryRun applies to every removal, manual or automatic, not just this one.
-func SetRemovalSettings(configuration Config, autoEnabled, autoRemoveUnassociated, dryRun bool) Config {
+func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool) (Config, error) {
+	switch autoMode {
+	case RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto:
+	default:
+		return configuration, fmt.Errorf("auto_mode must be one of %q, %q, %q", RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto)
+	}
 	updated := configuration
-	updated.Removal.AutoEnabled = autoEnabled
+	updated.Removal.AutoMode = autoMode
 	updated.Removal.AutoRemoveUnassociatedTorrents = autoRemoveUnassociated
 	updated.Removal.DryRun = dryRun
-	return updated
+	return updated, nil
 }
 
 // DeviceThreshold is one storage device's reclamation targets. Values

@@ -252,7 +252,7 @@ func (service *Service) SetTMDBAPIKey(apiKey string) error {
 // check or an in-memory side effect beyond swapping the config: unlike
 // TMDB, these flags only change what the next scheduled evaluation or
 // removal submission does, never anything already published.
-func (service *Service) SetRemovalSettings(autoEnabled, autoRemoveUnassociated, dryRun bool) error {
+func (service *Service) SetRemovalSettings(autoMode string, autoRemoveUnassociated, dryRun bool) error {
 	service.configMu.Lock()
 	defer service.configMu.Unlock()
 
@@ -264,7 +264,10 @@ func (service *Service) SetRemovalSettings(autoEnabled, autoRemoveUnassociated, 
 	currentCfg := service.cfg
 	service.mu.RUnlock()
 
-	updatedCfg := config.SetRemovalSettings(currentCfg, autoEnabled, autoRemoveUnassociated, dryRun)
+	updatedCfg, err := config.SetRemovalSettings(currentCfg, autoMode, autoRemoveUnassociated, dryRun)
+	if err != nil {
+		return err
+	}
 
 	if err := config.Save(service.configPath, updatedCfg); err != nil {
 		return fmt.Errorf("persist config: %w", err)

@@ -720,6 +720,23 @@ the batch planner. `actionServicesOptedIn` is now redundant by
 construction (no `Plan.Action` can reference a restricted item at all)
 and was removed.
 
+### Three-state automatic removal mode, service checkbox scoped to removable types (0.4.1)
+
+- Settings' "Enable automatic removal" checkbox became `Removal.AutoMode`
+  (Disabled/Confirm/Auto), replacing the plain on/off switch. Disabled
+  means `runAutoRemovalEvaluation` does nothing at all — no snapshot, no
+  `cleanup.Build` — not just that it withholds submission. Confirm runs
+  the full evaluation (every automatic-removal-only filter: TMDB
+  staleness, the unassociated-torrent gate) but never submits, leaving a
+  pre-vetted candidate for a human to act on through the normal manual
+  removal flow — there's no separate approval queue yet, since that's a
+  bigger, still-undecided UI question. Auto is the original always-submit
+  behavior.
+- The add/edit service forms' "Allow automatic removal" checkbox now only
+  shows for radarr/sonarr/qbittorrent — Jellyfin and Seerr are enrichment
+  sources, not owners of anything `cleanup.Build` could ever propose for
+  removal, so the checkbox was meaningless (and confusing) for them.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.
@@ -750,6 +767,13 @@ and was removed.
   timelines.
 - Quality-versus-storage-cost reasoning and upgrade/downgrade recommendations.
 - Webhook/event adapters where services expose useful reliable events.
+- A real Confirm-mode review surface: Confirm (0.4.1) currently just
+  withholds submission, leaving pre-vetted candidates for a human to find
+  via the normal Storage-page flow. Worth revisiting once it's actually
+  used: a dedicated list of what Confirm evaluated, letting someone both
+  approve/execute from it and add a Keep tag to anything they'd rather
+  protect than remove, right from that review — instead of only being
+  able to react to what's already about to be gone.
 
 ## Product direction
 

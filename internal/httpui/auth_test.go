@@ -260,36 +260,58 @@ func TestSetTMDBAPIKeySavesAndClears(t *testing.T) {
 }
 
 // TestSetRemovalSettingsPersistsCheckboxState guards the Settings-page path
-// for the global auto-removal switches: an absent checkbox field must be
-// read as false (an HTML form never submits an unchecked checkbox at all),
-// not left at whatever the previous save happened to be.
+// for the global removal switches: an absent checkbox field must be read as
+// false (an HTML form never submits an unchecked checkbox at all), not left
+// at whatever the previous save happened to be — auto_mode is a select, so
+// it's always present, but the two checkboxes beside it aren't.
 func TestSetRemovalSettingsPersistsCheckboxState(t *testing.T) {
 	handler, _ := newAuthTestServer(t)
 	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
 	session := sessionCookieFrom(setupResponse)
 
-	allOn := postForm(t, handler, "/settings/removal", url.Values{"auto_enabled": {"on"}, "auto_remove_unassociated_torrents": {"on"}, "dry_run": {"on"}}, session)
+	allOn := postForm(t, handler, "/settings/removal", url.Values{"auto_mode": {"auto"}, "auto_remove_unassociated_torrents": {"on"}, "dry_run": {"on"}}, session)
 	if allOn.Code != http.StatusOK || !strings.Contains(allOn.Body.String(), "Removal settings saved") {
 		t.Fatalf("status=%d body=%q", allOn.Code, allOn.Body.String())
 	}
 	body := allOn.Body.String()
-	for _, name := range []string{"auto_enabled", "auto_remove_unassociated_torrents", "dry_run"} {
+	if !strings.Contains(body, `value="auto" selected`) {
+		t.Fatalf("expected auto_mode to be reflected back as auto: %q", body)
+	}
+	for _, name := range []string{"auto_remove_unassociated_torrents", "dry_run"} {
 		if !strings.Contains(body, `name="`+name+`" checked`) {
 			t.Fatalf("expected %s to be reflected back as checked: %q", name, body)
 		}
 	}
 
-	// Submitting with every checkbox absent (the real shape of an all-off
-	// form) must turn every switch off, not leave the previous save in place.
-	allOff := postForm(t, handler, "/settings/removal", url.Values{}, session)
+	// Submitting with auto_mode back to disabled and both checkboxes absent
+	// (the real shape of an all-off form) must turn every switch off, not
+	// leave the previous save in place.
+	allOff := postForm(t, handler, "/settings/removal", url.Values{"auto_mode": {"disabled"}}, session)
 	if allOff.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%q", allOff.Code, allOff.Body.String())
 	}
 	body = allOff.Body.String()
-	for _, name := range []string{"auto_enabled", "auto_remove_unassociated_torrents", "dry_run"} {
+	if !strings.Contains(body, `value="disabled" selected`) {
+		t.Fatalf("expected auto_mode to be reflected back as disabled: %q", body)
+	}
+	for _, name := range []string{"auto_remove_unassociated_torrents", "dry_run"} {
 		if strings.Contains(body, `name="`+name+`" checked`) {
 			t.Fatalf("expected %s to be unchecked after an all-off submit: %q", name, body)
 		}
+	}
+}
+
+// TestSetRemovalSettingsRejectsUnknownAutoModeOverHTTP guards the select
+// against a malformed/hand-crafted request: an unrecognized auto_mode must
+// be rejected, not silently coerced into disabled or left unchanged.
+func TestSetRemovalSettingsRejectsUnknownAutoModeOverHTTP(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+	session := sessionCookieFrom(setupResponse)
+
+	response := postForm(t, handler, "/settings/removal", url.Values{"auto_mode": {"sometimes"}}, session)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "auto_mode must be one of") {
+		t.Fatalf("expected an inline validation error, got status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

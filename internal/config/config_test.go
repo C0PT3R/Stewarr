@@ -166,13 +166,26 @@ func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
 
 func TestSetRemovalSettings(t *testing.T) {
 	var c Config
-	updated := SetRemovalSettings(c, true, true, false)
-	if !updated.Removal.AutoEnabled || !updated.Removal.AutoRemoveUnassociatedTorrents || updated.Removal.DryRun {
+	updated, err := SetRemovalSettings(c, RemovalAutoAuto, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Removal.AutoMode != RemovalAutoAuto || !updated.Removal.AutoRemoveUnassociatedTorrents || updated.Removal.DryRun {
 		t.Fatalf("expected all three fields to be set as given, got %#v", updated.Removal)
 	}
-	reverted := SetRemovalSettings(updated, false, false, true)
-	if reverted.Removal.AutoEnabled || reverted.Removal.AutoRemoveUnassociatedTorrents || !reverted.Removal.DryRun {
+	reverted, err := SetRemovalSettings(updated, RemovalAutoDisabled, false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reverted.Removal.AutoMode != RemovalAutoDisabled || reverted.Removal.AutoRemoveUnassociatedTorrents || !reverted.Removal.DryRun {
 		t.Fatalf("expected all three fields to flip independently, got %#v", reverted.Removal)
+	}
+}
+
+func TestSetRemovalSettingsRejectsUnknownAutoMode(t *testing.T) {
+	var c Config
+	if _, err := SetRemovalSettings(c, "sometimes", false, false); err == nil {
+		t.Fatal("expected an unrecognized auto_mode to be rejected")
 	}
 }
 

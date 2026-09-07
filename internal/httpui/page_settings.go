@@ -3,6 +3,7 @@ package httpui
 import (
 	"net/http"
 
+	"connarr/internal/config"
 	"connarr/internal/integrations/tmdb"
 )
 
@@ -17,17 +18,21 @@ type settingsPageData struct {
 
 	RemovalError                   string
 	RemovalSuccess                 bool
-	AutoRemovalEnabled             bool
+	AutoMode                       string
 	AutoRemoveUnassociatedTorrents bool
 	DryRun                         bool
 }
 
 func (server *Server) settingsData() settingsPageData {
 	cfg := server.inv.Config()
+	autoMode := cfg.Removal.AutoMode
+	if autoMode == "" {
+		autoMode = config.RemovalAutoDisabled
+	}
 	return settingsPageData{
 		TMDBAPIKey:                     cfg.TMDB.APIKey,
 		TMDBEnabled:                    cfg.TMDB.APIKey != "",
-		AutoRemovalEnabled:             cfg.Removal.AutoEnabled,
+		AutoMode:                       autoMode,
 		AutoRemoveUnassociatedTorrents: cfg.Removal.AutoRemoveUnassociatedTorrents,
 		DryRun:                         cfg.Removal.DryRun,
 	}
@@ -105,12 +110,11 @@ func (server *Server) setTMDBAPIKey(w http.ResponseWriter, r *http.Request) {
 
 // setRemovalSettings saves the global automatic-removal switches. Automatic
 // removal also still requires each service's own "Allow automatic removal"
-// checkbox (see the service edit form) — this only controls whether the
-// evaluation runs at all, whether it's allowed to touch torrents with no
-// known owner, and whether any removal (manual or automatic) actually
-// deletes anything or just simulates it. Checkboxes only submit when
-// checked, so an absent field means false, the same as an HTML form always
-// behaves.
+// checkbox (see the service edit form) — auto_mode controls whether the
+// evaluation task runs at all (Disabled), runs and applies its filters but
+// never submits anything (Confirm), or runs and submits (Auto);
+// auto_remove_unassociated_torrents/dry_run are unrelated checkboxes that
+// only submit when checked, so an absent field means false.
 func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -120,11 +124,11 @@ func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "invalid form", http.StatusBadRequest)
 		return
 	}
-	autoEnabled := r.FormValue("auto_enabled") == "on"
+	autoMode := r.FormValue("auto_mode")
 	autoRemoveUnassociated := r.FormValue("auto_remove_unassociated_torrents") == "on"
 	dryRun := r.FormValue("dry_run") == "on"
 	data := server.settingsData()
-	if err := server.inv.SetRemovalSettings(autoEnabled, autoRemoveUnassociated, dryRun); err != nil {
+	if err := server.inv.SetRemovalSettings(autoMode, autoRemoveUnassociated, dryRun); err != nil {
 		data.RemovalError = err.Error()
 		_ = renderTemplate(w, server.settingsTpl, data)
 		return

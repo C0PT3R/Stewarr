@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"connarr/internal/cleanup"
+	"connarr/internal/config"
 	"connarr/internal/model"
 	"connarr/internal/store"
 	"connarr/internal/tasks"
@@ -31,19 +32,25 @@ const autoRemovalEvalInterval = 15 * time.Minute
 const tmdbStalenessThreshold = 2 * 24 * time.Hour
 
 // runAutoRemovalEvaluation evaluates every known storage device's
-// cross-domain Cleanup plan and submits removal requests for every Action
-// whose services have all opted in. It is a no-op unless the global
-// switch is on; both it and every per-service opt-in default to false,
-// so a fresh or upgraded install does nothing automatically. Unassociated
-// torrents are additionally excluded by default regardless of opt-in,
-// since Connarr has no owning-media relationship to judge them safe to
-// delete unattended — see actionIsUnassociatedTorrent.
+// cross-domain Cleanup plan. In config.RemovalAutoDisabled (the default,
+// and whatever an empty/invalid value falls back to) it does nothing at
+// all — no snapshot, no cleanup.Build — not just withholds submission.
+// config.RemovalAutoConfirm still runs the full evaluation, applying every
+// filter below, but never submits: the results are only ever surfaced by
+// the normal manual removal flow (the Storage page), left for a human to
+// act on. Only config.RemovalAutoAuto actually submits. Every per-service
+// opt-in (Service.AllowAutomaticRemoval) still defaults to false regardless
+// of mode, so a fresh or upgraded install touches nothing until services
+// are individually opted in too. Unassociated torrents are additionally
+// excluded by default even in Auto mode, since Connarr has no
+// owning-media relationship to judge them safe to delete unattended — see
+// actionIsUnassociatedTorrent.
 func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	if server.inv == nil || server.tasks == nil {
 		return nil
 	}
 	cfg := server.inv.Config()
-	if !cfg.Removal.AutoEnabled {
+	if cfg.Removal.AutoMode != config.RemovalAutoConfirm && cfg.Removal.AutoMode != config.RemovalAutoAuto {
 		return nil
 	}
 	items, _, err := server.inv.Snapshot()
@@ -67,6 +74,12 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 				continue
 			}
 			if mediaTMDBDataStale(action, tmdbConfigured) {
+				continue
+			}
+			if cfg.Removal.AutoMode != config.RemovalAutoAuto {
+				// Confirm mode: this candidate has passed every automatic-
+				// removal filter, but nothing gets submitted — a human
+				// still acts through the normal manual removal flow.
 				continue
 			}
 			form, err := server.formForAction(action)

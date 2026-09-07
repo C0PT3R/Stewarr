@@ -91,9 +91,11 @@ func TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown(t *testing.T
 }
 
 func TestRunAutoRemovalEvaluationNoOpsWhenGloballyDisabled(t *testing.T) {
-	server := &Server{inv: inventory.New(config.Config{Removal: config.RemovalConfig{AutoEnabled: false}}, nil)}
-	if err := server.runAutoRemovalEvaluation(nil); err != nil {
-		t.Fatalf("expected the disabled global switch to short-circuit cleanly, got %v", err)
+	for _, mode := range []string{config.RemovalAutoDisabled, "", "bogus-value"} {
+		server := &Server{inv: inventory.New(config.Config{Removal: config.RemovalConfig{AutoMode: mode}}, nil)}
+		if err := server.runAutoRemovalEvaluation(nil); err != nil {
+			t.Fatalf("mode=%q: expected disabled (including empty/unrecognized) to short-circuit cleanly, got %v", mode, err)
+		}
 	}
 }
 
