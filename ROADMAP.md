@@ -598,6 +598,54 @@ This file separates implemented behavior from intended direction. It is not a pr
 - Quality-versus-storage-cost reasoning and upgrade/downgrade recommendations.
 - Webhook/event adapters where services expose useful reliable events.
 
+### TMDB popularity/rating enrichment
+
+Radarr/Sonarr's own rating data is a weak proxy for how much anyone would
+actually miss a title, and neither service has anything resembling a real
+popularity signal — Sonarr's TVDB-sourced rating has no equivalent at all,
+and Radarr's own `popularity` field (TMDB's, distinct from rating/votes)
+isn't even parsed today. Since Connarr aims to become a publicly usable
+app, not a single deployment tuned by hand, this should be closed with an
+always-on enrichment source rather than left as a per-service quirk —
+fetched directly from TMDB itself (covers movies and TV under one API; a
+series' TVDB ID resolves to a TMDB TV ID via TMDB's own
+`/find/{tvdb_id}?external_source=tvdb_id`, a mapping that's fetched once
+and cached forever). Considered and rejected: MDBList (an unnecessary
+extra hop in front of the same underlying sources) and IMDb (paid API for
+programmatic access; the free non-commercial dataset is a bulk TSV dump
+with no popularity metric at all, just a redundant rating).
+
+**Current data sources**, confirmed against the code:
+
+| Field | Source | Notes |
+|---|---|---|
+| Title, Year, Path, SizeBytes, AddedAt, Tags | Radarr / Sonarr | base inventory, always synchronous |
+| TMDBID, IMDBID | Radarr | passthrough from Radarr's own TMDB match |
+| TVDBID, IMDBID | Sonarr | passthrough from Sonarr's own TVDB match |
+| Rating, VoteCount | Radarr | already has its own fallback: TMDB rating, falling back to IMDb rating if TMDB's is zero (`internal/integrations/radarr/client.go:121-123`) |
+| Rating, VoteCount | Sonarr | TVDB rating only, no fallback chain |
+| Season.LastAiredAt | Sonarr | per-episode `airDateUtc` (0.3.4) — unrelated to this, no change needed |
+| Views, UniqueViewers, LastWatched, Favorite | Jellyfin (enrichment) | `mergeJellyfinFacts` / `preserveJellyfinFacts` / `clearJellyfinFacts` in `internal/inventory/service.go` |
+| Requested, RequestedAt | Seerr (enrichment) | same three-function shape, `*SeerrFacts` |
+
+**Proposed TMDB slot-in**: a fourth enrichment source, following the exact
+`merge*Facts` / `preserve*Facts` / `clear*Facts` shape Jellyfin/Seerr
+already use — an async, independently-scheduled pass that never blocks or
+gates the base Radarr/Sonarr refresh. The one real difference from
+Jellyfin/Seerr: Rating/VoteCount already have a fallback value to revert
+to (Radarr/Sonarr's own), so TMDB's numbers must not overwrite `Rating`/
+`VoteCount` in place — they get their own fields instead:
+
+| New field | Populated by | When absent |
+|---|---|---|
+| `TMDBRating`, `TMDBVoteCount` | TMDB enrichment | valuation reads `Rating`/`VoteCount` (Radarr/Sonarr's own) instead — never a total loss of signal, even if TMDB is down, unconfigured, or has no match for a title |
+| `Popularity` | TMDB enrichment only | no fallback exists anywhere; absent means "unknown," the same treatment `VoteCount == 0` already gets in `applyMedia` today — never treated as "unpopular" |
+
+Net effect: TMDB's rating/vote data, when present, is what the valuation
+formula reads; Radarr/Sonarr's own values stay untouched underneath as the
+fallback. `clearTMDBFacts` (TMDB unconfigured/removed) just means
+valuation falls back to what it already had, not that it loses the signal.
+
 ## Product direction
 
 Connarr should become the missing coordination layer in a modular media stack:
