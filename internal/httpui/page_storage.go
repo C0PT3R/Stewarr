@@ -6,11 +6,21 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+
+	"connarr/internal/config"
 )
 
 type storageData struct {
 	Devices      []deviceView
 	ServiceRoots map[string][]string
+	// AutoRemovalDisabled hides the cleanup-candidate/plan section entirely
+	// when Removal.AutoMode is Disabled — a disabled setting means
+	// automatic removal (and the whole notion of "here's what we'd
+	// suggest removing") doesn't exist, not just that nothing gets
+	// submitted unattended. The bar/legend/usage numbers above it are
+	// unaffected: those describe real disk state, not a removal
+	// suggestion.
+	AutoRemovalDisabled bool
 }
 
 func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
@@ -23,9 +33,11 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	items = projection.filterMedia(items)
 	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
 	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
+	autoMode := server.inv.Config().Removal.AutoMode
 	data := storageData{
-		Devices:      server.deviceViews(items, ts, planningReliable),
-		ServiceRoots: server.inv.ServiceRootPaths(),
+		Devices:             server.deviceViews(items, ts, planningReliable),
+		ServiceRoots:        server.inv.ServiceRootPaths(),
+		AutoRemovalDisabled: autoMode != config.RemovalAutoConfirm && autoMode != config.RemovalAutoAuto,
 	}
 	if err := renderTemplate(w, server.storageTpl, data); err != nil {
 		log.Printf("[http] render storage: %v", err)
@@ -93,6 +105,30 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+type deviceSettingsData struct {
+	RepresentativePath   string
+	TargetUsagePercent   float64
+	CriticalUsagePercent float64
+}
+
+// deviceSettingsForm returns the per-device settings overlay fragment
+// (currently just Target/Critical %, the same fields the old inline form
+// on the Storage page collected) — the wrench icon on each device's card
+// opens this, so any future per-device setting has one obvious place to
+// join instead of the card growing a new inline field every time.
+func (server *Server) deviceSettingsForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	target, critical := server.inv.Config().ThresholdsFor(path)
+	data := deviceSettingsData{RepresentativePath: path, TargetUsagePercent: target, CriticalUsagePercent: critical}
+	if err := renderTemplate(w, server.deviceSettingsTpl, data); err != nil {
+		log.Printf("[http] render device-settings overlay: %v", err)
+	}
 }
 
 // setDeviceThreshold saves one storage device's reclamation thresholds,

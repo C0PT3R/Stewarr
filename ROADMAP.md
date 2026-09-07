@@ -737,6 +737,36 @@ and was removed.
   sources, not owners of anything `cleanup.Build` could ever propose for
   removal, so the checkbox was meaningless (and confusing) for them.
 
+### Disabled hides the Storage page's cleanup plan too, not just the background task (0.4.2)
+
+0.4.1's Disabled mode only stopped `runAutoRemovalEvaluation` — the
+Storage page's own "Cleanup active" summary and candidate/action list
+kept showing regardless, since that display has always been an
+independent code path that happens to call the same `cleanup.Build`.
+Disabled is meant to mean automatic removal doesn't exist at all, not
+merely that nothing gets submitted unattended, so the Storage page now
+hides that whole section (and its "Need to reclaim..."/action list)
+when Disabled, leaving removal purely manual — the raw usage bar,
+legend, and threshold markers are unaffected, since those describe real
+disk state rather than a removal suggestion.
+
+### Per-device settings moved into a wrench-icon overlay (0.4.3)
+
+Each device's Target/Critical % fields were an inline form directly in
+the Storage page card. Moved to a small wrench icon in the card's
+top-right corner (`internal/httpui/templates/device_settings.html`, new
+`GET /storage/device-settings?path=...`) that opens the same overlay
+mechanism the service add/edit modals already use, with Save/Cancel —
+still posting to the existing `/storage/device-threshold` endpoint
+unchanged. Deliberately not tied to any auto-removal feature: this is a
+general place for per-device settings to live, so a future one joins
+this same modal instead of the card growing another inline field. Also
+reworded the Disabled-mode note (0.4.2) from "nothing is suggested for
+removal here" to "Automatic removal is off. Enable it in Settings to
+see suggestions." — the old wording named where suggestions currently
+show up, which is exactly the kind of detail that shouldn't be baked
+into copy that's meant to outlive it.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

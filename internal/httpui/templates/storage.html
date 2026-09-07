@@ -15,22 +15,17 @@
     {{else}}
       {{range $device := .Devices}}
       <section class="card">
-        <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
+        <div class="card-head">
+          <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
+          <button type="button" class="card-link" data-overlay-url="/storage/device-settings?path={{urlquery .Storage.RepresentativePath}}" aria-label="Device settings" title="Device settings">🔧</button>
+        </div>
         {{if .Storage.Available}}
         <!-- Patched live every few seconds straight from /storage/stats (see
              shell.ts refreshStorageStats) — deliberately not part of the
              reactive fragment below. A raw disk-byte tick has nothing to do
              with which items would actually be removed and must never force
-             that comparatively expensive plan to be recomputed, and this
-             form must never be swapped out from under someone mid-edit. -->
+             that comparatively expensive plan to be recomputed. -->
         <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</p>
-        <form class="device-threshold-form" data-background-submit method="post" action="/storage/device-threshold">
-          <input type="hidden" name="representative_path" value="{{.Storage.RepresentativePath}}">
-          <label>Target %<input name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.TargetUsagePercent}}"></label>
-          <label>Critical %<input name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.CriticalUsagePercent}}"></label>
-          <button type="submit">Save thresholds</button>
-          <span data-modal-error hidden class="bad"></span>
-        </form>
         {{end}}
         <div id="storage-live-{{elementID .Storage.RepresentativePath}}" data-reactive-fragment data-live-policy="immediate">
           {{if .Storage.Available}}
@@ -55,7 +50,9 @@
               {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
               <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
             </ul>
-            {{if gt .Plan.NeedBytes 0}}
+            {{if $.AutoRemovalDisabled}}
+              <p class="muted">Automatic removal is off. Enable it in <a href="/settings">Settings</a> to see suggestions.</p>
+            {{else if gt .Plan.NeedBytes 0}}
               <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
               {{if .Plan.Actions}}
               {{$torrentActions := torrentCleanupActions .Plan.Actions}}

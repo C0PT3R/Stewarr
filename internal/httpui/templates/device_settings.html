@@ -1,0 +1,24 @@
+<div class="modal-overlay">
+  <main class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="device-settings-title" tabindex="-1">
+    <div class="top">
+      <div>
+        <h2 id="device-settings-title">Device settings</h2>
+        <div class="muted mono">{{.RepresentativePath}}</div>
+      </div>
+    </div>
+    <div class="modal-scroll">
+      <form data-background-submit method="post" action="/storage/device-threshold">
+        <input type="hidden" name="representative_path" value="{{.RepresentativePath}}">
+        <div class="field-stack">
+          <label for="device-settings-target">Target %<input id="device-settings-target" name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .TargetUsagePercent}}"></label>
+          <label for="device-settings-critical">Critical %<input id="device-settings-critical" name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .CriticalUsagePercent}}"></label>
+        </div>
+        <p data-modal-error hidden class="bad"></p>
+        <div class="actions">
+          <button type="button" data-overlay-cancel>Cancel</button>
+          <button type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>

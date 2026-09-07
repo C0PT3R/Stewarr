@@ -138,6 +138,49 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 	}
 }
 
+// TestStorageTemplateHidesCleanupPlanWhenAutoRemovalDisabled guards the
+// real fix: Removal.AutoMode Disabled must mean the whole notion of "here's
+// what we'd suggest removing" doesn't exist on the Storage page, not just
+// that nothing gets submitted unattended by the background task (a
+// separate, already-independent gate). The bar/legend/usage numbers are
+// unaffected — only the Cleanup active/inactive section and its action
+// list disappear.
+func TestStorageTemplateHidesCleanupPlanWhenAutoRemovalDisabled(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := storageData{
+		AutoRemovalDisabled: true,
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Plan: cleanup.Plan{
+					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
+					Actions: []cleanup.Action{
+						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
+					},
+				},
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "Cleanup active") || strings.Contains(body, "Lonely Movie") || strings.Contains(body, "action(s) selected") {
+		t.Fatalf("expected no cleanup plan/actions when automatic removal is disabled, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Automatic removal is off") {
+		t.Fatalf("expected an explanatory note when automatic removal is disabled, got:\n%s", body)
+	}
+	// The bar/usage numbers are a different concern and must still render.
+	if !strings.Contains(body, "storage-bar") || !strings.Contains(body, "900.0 B used") {
+		t.Fatalf("expected the usage bar/summary to still render regardless, got:\n%s", body)
+	}
+}
+
 func TestStorageTemplateRendersNoKnownDevices(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
@@ -187,6 +230,38 @@ func TestStorageStatsServesCheapJSONWithoutARemovalPlan(t *testing.T) {
 	handler.ServeHTTP(postRecorder, httptest.NewRequest(http.MethodPost, "/storage/stats", nil))
 	if postRecorder.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 for POST, got status=%d", postRecorder.Code)
+	}
+}
+
+// TestDeviceSettingsFormRendersCurrentThresholds guards the wrench-icon
+// overlay: it must pre-fill from the device's actual current thresholds
+// (via config.ThresholdsFor, the same source the inline form used to read
+// from), not just render blank fields.
+func TestDeviceSettingsFormRendersCurrentThresholds(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"storage":{"device_thresholds":{"/data/movies":{"target_usage_percent":70,"critical_usage_percent":85}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inventory.New(cfg, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/storage/device-settings?path=/data/movies", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{"/data/movies", `value="70"`, `value="85"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected device-settings overlay to contain %q, got:\n%s", want, body)
+		}
 	}
 }
 
