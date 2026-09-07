@@ -30,6 +30,71 @@ func TestLowestValueComesFirst(t *testing.T) {
 		t.Fatalf("unexpected order: %s, %s, %s", items[0].Title, items[1].Title, items[2].Title)
 	}
 }
+
+// TestTMDBRatingTakesPrecedenceOverRadarrSonarrOwnRating guards the
+// override rule: once TMDB enrichment has a match (TMDBVoteCount>0), its
+// rating/vote numbers are what gets scored, not Radarr/Sonarr's own.
+func TestTMDBRatingTakesPrecedenceOverRadarrSonarrOwnRating(t *testing.T) {
+	c := testConfig()
+	items := []model.Media{{Title: "Enriched", Rating: 1.0, VoteCount: 5, TMDBRating: 9.0, TMDBVoteCount: 500}}
+	ApplyMedia(items, c)
+	foundRating := false
+	for _, reason := range items[0].RetentionValueReasons {
+		if reason.Label == "Rating" {
+			foundRating = true
+			if reason.Value != "9.0/10" {
+				t.Fatalf("expected the TMDB rating to be scored, got %q", reason.Value)
+			}
+		}
+	}
+	if !foundRating {
+		t.Fatal("expected a Rating reason")
+	}
+}
+
+// TestEffectiveRatingFallsBackWithoutTMDBEnrichment guards the other half
+// of the same rule: an item TMDB has never enriched (TMDBVoteCount==0)
+// must keep using Radarr/Sonarr's own Rating/VoteCount — TMDB being
+// unconfigured, unreachable, or unmatched must never remove the signal
+// Radarr/Sonarr already provided.
+func TestEffectiveRatingFallsBackWithoutTMDBEnrichment(t *testing.T) {
+	rating, votes := effectiveRating(model.Media{Rating: 6.5, VoteCount: 300})
+	if rating != 6.5 || votes != 300 {
+		t.Fatalf("expected the Radarr/Sonarr rating to be used, got rating=%v votes=%v", rating, votes)
+	}
+}
+
+// TestPopularityHasNoFallbackAndIsUnknownRatherThanZeroWhenAbsent guards
+// Popularity's distinct treatment from Rating: it has no source to fall
+// back to (Radarr/Sonarr don't supply an equivalent), so an unenriched
+// item simply contributes nothing from it rather than being scored as
+// "unpopular."
+func TestPopularityHasNoFallbackAndIsUnknownRatherThanZeroWhenAbsent(t *testing.T) {
+	c := testConfig()
+	c.Valuation.Weights.Popularity = 20
+	unenriched := []model.Media{{Title: "Unenriched"}}
+	ApplyMedia(unenriched, c)
+	for _, reason := range unenriched[0].RetentionValueReasons {
+		if reason.Label == "Popularity" {
+			t.Fatalf("expected no Popularity reason for an unenriched item, got %#v", reason)
+		}
+	}
+	enriched := []model.Media{{Title: "Enriched", Popularity: 500}}
+	ApplyMedia(enriched, c)
+	found := false
+	for _, reason := range enriched[0].RetentionValueReasons {
+		if reason.Label == "Popularity" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a Popularity reason once TMDB enrichment has a value")
+	}
+	if enriched[0].RetentionValue <= unenriched[0].RetentionValue {
+		t.Fatalf("expected the enriched, more popular item to score higher: enriched=%v unenriched=%v", enriched[0].RetentionValue, unenriched[0].RetentionValue)
+	}
+}
+
 func TestKeepTagCreatesAbsoluteProtection(t *testing.T) {
 	c := testConfig()
 	items := []model.Media{{Title: "Tagged", Rating: 1, Tags: []string{"keep"}}, {Title: "Ordinary", Rating: 9}}

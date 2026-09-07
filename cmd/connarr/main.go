@@ -29,7 +29,12 @@ const (
 	fileReconcileInterval      = 12 * time.Hour
 	jellyfinEnrichmentInterval = time.Hour
 	seerrEnrichmentInterval    = time.Hour
-	enrichmentRemovalCooldown  = 30 * time.Minute
+	// tmdbEnrichmentInterval is much longer than Jellyfin/Seerr's: rating,
+	// vote, and popularity data don't need to track library changes in
+	// real time the way playback/request facts do, and refreshing less
+	// often keeps steady-state API usage low regardless of library size.
+	tmdbEnrichmentInterval    = 24 * time.Hour
+	enrichmentRemovalCooldown = 30 * time.Minute
 )
 
 var legacyDatabasePaths = []string{
@@ -140,13 +145,30 @@ func main() {
 	}
 	taskManager, err := tasks.NewPersistent(db,
 		tasks.Definition{ID: "inventory", Name: "Base inventory", Description: "Refresh Radarr, Sonarr, qBittorrent and import provenance.", Interval: cfg.RefreshInterval, Preflight: retryable(inv.ValidateReconciliation), AttachCompatible: fullScanAttachCompatible, Runner: retryable(func(ctx context.Context) error {
+			var err error
 			if tasks.TriggeredOnlyBy(ctx, tasks.TriggerWorkflow) {
-				return inv.RefreshAfterMutation(ctx)
+				err = inv.RefreshAfterMutation(ctx)
+			} else {
+				err = inv.Refresh(ctx)
 			}
-			return inv.Refresh(ctx)
+			if err != nil {
+				return err
+			}
+			// Fire-and-forget: a newly imported movie or show gets its
+			// TMDB rating/popularity right away instead of waiting for
+			// RefreshTMDB's next scheduled daily pass. Failure here isn't
+			// fatal to the base refresh itself — the next base refresh's
+			// own trigger, or the next scheduled RefreshTMDB, will retry.
+			go func() {
+				if enrichErr := inv.EnrichNewTMDBItems(context.Background()); enrichErr != nil {
+					log.Printf("[tmdb] immediate enrichment of newly discovered media failed: %v", enrichErr)
+				}
+			}()
+			return nil
 		}), Advisory: inv.RefreshAdvisory, Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "jellyfin", Name: "Jellyfin enrichment", Description: "Refresh playback and favorite facts used by automatic planning.", Interval: jellyfinEnrichmentInterval, Preflight: retryable(inv.ValidateJellyfin), Runner: retryable(inv.RefreshJellyfin), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "seerr", Name: "Seerr enrichment", Description: "Refresh request facts used by automatic planning.", Interval: seerrEnrichmentInterval, Preflight: retryable(inv.ValidateSeerr), Runner: retryable(inv.RefreshSeerr), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
+		tasks.Definition{ID: "tmdb", Name: "TMDB enrichment", Description: "Refresh rating, vote, and popularity facts used by automatic planning.", Interval: tmdbEnrichmentInterval, Preflight: retryable(inv.ValidateTMDB), Runner: retryable(inv.RefreshTMDB), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "files", Name: "File reconciliation", Description: "Scan service storage and reconcile file ownership.", Interval: fileReconcileInterval, Preflight: retryable(inv.ValidateReconciliation), AttachCompatible: fullScanAttachCompatible, Runner: retryable(func(ctx context.Context) error {
 			if tasks.TriggeredOnlyBy(ctx, tasks.TriggerWorkflow) {
 				return inv.ReconcileFilesAfterMutation(ctx)

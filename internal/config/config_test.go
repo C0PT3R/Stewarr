@@ -152,6 +152,18 @@ func TestSetCredentialsRejectsEmptyUsernameAndShortPassword(t *testing.T) {
 	}
 }
 
+func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
+	var c Config
+	updated := SetTMDBAPIKey(c, "  a-real-key  ")
+	if updated.TMDB.APIKey != "a-real-key" {
+		t.Fatalf("expected the key to be trimmed, got %q", updated.TMDB.APIKey)
+	}
+	cleared := SetTMDBAPIKey(updated, "")
+	if cleared.TMDB.APIKey != "" {
+		t.Fatalf("expected an empty string to clear the key, got %q", cleared.TMDB.APIKey)
+	}
+}
+
 func TestRemovalDryRunDefaultsTrue(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -247,6 +259,43 @@ func TestExplicitZeroTorrentWeightsArePreserved(t *testing.T) {
 	}
 	if c.Valuation.TorrentWeights != (TorrentValueWeights{}) {
 		t.Fatalf("explicit zero torrent weights were replaced: %#v", c.Valuation.TorrentWeights)
+	}
+}
+
+// TestLoadDefaultsPopularityWeightForConfigWrittenBeforeItExisted guards
+// the fix for a real gap: Popularity is a newer weight than the rest of
+// Weights, so a config.json predating it has no value at all — which
+// would otherwise silently make TMDB's popularity signal count for
+// nothing even with TMDB fully enabled and fetching, until the user
+// happened to notice and add the key themselves. Mirrors how
+// TorrentWeights already gets a one-time default for the same reason.
+func TestLoadDefaultsPopularityWeightForConfigWrittenBeforeItExisted(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	body := `{"valuation":{"weights":{"rating":40}},"storage":{}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Valuation.Weights.Popularity == 0 {
+		t.Fatal("expected a nonzero default Popularity weight for a config.json that predates the key")
+	}
+}
+
+func TestExplicitZeroPopularityWeightIsPreserved(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.json")
+	body := `{"valuation":{"weights":{"popularity":0}},"storage":{}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Valuation.Weights.Popularity != 0 {
+		t.Fatalf("explicit zero popularity weight was replaced: %v", c.Valuation.Weights.Popularity)
 	}
 }
 

@@ -2914,6 +2914,11 @@ Copyright © 2023 Basecamp, LLC
         event.preventDefault();
         this.testServiceConnection(serviceTest);
       }
+      const tmdbTest = target.closest("[data-tmdb-test]");
+      if (tmdbTest) {
+        event.preventDefault();
+        this.testTMDBConnection(tmdbTest);
+      }
     }
     filterInput(event) {
       const target = event.target;
@@ -2932,6 +2937,10 @@ Copyright © 2023 Basecamp, LLC
         this.syncUnmanagedSelection();
         return;
       }
+      if (target.matches("[data-tmdb-toggle]")) {
+        this.syncTMDBFields(target);
+        return;
+      }
       const form = target.closest("form[data-auto-filter]");
       if (form) this.navigateList(this.formURL(form));
     }
@@ -2945,6 +2954,45 @@ Copyright © 2023 Basecamp, LLC
       for (const field of form.querySelectorAll("[data-service-field]")) {
         const types = (field.dataset.serviceField || "").split(/\s+/);
         field.hidden = !types.includes(type);
+      }
+    }
+    // Hides the API key field (and Test button) when TMDB enrichment is
+    // switched off, and clears the key's value so submitting the form in
+    // that state actually disables it server-side rather than resubmitting
+    // whatever was last saved — there is no separate on/off switch,
+    // clearing the key IS how it's disabled.
+    syncTMDBFields(toggle) {
+      const form = toggle.closest("form");
+      if (!form) return;
+      const enabled = toggle.checked;
+      for (const field of form.querySelectorAll("[data-tmdb-field]")) field.hidden = !enabled;
+      if (!enabled) {
+        const key = form.querySelector("#settings-tmdb-key");
+        if (key) key.value = "";
+      }
+    }
+    async testTMDBConnection(button) {
+      const form = button.closest("form");
+      if (!form) return;
+      const resultTarget = form.querySelector("[data-tmdb-test-result]");
+      const setResult = (text, className) => {
+        if (!resultTarget) return;
+        resultTarget.textContent = text;
+        resultTarget.className = className;
+      };
+      button.disabled = true;
+      const originalLabel = button.textContent;
+      button.textContent = "Testing\u2026";
+      setResult("", "");
+      try {
+        const response = await fetch("/settings/tmdb/test", { method: "POST", body: new FormData(form) });
+        if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+        setResult("Connection verified.", "positive");
+      } catch (error) {
+        setResult(error instanceof Error ? error.message : String(error), "bad");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
       }
     }
     async submit(event) {

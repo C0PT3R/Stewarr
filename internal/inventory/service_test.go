@@ -150,6 +150,114 @@ func TestPreserveSeerrFactsUntilFreshEnrichmentSucceeds(t *testing.T) {
 	}
 }
 
+func TestPreserveTMDBFacts(t *testing.T) {
+	previous := []model.Media{{Type: model.Movie, SourceID: 7, TMDBRating: 8.2, TMDBVoteCount: 500, Popularity: 42.5}}
+	fresh := []model.Media{{Type: model.Movie, SourceID: 7, Title: "Fresh title"}, {Type: model.Movie, SourceID: 8}}
+	preserveTMDBFacts(fresh, previous)
+	if fresh[0].TMDBRating != 8.2 || fresh[0].TMDBVoteCount != 500 || fresh[0].Popularity != 42.5 {
+		t.Fatalf("TMDB facts were not preserved: %+v", fresh[0])
+	}
+	if fresh[1].TMDBRating != 0 || fresh[1].Popularity != 0 {
+		t.Fatalf("unmatched media inherited TMDB facts: %+v", fresh[1])
+	}
+}
+
+// TestPreserveTMDBFactsBackfillsResolvedSeriesIDButNeverOverridesRadarrs
+// guards the one asymmetry between TMDBID and the other TMDB facts: a
+// series' resolved TMDBID (found via the one-time TVDB->TMDB lookup) must
+// survive an unrelated base refresh so that lookup is never repeated, but
+// a movie's freshly-fetched TMDBID from Radarr itself — always the
+// freshest truth — must never be overridden by a stale cached value.
+func TestPreserveTMDBFactsBackfillsResolvedSeriesIDButNeverOverridesRadarrs(t *testing.T) {
+	previous := []model.Media{
+		{Type: model.Series, SourceID: 8, TMDBID: 555},
+		{Type: model.Movie, SourceID: 7, TMDBID: 111},
+	}
+	fresh := []model.Media{
+		{Type: model.Series, SourceID: 8, TVDBID: 99}, // not yet resolved this cycle
+		{Type: model.Movie, SourceID: 7, TMDBID: 222}, // Radarr's own, freshly fetched
+	}
+	preserveTMDBFacts(fresh, previous)
+	if fresh[0].TMDBID != 555 {
+		t.Fatalf("expected the resolved series TMDBID to be backfilled, got %d", fresh[0].TMDBID)
+	}
+	if fresh[1].TMDBID != 222 {
+		t.Fatalf("expected Radarr's freshly-fetched TMDBID to win, got %d", fresh[1].TMDBID)
+	}
+}
+
+func TestFreshTMDBFactsReplaceRatherThanAccumulateCachedValues(t *testing.T) {
+	items := []model.Media{{Type: model.Movie, SourceID: 7, TMDBRating: 9.9, TMDBVoteCount: 999, Popularity: 999}}
+	fresh := cloneMedia(items)
+	clearTMDBFacts(fresh)
+	fresh[0].TMDBRating = 6.5
+	fresh[0].TMDBVoteCount = 40
+	fresh[0].Popularity = 12.3
+	mergeTMDBFacts(items, fresh)
+	if items[0].TMDBRating != 6.5 || items[0].TMDBVoteCount != 40 || items[0].Popularity != 12.3 {
+		t.Fatalf("fresh TMDB facts accumulated cached values: %+v", items[0])
+	}
+}
+
+func TestClearTMDBFactsAlsoResetsEnrichedAt(t *testing.T) {
+	items := []model.Media{{Type: model.Movie, SourceID: 7, TMDBRating: 9.9, TMDBEnrichedAt: time.Now()}}
+	clearTMDBFacts(items)
+	if !items[0].TMDBEnrichedAt.IsZero() {
+		t.Fatalf("expected TMDBEnrichedAt to be reset alongside the other facts: %+v", items[0])
+	}
+}
+
+// TestRefreshTMDBToleratesPerItemFailureWithoutErasingPriorData guards the
+// point of RefreshTMDB no longer clearing facts before re-fetching: TMDB
+// fetches one item at a time, so a per-item failure this cycle (the item
+// simply isn't touched by Apply, unlike a fully cleared-then-refetched
+// item) must leave its previous rating/popularity/timestamp exactly as
+// they were — not wipe them to zero for one missed fetch — while an item
+// that did refresh successfully still gets its new values.
+func TestRefreshTMDBToleratesPerItemFailureWithoutErasingPriorData(t *testing.T) {
+	previouslyGood := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	items := []model.Media{
+		{Type: model.Movie, SourceID: 1, TMDBRating: 7.5, TMDBVoteCount: 500, Popularity: 20, TMDBEnrichedAt: previouslyGood},
+		{Type: model.Movie, SourceID: 2, TMDBRating: 6.0, TMDBVoteCount: 100, Popularity: 5, TMDBEnrichedAt: previouslyGood},
+	}
+	// Simulates RefreshTMDB's "base" after Apply ran without clearing
+	// first: item 1's fetch failed this cycle (left untouched, exactly as
+	// cloneMedia carried it over); item 2's succeeded.
+	base := cloneMedia(items)
+	base[1].TMDBRating = 8.0
+	base[1].TMDBVoteCount = 900
+	base[1].Popularity = 55
+	base[1].TMDBEnrichedAt = time.Now()
+
+	mergeTMDBFacts(items, base)
+	if items[0].TMDBRating != 7.5 || items[0].Popularity != 20 || !items[0].TMDBEnrichedAt.Equal(previouslyGood) {
+		t.Fatalf("a failed per-item fetch must not erase prior good data: %+v", items[0])
+	}
+	if items[1].TMDBRating != 8.0 || items[1].Popularity != 55 || items[1].TMDBEnrichedAt.Equal(previouslyGood) {
+		t.Fatalf("a successful per-item fetch must still update: %+v", items[1])
+	}
+}
+
+// TestNeedsTMDBEnrichment guards the selection rule EnrichNewTMDBItems
+// uses to pick out newly discovered media for an immediate fetch instead
+// of waiting for RefreshTMDB's next scheduled pass: never-enriched items
+// with an external id are eligible; already-enriched items and items with
+// no TMDB/TVDB id to look up at all are not.
+func TestNeedsTMDBEnrichment(t *testing.T) {
+	if !needsTMDBEnrichment(model.Media{TMDBID: 42}) {
+		t.Fatal("a never-enriched movie with a TMDBID should need enrichment")
+	}
+	if !needsTMDBEnrichment(model.Media{TVDBID: 99}) {
+		t.Fatal("a never-enriched series with a TVDBID should need enrichment")
+	}
+	if needsTMDBEnrichment(model.Media{TMDBID: 42, TMDBEnrichedAt: time.Now()}) {
+		t.Fatal("an already-enriched item should not need enrichment again")
+	}
+	if needsTMDBEnrichment(model.Media{}) {
+		t.Fatal("an item with no external id at all has nothing to look up")
+	}
+}
+
 func TestEnrichmentFingerprintIgnoresStorageAndTorrentChanges(t *testing.T) {
 	a := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 42, SizeBytes: 100, Path: "/old/movie.mkv"}}
 	b := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 42, SizeBytes: 0, Path: "/new/location"}}

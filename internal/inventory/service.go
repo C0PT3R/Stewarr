@@ -8,6 +8,7 @@ import (
 	"connarr/internal/integrations/radarr"
 	"connarr/internal/integrations/seerr"
 	"connarr/internal/integrations/sonarr"
+	"connarr/internal/integrations/tmdb"
 	"connarr/internal/model"
 	"connarr/internal/store"
 	"connarr/internal/valuation"
@@ -35,6 +36,7 @@ type Reliability struct {
 	Inventory bool   `json:"inventory"`
 	Jellyfin  string `json:"jellyfin"`
 	Seerr     string `json:"seerr"`
+	TMDB      string `json:"tmdb"`
 	Valuation bool   `json:"valuation"`
 	FileModel string `json:"fileModel"`
 	Message   string `json:"message"`
@@ -95,6 +97,7 @@ type Service struct {
 	son   map[string]*sonarr.Client
 	jf    *jellyfin.Client
 	seerr *seerr.Client
+	tmdb  *tmdb.Client
 	qb    map[string]*qbittorrent.Client
 	db    *store.Store
 	// configPath is where a live config mutation (AddService) persists
@@ -118,7 +121,7 @@ func (service *Service) SetConfigPath(path string) {
 }
 
 func New(configuration config.Config, database *store.Store) *Service {
-	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), qb: buildQBittorrentClients(configuration)}
+	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), tmdb: tmdb.New(configuration.TMDB.APIKey), qb: buildQBittorrentClients(configuration)}
 	loadStarted := time.Now()
 	if database != nil {
 		if items, updated, err := database.LoadMedia(); err == nil {
@@ -127,7 +130,8 @@ func New(configuration config.Config, database *store.Store) *Service {
 				service.reliability.Inventory = true
 				service.reliability.Jellyfin = enrichmentInitialState(configuration.Jellyfin.URL != "")
 				service.reliability.Seerr = enrichmentInitialState(configuration.Seerr.URL != "")
-				service.reliability.Valuation = configuration.Jellyfin.URL == "" && configuration.Seerr.URL == ""
+				service.reliability.TMDB = enrichmentInitialState(configuration.TMDB.APIKey != "")
+				service.reliability.Valuation = configuration.Jellyfin.URL == "" && configuration.Seerr.URL == "" && configuration.TMDB.APIKey == ""
 				service.baseReadyOnce.Do(func() { close(service.baseReady) })
 			}
 		} else {
@@ -192,6 +196,9 @@ func New(configuration config.Config, database *store.Store) *Service {
 	}
 	if service.reliability.Seerr == "" {
 		service.reliability.Seerr = enrichmentInitialState(configuration.Seerr.URL != "")
+	}
+	if service.reliability.TMDB == "" {
+		service.reliability.TMDB = enrichmentInitialState(configuration.TMDB.APIKey != "")
 	}
 	if service.reliability.FileModel == "" {
 		service.reliability.FileModel = "pending"
@@ -270,6 +277,9 @@ func (service *Service) RefreshAdvisory() string {
 	if service.reliability.Seerr == "stale" {
 		parts = append(parts, "Seerr enrichment stale")
 	}
+	if service.reliability.TMDB == "stale" {
+		parts = append(parts, "TMDB enrichment stale")
+	}
 	return strings.Join(parts, "; ")
 }
 
@@ -289,6 +299,17 @@ func (service *Service) ValidateSeerr(ctx context.Context) error {
 	err := service.seerr.WithContext(ctx).Validate()
 	service.setStatus(serviceName(service.cfg, "seerr", "Seerr"), true, err == nil, err)
 	return err
+}
+
+// ValidateTMDB has no service-page status to report to (TMDB is not a
+// config.Service — see Config.TMDB), so unlike ValidateJellyfin/
+// ValidateSeerr it doesn't call setStatus; its result is only used as a
+// task Preflight check gating RefreshTMDB.
+func (service *Service) ValidateTMDB(ctx context.Context) error {
+	if service.cfg.TMDB.APIKey == "" {
+		return nil
+	}
+	return service.tmdb.WithContext(ctx).Validate()
 }
 
 func (service *Service) StageTimings() map[string]time.Duration {
@@ -703,6 +724,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	previousMedia, _, _ := service.Snapshot()
 	preserveJellyfinFacts(all, previousMedia)
 	preserveSeerrFacts(all, previousMedia)
+	preserveTMDBFacts(all, previousMedia)
 	baseTorrents := make([]model.Torrent, 0, len(torrentMap))
 	for _, t := range torrentMap {
 		baseTorrents = append(baseTorrents, t)
@@ -760,7 +782,8 @@ func (service *Service) Refresh(ctx context.Context) error {
 		service.hasEnrichmentFingerprint = true
 		service.reliability.Jellyfin = enrichmentInitialState(service.cfg.Jellyfin.URL != "")
 		service.reliability.Seerr = enrichmentInitialState(service.cfg.Seerr.URL != "")
-		service.reliability.Valuation = service.cfg.Jellyfin.URL == "" && service.cfg.Seerr.URL == ""
+		service.reliability.TMDB = enrichmentInitialState(service.cfg.TMDB.APIKey != "")
+		service.reliability.Valuation = service.cfg.Jellyfin.URL == "" && service.cfg.Seerr.URL == "" && service.cfg.TMDB.APIKey == ""
 		service.reliability.Message = "Media inventory changed; enrichment must complete before automatic removal planning."
 	}
 	publishGeneration := service.generation
@@ -852,7 +875,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		service.mu.Lock()
 		service.items = cloneMedia(all)
 		service.torrents = nil
-		service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr)
+		service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
 		if service.reliability.Valuation {
 			service.reliability.Message = "Media valuation is reliable."
 		}
@@ -1023,7 +1046,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	service.torrents = torrentList
 	service.updated = time.Now()
 	service.lastErr = nil
-	service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr)
+	service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
 	if service.reliability.Valuation {
 		service.reliability.Message = "Media valuation is reliable."
 	}
@@ -1079,11 +1102,11 @@ func (service *Service) RefreshJellyfin(ctx context.Context) error {
 	}
 	service.items = items
 	service.reliability.Jellyfin = "reliable"
-	service.reliability.Valuation = enrichmentReliable(service.reliability.Seerr)
+	service.reliability.Valuation = enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
 	if service.reliability.Valuation {
 		service.reliability.Message = "Media valuation is reliable."
 	} else {
-		service.reliability.Message = "Seerr enrichment is stale; automatic removal planning is paused."
+		service.reliability.Message = "Other enrichment is stale; automatic removal planning is paused."
 	}
 	service.setStatusLocked(serviceName(service.cfg, "jellyfin", "Jellyfin"), true, true, nil)
 	return nil
@@ -1137,13 +1160,139 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 	}
 	service.items = items
 	service.reliability.Seerr = "reliable"
-	service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin)
+	service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.TMDB)
 	if service.reliability.Valuation {
 		service.reliability.Message = "Media valuation is reliable."
 	} else {
-		service.reliability.Message = "Jellyfin enrichment is stale; automatic removal planning is paused."
+		service.reliability.Message = "Other enrichment is stale; automatic removal planning is paused."
 	}
 	service.setStatusLocked(serviceName(service.cfg, "seerr", "Seerr"), true, true, nil)
+	return nil
+}
+
+// RefreshTMDB updates TMDB's own rating/vote/popularity facts and follows
+// the same generation boundary as Jellyfin/Seerr enrichment. Unlike those
+// two, TMDB has no service-page status to report to (it isn't a
+// config.Service — see Config.TMDB), so it never calls setStatus.
+func (service *Service) RefreshTMDB(ctx context.Context) error {
+	defer service.publishChange()
+	if service.cfg.TMDB.APIKey == "" {
+		return nil
+	}
+	service.mu.Lock()
+	if !service.reliability.Inventory || service.generation == 0 {
+		service.mu.Unlock()
+		return fmt.Errorf("base inventory is not available")
+	}
+	base := cloneMedia(service.items)
+	generation := service.generation
+	service.reliability.TMDB = "pending"
+	service.reliability.Valuation = false
+	service.reliability.Message = "TMDB enrichment is running; automatic removal planning is paused."
+	service.mu.Unlock()
+	// Unlike Jellyfin/Seerr, TMDB fetches one item at a time — a transient
+	// per-item failure must not blank that item's data (base starts from
+	// the current live values, not cleared first), or a single flaky
+	// fetch would erase yesterday's good data immediately instead of
+	// leaving it in place until it's actually gone stale (see
+	// mediaTMDBDataStale in internal/httpui/auto_removal.go).
+	if err := service.tmdb.WithContext(ctx).Apply(base); err != nil {
+		service.mu.Lock()
+		service.reliability.TMDB = "stale"
+		service.reliability.Valuation = false
+		service.reliability.Message = "TMDB enrichment failed; automatic removal planning is paused."
+		service.mu.Unlock()
+		return err
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if generation != service.generation {
+		service.reliability.TMDB = "stale"
+		service.reliability.Valuation = false
+		service.reliability.Message = "TMDB enrichment no longer matches base inventory; automatic removal planning is paused."
+		return fmt.Errorf("inventory changed during TMDB enrichment; result discarded")
+	}
+	items := cloneMedia(service.items)
+	mergeTMDBFacts(items, base)
+	valuation.ApplyMedia(items, service.cfg)
+	if service.db != nil {
+		if err := service.db.PublishEnrichment("tmdb", generation, items); err != nil {
+			service.reliability.TMDB = "stale"
+			service.reliability.Valuation = false
+			return err
+		}
+	}
+	service.items = items
+	service.reliability.TMDB = "reliable"
+	service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr)
+	if service.reliability.Valuation {
+		service.reliability.Message = "Media valuation is reliable."
+	} else {
+		service.reliability.Message = "Other enrichment is stale; automatic removal planning is paused."
+	}
+	return nil
+}
+
+// needsTMDBEnrichment reports whether a media item has never been
+// successfully enriched by TMDB yet, but has an external id TMDB could use
+// to try — see EnrichNewTMDBItems.
+func needsTMDBEnrichment(m model.Media) bool {
+	return m.TMDBEnrichedAt.IsZero() && (m.TMDBID != 0 || m.TVDBID != 0)
+}
+
+// EnrichNewTMDBItems immediately fetches TMDB facts for media items that
+// have never been enriched yet, rather than leaving them to wait for
+// RefreshTMDB's next scheduled daily pass — a newly imported movie or show
+// gets its rating/popularity right away instead of sitting unscored for
+// up to 24h. Meant to be triggered right after a base (Radarr/Sonarr)
+// refresh discovers new media (see cmd/connarr/main.go); a no-op, cheap
+// call when there's nothing new to enrich.
+//
+// Unlike RefreshTMDB this never touches Reliability.TMDB or requires a
+// generation match against the *whole* snapshot — it's a best-effort
+// catch-up for specific new items, not the authoritative full-library
+// refresh, so a base refresh racing ahead of it just means the newly
+// stale-generation items are picked up again next time (by this trigger
+// or by the next scheduled RefreshTMDB, whichever comes first).
+func (service *Service) EnrichNewTMDBItems(ctx context.Context) error {
+	if service.cfg.TMDB.APIKey == "" {
+		return nil
+	}
+	service.mu.RLock()
+	base := cloneMedia(service.items)
+	generation := service.generation
+	service.mu.RUnlock()
+
+	var pending []model.Media
+	for _, m := range base {
+		if needsTMDBEnrichment(m) {
+			pending = append(pending, m)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	if err := service.tmdb.WithContext(ctx).Apply(pending); err != nil {
+		return err
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if generation != service.generation {
+		// Base inventory moved on while this ran; the next base refresh's
+		// own trigger (or the next scheduled RefreshTMDB) will catch
+		// whatever's still unenriched instead of publishing against a
+		// snapshot that's no longer current.
+		return nil
+	}
+	items := cloneMedia(service.items)
+	mergeTMDBFacts(items, pending)
+	valuation.ApplyMedia(items, service.cfg)
+	if service.db != nil {
+		if err := service.db.PublishEnrichment("tmdb", generation, items); err != nil {
+			return err
+		}
+	}
+	service.items = items
 	return nil
 }
 
@@ -1605,6 +1754,70 @@ func clearSeerrFacts(items []model.Media) {
 	for i := range items {
 		items[i].Requested = false
 		items[i].RequestedAt = nil
+	}
+}
+
+// preserveTMDBFacts carries forward TMDB-sourced facts across a base
+// (Radarr/Sonarr) refresh that has nothing to do with TMDB, the same as
+// preserveJellyfinFacts/preserveSeerrFacts. It also backfills a resolved
+// series TMDBID (see tmdb.Client.Apply) so that one-time /find lookup is
+// never repeated — but only when the base refresh didn't already supply
+// one, since Radarr's own TMDBID for a movie is always the freshest truth
+// and must never be overridden by a stale cached value.
+func preserveTMDBFacts(dst, previous []model.Media) {
+	byKey := make(map[string]model.Media, len(previous))
+	for _, m := range previous {
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = m
+	}
+	for i := range dst {
+		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
+			dst[i].TMDBRating = old.TMDBRating
+			dst[i].TMDBVoteCount = old.TMDBVoteCount
+			dst[i].Popularity = old.Popularity
+			dst[i].TMDBEnrichedAt = old.TMDBEnrichedAt
+			if dst[i].TMDBID == 0 {
+				dst[i].TMDBID = old.TMDBID
+			}
+		}
+	}
+}
+
+func mergeTMDBFacts(dst, enriched []model.Media) {
+	byKey := make(map[string]model.Media, len(enriched))
+	for _, m := range enriched {
+		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = m
+	}
+	for i := range dst {
+		if source, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
+			dst[i].TMDBRating = source.TMDBRating
+			dst[i].TMDBVoteCount = source.TMDBVoteCount
+			dst[i].Popularity = source.Popularity
+			dst[i].TMDBEnrichedAt = source.TMDBEnrichedAt
+			if source.TMDBID != 0 {
+				dst[i].TMDBID = source.TMDBID
+			}
+		}
+	}
+}
+
+// clearTMDBFacts resets the enrichment-only facts (rating/votes/popularity
+// have a fallback — see model.Media — so "cleared" means valuation falls
+// back to Radarr/Sonarr's own Rating/VoteCount, not that the signal
+// vanishes) and the per-item staleness timestamp. Used only when TMDB
+// enrichment is explicitly turned off (SetTMDBAPIKey with an empty key) —
+// a deliberate opt-out should stop influencing valuation immediately
+// rather than leaving last-known values to linger indefinitely. A
+// transient per-item fetch failure during a normal refresh is a different
+// case entirely and must not call this — see RefreshTMDB. A resolved
+// series TMDBID is deliberately left alone even here: it's just cached
+// plumbing, not a valuation input, and re-resolving it would waste an API
+// call for no benefit if TMDB is reconfigured later.
+func clearTMDBFacts(items []model.Media) {
+	for i := range items {
+		items[i].TMDBRating = 0
+		items[i].TMDBVoteCount = 0
+		items[i].Popularity = 0
+		items[i].TMDBEnrichedAt = time.Time{}
 	}
 }
 

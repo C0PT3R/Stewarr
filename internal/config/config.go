@@ -21,6 +21,11 @@ type ValueWeights struct {
 	LowPopularity   float64 `json:"low_popularity"`
 	OldRequest      float64 `json:"old_request"`
 	TorrentActivity float64 `json:"torrent_activity"`
+	// Popularity scores TMDB's own popularity metric (Media.Popularity) —
+	// zero unless TMDB enrichment is configured and has a match for this
+	// item, distinct from LowPopularity (which scores raw vote count, a
+	// weaker proxy Radarr/Sonarr already provide without TMDB).
+	Popularity float64 `json:"popularity"`
 	// SeasonRecency scores a Series season by how recently its episodes were
 	// added, independent of LibraryAge (which describes the whole series).
 	SeasonRecency float64 `json:"season_recency"`
@@ -233,6 +238,13 @@ type Config struct {
 	} `json:"protection"`
 	Valuation ValuationConfig `json:"valuation"`
 	Removal   RemovalConfig   `json:"removal"`
+	// TMDB is configured directly, unlike Radarr/Sonarr/Jellyfin/Seerr: it
+	// isn't self-hosted, has no URL, and there is only ever one instance —
+	// so it lives here as a standalone field (set from the Settings page)
+	// rather than as a config.Service.
+	TMDB struct {
+		APIKey string `json:"api_key,omitempty"`
+	} `json:"tmdb"`
 	// Auth holds the single admin account's credentials. An empty Username
 	// means no account has been created yet — the app's first-run setup
 	// screen is the only route reachable until SetCredentials is called.
@@ -283,6 +295,15 @@ func (configuration Config) VerifyPassword(password string) bool {
 type Connection struct {
 	URL    string `json:"url"`
 	APIKey string `json:"api_key"`
+}
+
+// SetTMDBAPIKey idempotently sets (or clears, with an empty string) the
+// TMDB enrichment API key. Clearing it is a deliberate, supported way to
+// disable TMDB enrichment entirely — there is no separate on/off switch.
+func SetTMDBAPIKey(configuration Config, apiKey string) Config {
+	updated := configuration
+	updated.TMDB.APIKey = strings.TrimSpace(apiKey)
+	return updated
 }
 
 // DeviceThreshold is one storage device's reclamation targets. Values
@@ -361,6 +382,9 @@ func Load(path string) (Config, error) {
 	var present struct {
 		Valuation struct {
 			TorrentWeights *json.RawMessage `json:"torrent_weights"`
+			Weights        struct {
+				Popularity *json.RawMessage `json:"popularity"`
+			} `json:"weights"`
 		} `json:"valuation"`
 	}
 	_ = json.Unmarshal(fileContents, &present)
@@ -424,6 +448,14 @@ func Load(path string) (Config, error) {
 		configuration.Valuation.TorrentWeights.Seeds = 1
 		configuration.Valuation.TorrentWeights.Leechers = 5
 		configuration.Valuation.TorrentWeights.UploadRate = 5
+	}
+	// Popularity is a newer weight than the rest of Weights; a config.json
+	// written before it existed has no value for it at all, which would
+	// otherwise silently make TMDB's popularity signal count for nothing —
+	// even with TMDB fully enabled and fetching — until the user happened
+	// to add the key themselves.
+	if present.Valuation.Weights.Popularity == nil {
+		configuration.Valuation.Weights.Popularity = 15
 	}
 	if assignedFreshID {
 		if err := Save(path, configuration); err != nil {

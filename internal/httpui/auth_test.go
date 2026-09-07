@@ -236,6 +236,44 @@ func TestChangePasswordRejectsWrongCurrentPassword(t *testing.T) {
 	}
 }
 
+// TestSetTMDBAPIKeySavesAndClears guards the Settings-page path for TMDB
+// enrichment: saving a key persists it (and reports it enabled), and
+// saving an empty value clears it again (and reports it disabled) — there
+// is no separate on/off switch.
+func TestSetTMDBAPIKeySavesAndClears(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+	session := sessionCookieFrom(setupResponse)
+
+	saved := postForm(t, handler, "/settings/tmdb", url.Values{"tmdb_api_key": {"a-real-key"}}, session)
+	if saved.Code != http.StatusOK || !strings.Contains(saved.Body.String(), "TMDB enrichment enabled") {
+		t.Fatalf("status=%d body=%q", saved.Code, saved.Body.String())
+	}
+	if !strings.Contains(saved.Body.String(), "a-real-key") {
+		t.Fatalf("expected the saved key to be reflected back in the form: %q", saved.Body.String())
+	}
+
+	cleared := postForm(t, handler, "/settings/tmdb", url.Values{"tmdb_api_key": {""}}, session)
+	if cleared.Code != http.StatusOK || !strings.Contains(cleared.Body.String(), "TMDB enrichment disabled") {
+		t.Fatalf("status=%d body=%q", cleared.Code, cleared.Body.String())
+	}
+}
+
+// TestTestTMDBAPIKeyRequiresAKey guards the one deterministic, network-free
+// case of the "test before you save" endpoint: an empty key is rejected
+// before ever reaching TMDB. A real key's validity can only be checked
+// against the live TMDB API, so that path isn't covered by a unit test.
+func TestTestTMDBAPIKeyRequiresAKey(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+	session := sessionCookieFrom(setupResponse)
+
+	response := postForm(t, handler, "/settings/tmdb/test", url.Values{"tmdb_api_key": {""}}, session)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 // TestLoginLockoutAfterRepeatedFailures guards the escalating lockout added
 // on top of bcrypt's own per-attempt cost: past a small threshold of failed
 // attempts, a request is rejected before it ever reaches VerifyPassword —

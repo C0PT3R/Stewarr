@@ -237,6 +237,30 @@ type Media struct {
 	Requested   bool       `json:"requested"`
 	RequestedAt *time.Time `json:"requestedAt,omitempty"`
 
+	// TMDBRating/TMDBVoteCount are TMDB's own rating data, populated by TMDB
+	// enrichment when configured. They are deliberately separate from
+	// Rating/VoteCount (Radarr/Sonarr's own numbers) rather than overwriting
+	// them in place: valuation prefers these when present (TMDBVoteCount>0)
+	// and falls back to Rating/VoteCount otherwise, so an unenriched item —
+	// TMDB unconfigured, unreachable, or no match for this title — never
+	// loses its existing rating signal.
+	TMDBRating    float64 `json:"tmdbRating,omitempty"`
+	TMDBVoteCount int     `json:"tmdbVoteCount,omitempty"`
+	// Popularity is TMDB's own popularity score. It has no fallback source
+	// anywhere — zero means "not yet enriched," not "unpopular," the same
+	// treatment VoteCount==0 already gets.
+	Popularity float64 `json:"popularity,omitempty"`
+	// TMDBEnrichedAt is when TMDBRating/TMDBVoteCount/Popularity were last
+	// successfully fetched for this specific item — TMDB enrichment fetches
+	// one item at a time, so unlike Jellyfin/Seerr's all-or-nothing passes,
+	// one item's fetch can fail while its neighbors succeed. Zero means
+	// never successfully enriched. This does not gate whether valuation
+	// uses the data (a transient failure preserves the last known values
+	// rather than blanking them); it only lets auto-removal specifically
+	// exclude an item whose data has gone stale — see cmd/connarr/main.go
+	// and internal/httpui/auto_removal.go.
+	TMDBEnrichedAt time.Time `json:"tmdbEnrichedAt,omitempty"`
+
 	DownloadIDs []string  `json:"downloadIds,omitempty"`
 	Torrents    []Torrent `json:"torrents,omitempty"`
 

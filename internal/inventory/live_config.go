@@ -10,6 +10,8 @@ import (
 	"connarr/internal/integrations/radarr"
 	"connarr/internal/integrations/seerr"
 	"connarr/internal/integrations/sonarr"
+	"connarr/internal/integrations/tmdb"
+	"connarr/internal/valuation"
 )
 
 // AddService is the first slice of live config editing: validate a new
@@ -194,6 +196,52 @@ func (service *Service) SetDeviceThreshold(representativePath string, target, cr
 
 	service.mu.Lock()
 	service.cfg = updatedCfg
+	service.mu.Unlock()
+	return nil
+}
+
+// SetTMDBAPIKey idempotently persists the TMDB enrichment API key (an
+// empty string disables it). Like SetCredentials/SetDeviceThreshold this
+// isn't a config.Service concept — TMDB has no URL and only ever one
+// instance — so it lives here directly rather than going through
+// AddService/EditService. No connection check runs before persisting;
+// RefreshTMDB's own Preflight (ValidateTMDB) catches a bad key on its next
+// scheduled run instead.
+func (service *Service) SetTMDBAPIKey(apiKey string) error {
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	if service.configPath == "" {
+		return fmt.Errorf("live config editing is unavailable: no config file path is set")
+	}
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	updatedCfg := config.SetTMDBAPIKey(currentCfg, apiKey)
+
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
+
+	service.mu.Lock()
+	service.cfg = updatedCfg
+	service.tmdb = tmdb.New(updatedCfg.TMDB.APIKey)
+	// Turning TMDB off is a deliberate opt-out: stop influencing valuation
+	// immediately rather than leaving last-known rating/popularity values
+	// to linger until something else happens to overwrite them.
+	if updatedCfg.TMDB.APIKey == "" && service.generation > 0 {
+		items := cloneMedia(service.items)
+		clearTMDBFacts(items)
+		valuation.ApplyMedia(items, service.cfg)
+		if service.db != nil {
+			_ = service.db.PublishEnrichment("tmdb", service.generation, items)
+		}
+		service.items = items
+		service.reliability.TMDB = "not configured"
+		service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
+	}
 	service.mu.Unlock()
 	return nil
 }

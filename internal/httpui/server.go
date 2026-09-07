@@ -231,6 +231,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/logout", server.logout)
 	mux.HandleFunc("/settings", server.settingsPage)
 	mux.HandleFunc("/settings/password", server.changePassword)
+	mux.HandleFunc("/settings/tmdb", server.setTMDBAPIKey)
+	mux.HandleFunc("/settings/tmdb/test", server.testTMDBAPIKey)
 	return server.authGate(sameOriginWrites(mux))
 }
 

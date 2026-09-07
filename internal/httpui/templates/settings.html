@@ -22,5 +22,21 @@
         <button type="submit">Update password</button>
       </form>
     </div>
+    <div class="card" style="max-width:420px">
+      <h2>TMDB enrichment</h2>
+      {{if .TMDBError}}<p class="bad">{{.TMDBError}}</p>{{end}}
+      {{if .TMDBSuccess}}<p class="positive">{{if .TMDBEnabled}}TMDB enrichment enabled.{{else}}TMDB enrichment disabled.{{end}}</p>{{end}}
+      <form method="post" action="/settings/tmdb">
+        <div class="field-stack">
+          <label class="toggle"><input type="checkbox" data-tmdb-toggle {{if .TMDBEnabled}}checked{{end}}> Use TMDB enrichment<br><span class="muted">Adds popularity and trending to the media value.</span></label>
+          <label for="settings-tmdb-key" data-tmdb-field {{if not .TMDBEnabled}}hidden{{end}}>API key<input id="settings-tmdb-key" name="tmdb_api_key" type="password" autocomplete="off" value="{{.TMDBAPIKey}}"></label>
+        </div>
+        <div class="actions">
+          <button type="button" data-tmdb-test data-tmdb-field {{if not .TMDBEnabled}}hidden{{end}}>Test</button>
+          <button type="submit">Save</button>
+          <span data-tmdb-test-result></span>
+        </div>
+      </form>
+    </div>
   </body>
 </html>

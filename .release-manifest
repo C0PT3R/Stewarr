@@ -32,6 +32,7 @@ internal/httpui/page_history.go
 internal/httpui/page_home.go
 internal/httpui/page_library.go
 internal/httpui/page_services.go
+internal/httpui/page_settings.go
 internal/httpui/page_storage.go
 internal/httpui/page_tasks.go
 internal/httpui/page_torrents.go
@@ -97,6 +98,8 @@ internal/integrations/seerr/client_test.go
 internal/integrations/sonarr/client.go
 internal/integrations/sonarr/client_test.go
 internal/integrations/sonarr/history.go
+internal/integrations/tmdb/client.go
+internal/integrations/tmdb/client_test.go
 internal/inventory/live_config.go
 internal/inventory/live_config_test.go
 internal/inventory/reconcile.go

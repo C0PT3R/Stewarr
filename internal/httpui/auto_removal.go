@@ -20,6 +20,17 @@ import (
 const autoRemovalTaskID = "auto-removal"
 const autoRemovalEvalInterval = 15 * time.Minute
 
+// tmdbStalenessThreshold mirrors "2 refresh cycles" of TMDB enrichment
+// (cmd/connarr/main.go's tmdbEnrichmentInterval, currently 24h) — kept as
+// its own constant here since internal/httpui cannot import cmd/connarr.
+// An item whose TMDB data is older than this (or was never fetched at
+// all) is excluded from automatic removal specifically — it's still
+// shown and scored normally everywhere else (see model.Media.
+// TMDBEnrichedAt) — since a temporary gap in TMDB reachability shouldn't
+// let an unattended removal decision rely on data that might no longer
+// reflect reality.
+const tmdbStalenessThreshold = 2 * 24 * time.Hour
+
 // runAutoRemovalEvaluation evaluates every known storage device's
 // cross-domain Cleanup plan and submits removal requests for every Action
 // whose services have all opted in. It is a no-op unless the global
@@ -49,6 +60,7 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	for _, service := range cfg.Services {
 		serviceByID[service.ID] = service
 	}
+	tmdbConfigured := cfg.TMDB.APIKey != ""
 	for _, device := range server.inv.StorageDevices() {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
 		plan, err := cleanup.Build(device.RepresentativePath, target, critical, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable)
@@ -57,6 +69,9 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 		}
 		for _, action := range plan.Actions {
 			if actionIsUnassociatedTorrent(action) && !cfg.Removal.AutoRemoveUnassociatedTorrents {
+				continue
+			}
+			if mediaTMDBDataStale(action, tmdbConfigured) {
 				continue
 			}
 			if !actionServicesOptedIn(action, serviceByID) {
@@ -88,6 +103,21 @@ func actionIsUnassociatedTorrent(action cleanup.Action) bool {
 		return false
 	}
 	return model.NormalizeTorrentStatus(action.Torrents[0].AssociationStatus) == model.TorrentUnassociated
+}
+
+// mediaTMDBDataStale reports whether action's media has gone too long
+// without a successful TMDB enrichment to trust it for an automatic
+// (unattended) removal decision — see tmdbStalenessThreshold. It's
+// meaningless, and always false, for a StandaloneTorrent action (no Media
+// at all) or when TMDB enrichment isn't configured (there's nothing to be
+// stale relative to, and every item would otherwise be wrongly excluded
+// forever for users who never opted into TMDB at all).
+func mediaTMDBDataStale(action cleanup.Action, tmdbConfigured bool) bool {
+	if !tmdbConfigured || action.Kind == cleanup.StandaloneTorrent {
+		return false
+	}
+	enrichedAt := action.Media.TMDBEnrichedAt
+	return enrichedAt.IsZero() || time.Since(enrichedAt) > tmdbStalenessThreshold
 }
 
 // actionServicesOptedIn reports whether every service an Action

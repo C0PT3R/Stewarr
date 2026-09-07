@@ -48,6 +48,21 @@ func splitTags(tags string) []string {
 	return out
 }
 
+// effectiveRating returns the rating/vote data valuation should score:
+// TMDB's own numbers when TMDB enrichment has a match for this item
+// (TMDBVoteCount>0), otherwise Radarr/Sonarr's own Rating/VoteCount. An
+// item with genuinely zero TMDB votes wouldn't carry meaningful rating
+// data anyway, so falling back to Radarr/Sonarr's in that edge case is
+// harmless — the point is that TMDB being unconfigured, unreachable, or
+// having no match for this title never removes the signal Radarr/Sonarr
+// already provided.
+func effectiveRating(mediaItem model.Media) (rating float64, votes int) {
+	if mediaItem.TMDBVoteCount > 0 {
+		return mediaItem.TMDBRating, mediaItem.TMDBVoteCount
+	}
+	return mediaItem.Rating, mediaItem.VoteCount
+}
+
 // Apply assigns Retention Value to every media. Higher Retention Value
 // survives longer; cleanup ordering is lowest-value first. Retention Value is
 // intentionally unbounded.
@@ -88,10 +103,11 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 			value += points
 			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: label, Value: fmt.Sprintf("%.0f days ago", requestAge.Hours()/24), Points: points})
 		}
-		if mediaItem.Rating > 0 {
-			points := clamp(mediaItem.Rating/10, 0, 1) * configuration.Valuation.Weights.Rating
+		rating, voteCount := effectiveRating(*mediaItem)
+		if rating > 0 {
+			points := clamp(rating/10, 0, 1) * configuration.Valuation.Weights.Rating
 			value += points
-			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Rating", Value: fmt.Sprintf("%.1f/10", mediaItem.Rating), Points: points})
+			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Rating", Value: fmt.Sprintf("%.1f/10", rating), Points: points})
 		}
 		if mediaItem.Views == 0 {
 			value += configuration.Valuation.Weights.NeverWatched
@@ -106,10 +122,15 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 			value += points
 			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Library age", Value: fmt.Sprintf("%.0f days", daysSince(mediaItem.AddedAt)), Points: points})
 		}
-		if mediaItem.VoteCount > 0 {
-			points := clamp(math.Log10(float64(mediaItem.VoteCount)+1)/5, 0, 1) * configuration.Valuation.Weights.LowPopularity
+		if voteCount > 0 {
+			points := clamp(math.Log10(float64(voteCount)+1)/5, 0, 1) * configuration.Valuation.Weights.LowPopularity
 			value += points
-			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Popularity", Value: fmt.Sprintf("%d votes", mediaItem.VoteCount), Points: points})
+			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Vote count", Value: fmt.Sprintf("%d votes", voteCount), Points: points})
+		}
+		if mediaItem.Popularity > 0 {
+			points := clamp(math.Log10(mediaItem.Popularity+1)/3, 0, 1) * configuration.Valuation.Weights.Popularity
+			value += points
+			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Popularity", Value: fmt.Sprintf("%.1f", mediaItem.Popularity), Points: points, Note: "TMDB's own popularity score."})
 		}
 		// Everything above this point (protection, rating, watch state,
 		// popularity) describes the whole series and applies identically to
