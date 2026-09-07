@@ -8,7 +8,7 @@
 </head>
 <body data-controller="shell revisions">
   {{chrome "storage"}}
-  <main id="storage-content" data-reactive-fragment data-live-policy="immediate">
+  <main id="storage-content">
     <h1 class="page-title">Storage</h1>
     {{if not .Devices}}
       <p class="muted">No storage devices are known yet; file reconciliation has not completed.</p>
@@ -17,64 +17,74 @@
       <section class="card">
         <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
         {{if .Storage.Available}}
-          <div class="storage-bar">
-            {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
-            {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
-            {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
-            <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
-            <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
-            <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
-          </div>
-          <ul class="storage-legend">
-            {{range .Storage.Claimed}}
-            <li class="claim">
-              <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
-              {{with index $.ServiceRoots .Service}}
-              <ul class="service-roots">{{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}</ul>
+        <!-- Patched live every few seconds straight from /storage/stats (see
+             shell.ts refreshStorageStats) — deliberately not part of the
+             reactive fragment below. A raw disk-byte tick has nothing to do
+             with which items would actually be removed and must never force
+             that comparatively expensive plan to be recomputed, and this
+             form must never be swapped out from under someone mid-edit. -->
+        <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</p>
+        <form class="device-threshold-form" data-background-submit method="post" action="/storage/device-threshold">
+          <input type="hidden" name="representative_path" value="{{.Storage.RepresentativePath}}">
+          <label>Target %<input name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.TargetUsagePercent}}"></label>
+          <label>Critical %<input name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.CriticalUsagePercent}}"></label>
+          <button type="submit">Save thresholds</button>
+          <span data-modal-error hidden class="bad"></span>
+        </form>
+        {{end}}
+        <div id="storage-live-{{elementID .Storage.RepresentativePath}}" data-reactive-fragment data-live-policy="immediate">
+          {{if .Storage.Available}}
+            <div class="storage-bar">
+              {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
+              {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
+              {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
+              <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
+              <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
+              <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
+            </div>
+            <ul class="storage-legend">
+              {{range .Storage.Claimed}}
+              <li class="claim">
+                <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
+                {{with index $.ServiceRoots .Service}}
+                <ul class="service-roots">{{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}</ul>
+                {{end}}
+              </li>
               {{end}}
-            </li>
-            {{end}}
-            {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%</li>{{end}}
-            {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
-            <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
-          </ul>
-          <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</div>
-          <form class="device-threshold-form" data-background-submit method="post" action="/storage/device-threshold">
-            <input type="hidden" name="representative_path" value="{{.Storage.RepresentativePath}}">
-            <label>Target %<input name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.TargetUsagePercent}}"></label>
-            <label>Critical %<input name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .Plan.CriticalUsagePercent}}"></label>
-            <button type="submit">Save thresholds</button>
-            <span data-modal-error hidden class="bad"></span>
-          </form>
-          {{if gt .Plan.NeedBytes 0}}
-            <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
-            {{if .Plan.Actions}}
-            {{$torrentActions := torrentCleanupActions .Plan.Actions}}
-            {{$mediaActions := mediaCleanupActions .Plan.Actions}}
-            {{if $torrentActions}}
-            <div class="cleanup-group">
-              <h4>Torrents <span class="count">{{len $torrentActions}}</span></h4>
-              <ul class="cleanup-actions">
-                {{range $torrentActions}}<li><div class="row-title">{{(index .Torrents 0).Name}}</div><div class="row-meta">{{torrentActionContext (index .Torrents 0)}} · {{human .ReclaimableBytes}}</div></li>{{end}}
-              </ul>
-            </div>
-            {{end}}
-            {{if $mediaActions}}
-            <div class="cleanup-group">
-              <h4>Media <span class="count">{{len $mediaActions}}</span></h4>
-              <ul class="cleanup-actions">
-                {{range $mediaActions}}<li><div class="row-title">{{if eq .Kind "bundle"}}{{.Media.Title}}{{if .Season}} · Season {{.Season.Number}}{{end}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "season"}}{{.Media.Title}} · Season {{.Season.Number}}{{else}}{{.Media.Title}}{{end}}</div><div class="row-meta">{{if .Media.ServiceName}}{{.Media.ServiceName}} · {{end}}{{human .ReclaimableBytes}}</div></li>{{end}}
-              </ul>
-            </div>
-            {{end}}
+              {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%</li>{{end}}
+              {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
+              <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
+            </ul>
+            {{if gt .Plan.NeedBytes 0}}
+              <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
+              {{if .Plan.Actions}}
+              {{$torrentActions := torrentCleanupActions .Plan.Actions}}
+              {{$mediaActions := mediaCleanupActions .Plan.Actions}}
+              {{if $torrentActions}}
+              <div class="cleanup-group">
+                <h4>Torrents <span class="count">{{len $torrentActions}}</span></h4>
+                <ul class="cleanup-actions">
+                  {{range $torrentActions}}<li><div class="row-title">{{(index .Torrents 0).Name}}</div><div class="row-meta">{{torrentActionContext (index .Torrents 0)}} · {{human .ReclaimableBytes}}</div></li>{{end}}
+                </ul>
+              </div>
+              {{end}}
+              {{if $mediaActions}}
+              <div class="cleanup-group">
+                <h4>Media <span class="count">{{len $mediaActions}}</span></h4>
+                <ul class="cleanup-actions">
+                  {{range $mediaActions}}<li><div class="row-title">{{if eq .Kind "bundle"}}{{.Media.Title}}{{if .Season}} · Season {{.Season.Number}}{{end}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "season"}}{{.Media.Title}} · Season {{.Season.Number}}{{else}}{{.Media.Title}}{{end}}</div><div class="row-meta">{{if .Media.ServiceName}}{{.Media.ServiceName}} · {{end}}{{human .ReclaimableBytes}}</div></li>{{end}}
+                </ul>
+              </div>
+              {{end}}
+              {{end}}
+            {{else}}
+              <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
             {{end}}
           {{else}}
-            <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
+            <p class="bad">UNAVAILABLE{{if .Storage.Error}}: {{.Storage.Error}}{{end}}</p>
+            {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
           {{end}}
-        {{else}}
-          <p class="bad">UNAVAILABLE{{if .Storage.Error}}: {{.Storage.Error}}{{end}}</p>
-          {{if .PlanErr}}<span class="bad">{{.PlanErr}}</span>{{end}}
-        {{end}}
+        </div>
       </section>
       {{end}}
     {{end}}

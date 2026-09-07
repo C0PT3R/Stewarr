@@ -152,6 +152,44 @@ func TestStorageTemplateRendersNoKnownDevices(t *testing.T) {
 	}
 }
 
+// TestStorageStatsServesCheapJSONWithoutARemovalPlan guards the actual point
+// of the endpoint: it must answer from server.inv.StorageDevices() and
+// config thresholds alone, with no Media()/Torrents() snapshot and no
+// cleanup.Build call anywhere on its path — unlike the Storage page itself,
+// this is the endpoint a raw disk-byte tick (watchStorageChanges, every 5s)
+// hits, and it must stay that cheap regardless of library size.
+func TestStorageStatsServesCheapJSONWithoutARemovalPlan(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"storage":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := inventory.New(cfg, nil)
+	server, err := New(inv, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/storage/stats", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if got := strings.TrimSpace(recorder.Body.String()); got != "[]" {
+		t.Fatalf("expected an empty JSON array with no known devices, got %q", got)
+	}
+
+	postRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(postRecorder, httptest.NewRequest(http.MethodPost, "/storage/stats", nil))
+	if postRecorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for POST, got status=%d", postRecorder.Code)
+	}
+}
+
 // TestSetDeviceThresholdPersistsFromStoragePage guards the actual fix for
 // setting per-device thresholds after storage roots are discovered by a
 // service's own adapter, rather than during add-service before any root

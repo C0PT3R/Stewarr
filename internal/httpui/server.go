@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"log"
 	"net/http"
@@ -19,6 +20,16 @@ import (
 	"connarr/internal/product"
 	"connarr/internal/tasks"
 )
+
+// elementID turns an arbitrary stable key (a device's representative path)
+// into a short, HTML-id-safe token — templates ranging over storage devices
+// need one DOM id per device, and a raw filesystem path isn't safe to embed
+// directly into an id/selector.
+func elementID(key string) string {
+	digest := fnv.New64a()
+	_, _ = digest.Write([]byte(key))
+	return fmt.Sprintf("%x", digest.Sum64())
+}
 
 type Server struct {
 	inv                *inventory.Service
@@ -72,7 +83,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "relatedTorrentMeta": relatedTorrentMeta, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "elementID": elementID, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "relatedTorrentMeta": relatedTorrentMeta, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -195,6 +206,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/ui/status", server.uiStatus)
 	mux.HandleFunc("/", server.home)
 	mux.HandleFunc("/storage", server.storagePage)
+	mux.HandleFunc("/storage/stats", server.storageStats)
 	mux.HandleFunc("/storage/device-threshold", server.setDeviceThreshold)
 	mux.HandleFunc("/services", server.servicesPage)
 	mux.HandleFunc("/services/add", server.addServiceForm)

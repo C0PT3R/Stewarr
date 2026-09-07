@@ -810,13 +810,18 @@ td:has(> a > strong) > a {
   text-transform: uppercase;
   color: var(--warn);
 }
-[data-reactive-fragment] {
+/* Passive/background swaps (revision pushes, polling) are the normal case
+   and stay silent by default. Only a swap the user directly asked for
+   (e.g. changing a filter — see navigateList in shell.ts) opts in to the
+   loading dip via [data-user-triggered-swap], so a flag is only ever
+   needed for the exception, not the default. */
+[data-user-triggered-swap] {
   transition: opacity 0.12s ease;
 }
-.htmx-request[data-reactive-fragment] {
+.htmx-request[data-user-triggered-swap] {
   opacity: 0.72;
 }
-.htmx-settling[data-reactive-fragment] {
+.htmx-settling[data-user-triggered-swap] {
   opacity: 1;
 }
 @media (prefers-reduced-motion: reduce) {

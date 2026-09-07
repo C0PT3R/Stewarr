@@ -4,6 +4,31 @@ interface ModalRoot extends HTMLElement {
   _connarrOpener?: HTMLElement;
 }
 
+interface StorageStatsDevice {
+  representativePath: string;
+  available: boolean;
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+  usagePercent: number;
+  targetUsagePercent: number;
+  criticalUsagePercent: number;
+}
+
+// Mirrors cleanup.Human's formatting exactly (internal/cleanup/plan.go) so
+// the live-patched summary line never visibly disagrees with the same
+// number rendered server-side elsewhere on the page.
+function humanBytes(bytes: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex++;
+  }
+  return `${value.toFixed(1)} ${units[unitIndex]}`;
+}
+
 export class ShellController extends window.Stimulus.Controller {
   filterTimer: ReturnType<typeof setTimeout> | null = null;
   modalRequest: AbortController | null = null;
@@ -23,8 +48,8 @@ export class ShellController extends window.Stimulus.Controller {
     this.onChange = event => this.filterChange(event);
     this.onSubmit = event => this.submit(event);
     this.onRevision = event => this.revision(event.detail || {});
-    this.onApply = () => this.refreshFragments(true);
-    this.onAccepted = () => this.refreshFragments(true);
+    this.onApply = () => this.refreshFragments(true, true);
+    this.onAccepted = () => this.refreshFragments(true, true);
     document.addEventListener("click", this.onClick);
     document.addEventListener("input", this.onInput);
     document.addEventListener("change", this.onChange);
@@ -302,7 +327,7 @@ export class ShellController extends window.Stimulus.Controller {
       const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
-      this.refreshFragments(true);
+      this.refreshFragments(true, true);
       announce("Unmanaged file scan completed.");
     } catch (error) {
       announce(`Unmanaged scan failed: ${(error as Error).message}`);
@@ -323,12 +348,17 @@ export class ShellController extends window.Stimulus.Controller {
     const fragment = document.querySelector<HTMLElement>("[data-filter-results]");
     if (!fragment || !fragment.id) return;
     history.replaceState({}, "", url);
-    this.swapFragment(fragment, url);
+    this.swapFragment(fragment, url, true);
     const updates = document.getElementById("updates-available");
     if (updates) updates.hidden = true;
   }
 
-  swapFragment(fragment: HTMLElement, url: string = location.href): Promise<void> {
+  // userTriggered marks the swap with [data-user-triggered-swap] so the
+  // CSS loading dip (app.css) applies — passive/background swaps (revision
+  // pushes, polling) are the normal case and stay silent by default; only a
+  // swap the user directly asked for opts in to the visual feedback.
+  swapFragment(fragment: HTMLElement, url: string = location.href, userTriggered: boolean = false): Promise<void> {
+    if (userTriggered) fragment.setAttribute("data-user-triggered-swap", "");
     return window.htmx.ajax("GET", url, {
       source: fragment,
       target: `#${CSS.escape(fragment.id)}`,
@@ -341,14 +371,24 @@ export class ShellController extends window.Stimulus.Controller {
     this.refreshWizardProgress();
     const kind = String(detail.kind || "background");
     const urgent = /mutation|operation|removal|failure/.test(kind);
+    // A raw disk-byte tick (watchStorageChanges polls every 5s) is routine
+    // background noise almost everywhere — it never means a filtered list's
+    // results changed. On the Storage page itself it specifically must never
+    // force the (comparatively expensive) removal plan to recompute just
+    // because free space ticked; only the cheap byte totals update this
+    // often, via a direct fetch/patch rather than a fragment swap.
+    if (kind === "storage" && document.querySelector("[data-storage-summary]")) {
+      this.refreshStorageStats();
+      return;
+    }
     const stable = document.querySelector('[data-live-policy="stable-list"]');
-    if (stable && (kind === "tasks" || kind === "startup")) return;
+    if (stable && (kind === "tasks" || kind === "startup" || kind === "storage")) return;
     if (stable && !urgent) {
       const updates = document.getElementById("updates-available");
       if (updates) updates.hidden = false;
       return;
     }
-    this.refreshFragments(urgent);
+    this.refreshFragments(urgent, false);
   }
 
   // Step 3 of the service setup overlay has no push mechanism of its own —
@@ -377,11 +417,34 @@ export class ShellController extends window.Stimulus.Controller {
     }
   }
 
-  refreshFragments(force: boolean): void {
+  // The Storage page's "used of total" line updates straight from the cheap
+  // /storage/stats endpoint (raw statfs bytes only — no removal plan) rather
+  // than through the fragment-swap machinery, so a byte-level tick every few
+  // seconds never re-renders the bar/legend/plan or touches the threshold
+  // form at all.
+  async refreshStorageStats(): Promise<void> {
+    try {
+      const response = await fetch("/storage/stats", { cache: "no-store" });
+      if (!response.ok) return;
+      const devices: StorageStatsDevice[] = await response.json();
+      for (const device of devices) {
+        if (!device.available) continue;
+        const summary = document.querySelector<HTMLElement>(
+          `[data-storage-summary][data-representative-path="${CSS.escape(device.representativePath)}"]`
+        );
+        if (!summary) continue;
+        summary.textContent = `${humanBytes(device.usedBytes)} used of ${humanBytes(device.totalBytes)} (${device.usagePercent.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)`;
+      }
+    } catch (_) {
+      // The next 5s tick tries again; the last-known text stays in place.
+    }
+  }
+
+  refreshFragments(force: boolean, userTriggered: boolean = false): void {
     const fragments = [...document.querySelectorAll<HTMLElement>("[data-reactive-fragment][id]")];
     for (const fragment of fragments) {
       if (fragment.dataset.livePolicy === "stable-list" && !force) continue;
-      this.swapFragment(fragment);
+      this.swapFragment(fragment, location.href, userTriggered);
     }
     const updates = document.getElementById("updates-available");
     if (updates && force) updates.hidden = true;

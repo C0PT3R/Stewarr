@@ -1,6 +1,7 @@
 package httpui
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -29,6 +30,69 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	if err := renderTemplate(w, server.storageTpl, data); err != nil {
 		log.Printf("[http] render storage: %v", err)
 	}
+}
+
+type storageStatsClaim struct {
+	Service string `json:"service"`
+	Bytes   uint64 `json:"bytes"`
+}
+
+type storageStatsDevice struct {
+	RepresentativePath   string              `json:"representativePath"`
+	Available            bool                `json:"available"`
+	Error                string              `json:"error,omitempty"`
+	TotalBytes           uint64              `json:"totalBytes"`
+	FreeBytes            uint64              `json:"freeBytes"`
+	UsedBytes            uint64              `json:"usedBytes"`
+	UsagePercent         float64             `json:"usagePercent"`
+	TargetUsagePercent   float64             `json:"targetUsagePercent"`
+	CriticalUsagePercent float64             `json:"criticalUsagePercent"`
+	Claimed              []storageStatsClaim `json:"claimed"`
+	UnmanagedBytes       uint64              `json:"unmanagedBytes"`
+	OtherBytes           uint64              `json:"otherBytes"`
+}
+
+// storageStats serves the raw, cheap byte-level numbers a storage device
+// exposes every few seconds (see watchStorageChanges in reactive.go) without
+// ever touching cleanup.Build — unlike the full Storage page, computing
+// which items would actually be removed is real work that has nothing to do
+// with disk bytes ticking up or down, and must not be redone on every one of
+// those ticks just because the client wants fresher numbers to display.
+func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	cfg := server.inv.Config()
+	devices := server.inv.StorageDevices()
+	out := make([]storageStatsDevice, 0, len(devices))
+	for _, device := range devices {
+		usagePercent := 0.0
+		if device.TotalBytes > 0 {
+			usagePercent = float64(device.UsedBytes) / float64(device.TotalBytes) * 100
+		}
+		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
+		claimed := make([]storageStatsClaim, 0, len(device.Claimed))
+		for _, segment := range device.Claimed {
+			claimed = append(claimed, storageStatsClaim{Service: segment.Service, Bytes: segment.Bytes})
+		}
+		out = append(out, storageStatsDevice{
+			RepresentativePath:   device.RepresentativePath,
+			Available:            device.Available,
+			Error:                device.Error,
+			TotalBytes:           device.TotalBytes,
+			FreeBytes:            device.FreeBytes,
+			UsedBytes:            device.UsedBytes,
+			UsagePercent:         usagePercent,
+			TargetUsagePercent:   target,
+			CriticalUsagePercent: critical,
+			Claimed:              claimed,
+			UnmanagedBytes:       device.UnmanagedBytes,
+			OtherBytes:           device.OtherBytes,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
 
 // setDeviceThreshold saves one storage device's reclamation thresholds,

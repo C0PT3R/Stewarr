@@ -2818,6 +2818,16 @@ Copyright © 2023 Basecamp, LLC
   };
 
   // internal/httpui/static/src/controllers/shell.ts
+  function humanBytes(bytes) {
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex++;
+    }
+    return `${value.toFixed(1)} ${units[unitIndex]}`;
+  }
   var ShellController = class extends window.Stimulus.Controller {
     constructor() {
       super(...arguments);
@@ -2832,8 +2842,8 @@ Copyright © 2023 Basecamp, LLC
       this.onChange = (event) => this.filterChange(event);
       this.onSubmit = (event) => this.submit(event);
       this.onRevision = (event) => this.revision(event.detail || {});
-      this.onApply = () => this.refreshFragments(true);
-      this.onAccepted = () => this.refreshFragments(true);
+      this.onApply = () => this.refreshFragments(true, true);
+      this.onAccepted = () => this.refreshFragments(true, true);
       document.addEventListener("click", this.onClick);
       document.addEventListener("input", this.onInput);
       document.addEventListener("change", this.onChange);
@@ -3100,7 +3110,7 @@ Copyright © 2023 Basecamp, LLC
         const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
-        this.refreshFragments(true);
+        this.refreshFragments(true, true);
         announce("Unmanaged file scan completed.");
       } catch (error) {
         announce(`Unmanaged scan failed: ${error.message}`);
@@ -3119,11 +3129,16 @@ Copyright © 2023 Basecamp, LLC
       const fragment = document.querySelector("[data-filter-results]");
       if (!fragment || !fragment.id) return;
       history.replaceState({}, "", url);
-      this.swapFragment(fragment, url);
+      this.swapFragment(fragment, url, true);
       const updates = document.getElementById("updates-available");
       if (updates) updates.hidden = true;
     }
-    swapFragment(fragment, url = location.href) {
+    // userTriggered marks the swap with [data-user-triggered-swap] so the
+    // CSS loading dip (app.css) applies — passive/background swaps (revision
+    // pushes, polling) are the normal case and stay silent by default; only a
+    // swap the user directly asked for opts in to the visual feedback.
+    swapFragment(fragment, url = location.href, userTriggered = false) {
+      if (userTriggered) fragment.setAttribute("data-user-triggered-swap", "");
       return window.htmx.ajax("GET", url, {
         source: fragment,
         target: `#${CSS.escape(fragment.id)}`,
@@ -3135,14 +3150,18 @@ Copyright © 2023 Basecamp, LLC
       this.refreshWizardProgress();
       const kind = String(detail.kind || "background");
       const urgent = /mutation|operation|removal|failure/.test(kind);
+      if (kind === "storage" && document.querySelector("[data-storage-summary]")) {
+        this.refreshStorageStats();
+        return;
+      }
       const stable = document.querySelector('[data-live-policy="stable-list"]');
-      if (stable && (kind === "tasks" || kind === "startup")) return;
+      if (stable && (kind === "tasks" || kind === "startup" || kind === "storage")) return;
       if (stable && !urgent) {
         const updates = document.getElementById("updates-available");
         if (updates) updates.hidden = false;
         return;
       }
-      this.refreshFragments(urgent);
+      this.refreshFragments(urgent, false);
     }
     // Step 3 of the service setup overlay has no push mechanism of its own —
     // it piggybacks on the SSE revision stream that already fires on every
@@ -3165,11 +3184,32 @@ Copyright © 2023 Basecamp, LLC
       } catch (_) {
       }
     }
-    refreshFragments(force) {
+    // The Storage page's "used of total" line updates straight from the cheap
+    // /storage/stats endpoint (raw statfs bytes only — no removal plan) rather
+    // than through the fragment-swap machinery, so a byte-level tick every few
+    // seconds never re-renders the bar/legend/plan or touches the threshold
+    // form at all.
+    async refreshStorageStats() {
+      try {
+        const response = await fetch("/storage/stats", { cache: "no-store" });
+        if (!response.ok) return;
+        const devices = await response.json();
+        for (const device of devices) {
+          if (!device.available) continue;
+          const summary = document.querySelector(
+            `[data-storage-summary][data-representative-path="${CSS.escape(device.representativePath)}"]`
+          );
+          if (!summary) continue;
+          summary.textContent = `${humanBytes(device.usedBytes)} used of ${humanBytes(device.totalBytes)} (${device.usagePercent.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)`;
+        }
+      } catch (_) {
+      }
+    }
+    refreshFragments(force, userTriggered = false) {
       const fragments = [...document.querySelectorAll("[data-reactive-fragment][id]")];
       for (const fragment of fragments) {
         if (fragment.dataset.livePolicy === "stable-list" && !force) continue;
-        this.swapFragment(fragment);
+        this.swapFragment(fragment, location.href, userTriggered);
       }
       const updates = document.getElementById("updates-available");
       if (updates && force) updates.hidden = true;
