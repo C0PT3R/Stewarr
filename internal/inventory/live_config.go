@@ -169,11 +169,11 @@ func (service *Service) RemoveService(id string) error {
 }
 
 // SetDeviceThreshold idempotently persists one storage device's reclamation
-// thresholds. Unlike AddService/EditService this isn't a live-service
-// concept — no connection check runs, and no client is (de)activated.
-// Editing the same device's thresholds from any service overlay that shares
-// it converges to the same config.SetDeviceThreshold entry.
-func (service *Service) SetDeviceThreshold(representativePath string, target, critical float64) error {
+// thresholds and name together. Unlike AddService/EditService this isn't a
+// live-service concept — no connection check runs, and no client is
+// (de)activated. Editing the same device from any service overlay that
+// shares it converges to the same config.SetDeviceThreshold entry.
+func (service *Service) SetDeviceThreshold(representativePath, name string, target, critical float64) error {
 	service.configMu.Lock()
 	defer service.configMu.Unlock()
 
@@ -185,7 +185,7 @@ func (service *Service) SetDeviceThreshold(representativePath string, target, cr
 	currentCfg := service.cfg
 	service.mu.RUnlock()
 
-	updatedCfg, err := config.SetDeviceThreshold(currentCfg, representativePath, target, critical)
+	updatedCfg, err := config.SetDeviceThreshold(currentCfg, representativePath, name, target, critical)
 	if err != nil {
 		return err
 	}

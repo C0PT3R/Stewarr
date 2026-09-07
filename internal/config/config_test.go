@@ -89,7 +89,7 @@ func TestThresholdsForIgnoresOutOfRangeEntry(t *testing.T) {
 
 func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	var c Config
-	updated, err := SetDeviceThreshold(c, "/data", 80, 90)
+	updated, err := SetDeviceThreshold(c, "/data", "", 80, 90)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	if target != 80 || critical != 90 {
 		t.Fatalf("thresholds after set = %v/%v", target, critical)
 	}
-	updatedAgain, err := SetDeviceThreshold(updated, "/data", 70, 85)
+	updatedAgain, err := SetDeviceThreshold(updated, "/data", "", 70, 85)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,14 +108,39 @@ func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	if target != 70 || critical != 85 {
 		t.Fatalf("thresholds after re-set = %v/%v", target, critical)
 	}
-	if _, err := SetDeviceThreshold(c, "/data", 0, 90); err == nil {
+	if _, err := SetDeviceThreshold(c, "/data", "", 0, 90); err == nil {
 		t.Fatal("expected an error for a non-positive target percent")
 	}
-	if _, err := SetDeviceThreshold(c, "/data", 80, 100); err == nil {
+	if _, err := SetDeviceThreshold(c, "/data", "", 80, 100); err == nil {
 		t.Fatal("expected an error for a critical percent >= 100")
 	}
-	if _, err := SetDeviceThreshold(c, "", 80, 90); err == nil {
+	if _, err := SetDeviceThreshold(c, "", "", 80, 90); err == nil {
 		t.Fatal("expected an error for an empty representativePath")
+	}
+}
+
+// TestSetDeviceThresholdPersistsAndTrimsName guards the Device settings
+// overlay's new Name field: it's saved and trimmed alongside the
+// thresholds in the same upsert, and DeviceName reads it back — empty
+// (never set) is the "no name assigned yet" state callers check for.
+func TestSetDeviceThresholdPersistsAndTrimsName(t *testing.T) {
+	var c Config
+	if got := c.DeviceName("/data"); got != "" {
+		t.Fatalf("expected no name before anything is set, got %q", got)
+	}
+	updated, err := SetDeviceThreshold(c, "/data", "  Media Drive  ", 80, 90)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := updated.DeviceName("/data"); got != "Media Drive" {
+		t.Fatalf("expected the trimmed name to be persisted, got %q", got)
+	}
+	cleared, err := SetDeviceThreshold(updated, "/data", "", 80, 90)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cleared.DeviceName("/data"); got != "" {
+		t.Fatalf("expected an empty name to clear it, got %q", got)
 	}
 }
 

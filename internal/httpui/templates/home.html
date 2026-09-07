@@ -19,6 +19,7 @@
         {{else}}
           {{range .Devices}}
           <div class="storage-device">
+            {{if .Name}}<div>{{.Name}}</div>{{end}}
             <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
             {{if .Storage.Available}}
               <div class="storage-bar">

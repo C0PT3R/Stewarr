@@ -767,6 +767,24 @@ see suggestions." — the old wording named where suggestions currently
 show up, which is exactly the kind of detail that shouldn't be baked
 into copy that's meant to outlive it.
 
+### User-nameable storage devices (0.4.4)
+
+`config.DeviceThreshold` (already keyed by `RepresentativePath`, holding
+Target/Critical %) gained a `Name` field, editable from the same Device
+settings overlay the thresholds already live in. When set, it becomes
+the device's primary heading on both the Storage page card and the Home
+dashboard's mini device summary — the root-labels/filesystem string
+that used to be the only identity line stays underneath as secondary
+detail either way.
+
+Deliberately scoped down from the original ask: a stable numeric id
+(assigned once per physical device, defaulting an unnamed device's name
+to "Device #N") is not implemented yet — that needs a sync step run
+after file reconciliation to assign ids to newly-discovered devices and
+prune entries for devices no longer found, which is being held for a
+follow-up rather than rushed into this change. Until then, a device's
+Name is simply empty until someone sets one by hand.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

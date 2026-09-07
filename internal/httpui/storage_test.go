@@ -29,6 +29,7 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 					UnmanagedBytes: 50, OtherBytes: 50,
 				},
 				Plan: cleanup.Plan{Available: true, UsagePercent: 60, TargetUsagePercent: 90, Message: "No cleanup: 60.00% used (target 90.0%)"},
+				Name: "Media Drive",
 			},
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/broken", Available: false, Error: "permission denied"},
@@ -42,7 +43,7 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 	}
 	body := recorder.Body.String()
 	for _, want := range []string{
-		"downloads, movies", "ext2/ext3/ext4", "Movies: 500.0 B", "storage-legend",
+		"Media Drive", "downloads, movies", "ext2/ext3/ext4", "Movies: 500.0 B", "storage-legend",
 		"/data/movies", "/data/movies-4k", "root-icon",
 		"No cleanup", "/data/broken", "permission denied", "storage-bar",
 	} {
@@ -135,6 +136,38 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 	}
 	if strings.Index(body, "Torrents") > strings.Index(body, "Lonely Movie") {
 		t.Fatalf("torrent group should render before the media group, got:\n%s", body)
+	}
+}
+
+// TestDeviceSettingsTemplateShowsWholeDeviceIdentityNotJustOnePath guards
+// the actual fix: showing the bare RepresentativePath made the modal look
+// like its thresholds applied to that one path specifically, when they
+// actually apply to the whole physical device — possibly several root
+// paths grouped together. The modal must show the same
+// labels-plus-filesystem identity the Storage page card itself already
+// does, and say explicitly that this covers the whole device.
+func TestDeviceSettingsTemplateShowsWholeDeviceIdentityNotJustOnePath(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := deviceSettingsData{
+		RepresentativePath:   "/data/movies",
+		RootLabels:           []string{"downloads", "movies"},
+		Filesystem:           "ext4",
+		Name:                 "Media Drive",
+		TargetUsagePercent:   80,
+		CriticalUsagePercent: 95,
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.deviceSettingsTpl, data); err != nil {
+		t.Fatalf("render device-settings template: %v", err)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{"downloads, movies", "ext4", "whole physical device", `value="Media Drive"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected device-settings overlay to contain %q, got:\n%s", want, body)
+		}
 	}
 }
 
@@ -239,7 +272,7 @@ func TestStorageStatsServesCheapJSONWithoutARemovalPlan(t *testing.T) {
 // from), not just render blank fields.
 func TestDeviceSettingsFormRendersCurrentThresholds(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"storage":{"device_thresholds":{"/data/movies":{"target_usage_percent":70,"critical_usage_percent":85}}}}`), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(`{"storage":{"device_thresholds":{"/data/movies":{"target_usage_percent":70,"critical_usage_percent":85,"name":"Media Drive"}}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(configPath)
@@ -258,7 +291,7 @@ func TestDeviceSettingsFormRendersCurrentThresholds(t *testing.T) {
 		t.Fatalf("expected 200, got status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"/data/movies", `value="70"`, `value="85"`} {
+	for _, want := range []string{"/data/movies", `value="70"`, `value="85"`, `value="Media Drive"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected device-settings overlay to contain %q, got:\n%s", want, body)
 		}
@@ -294,7 +327,7 @@ func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
 	// field came back empty and every save failed with "target_usage_percent
 	// must be a number" even though the form was filled in correctly.
 	devicePath := "/data/movies"
-	body, contentType := multipartServiceForm(t, map[string]string{"representative_path": devicePath, "target_usage_percent": "80", "critical_usage_percent": "88"})
+	body, contentType := multipartServiceForm(t, map[string]string{"representative_path": devicePath, "name": "Media Drive", "target_usage_percent": "80", "critical_usage_percent": "88"})
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/storage/device-threshold", body)
 	request.Header.Set("Content-Type", contentType)
@@ -310,5 +343,8 @@ func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
 	target, critical := reloaded.ThresholdsFor(devicePath)
 	if target != 80 || critical != 88 {
 		t.Fatalf("expected the submitted thresholds to be persisted for %s, got %v/%v", devicePath, target, critical)
+	}
+	if got := reloaded.DeviceName(devicePath); got != "Media Drive" {
+		t.Fatalf("expected the submitted name to be persisted for %s, got %q", devicePath, got)
 	}
 }

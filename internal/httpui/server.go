@@ -273,7 +273,7 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 	for _, device := range devices {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
 		p, planErr := cleanup.Build(device.RepresentativePath, target, critical, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
-		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr})
+		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr, Name: cfg.DeviceName(device.RepresentativePath)})
 	}
 	return views
 }
@@ -285,6 +285,9 @@ type deviceView struct {
 	Storage inventory.StorageDevice
 	Plan    cleanup.Plan
 	PlanErr error
+	// Name is the device's user-chosen label (config.DeviceThreshold.Name),
+	// empty until someone sets one via the Device settings overlay.
+	Name string
 }
 
 func renderTemplate(w http.ResponseWriter, tpl *template.Template, data any) error {

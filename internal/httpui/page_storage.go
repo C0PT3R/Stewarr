@@ -109,6 +109,9 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 
 type deviceSettingsData struct {
 	RepresentativePath   string
+	RootLabels           []string
+	Filesystem           string
+	Name                 string
 	TargetUsagePercent   float64
 	CriticalUsagePercent float64
 }
@@ -118,14 +121,31 @@ type deviceSettingsData struct {
 // on the Storage page collected) — the wrench icon on each device's card
 // opens this, so any future per-device setting has one obvious place to
 // join instead of the card growing a new inline field every time.
+//
+// RepresentativePath is only ever one arbitrarily chosen root among
+// possibly several sharing the same physical device (see
+// inventory.StorageDevice) — showing just that bare path made it look
+// like the settings applied to one path specifically, rather than the
+// whole device. RootLabels/Filesystem let the template show the same
+// identity the Storage page card itself already does, so the modal
+// reads as "here's which device this is" instead of "here's the one
+// path affected."
 func (server *Server) deviceSettingsForm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	path := r.URL.Query().Get("path")
-	target, critical := server.inv.Config().ThresholdsFor(path)
-	data := deviceSettingsData{RepresentativePath: path, TargetUsagePercent: target, CriticalUsagePercent: critical}
+	cfg := server.inv.Config()
+	target, critical := cfg.ThresholdsFor(path)
+	data := deviceSettingsData{RepresentativePath: path, Name: cfg.DeviceName(path), TargetUsagePercent: target, CriticalUsagePercent: critical}
+	for _, device := range server.inv.StorageDevices() {
+		if device.RepresentativePath == path {
+			data.RootLabels = device.RootLabels
+			data.Filesystem = device.Filesystem
+			break
+		}
+	}
 	if err := renderTemplate(w, server.deviceSettingsTpl, data); err != nil {
 		log.Printf("[http] render device-settings overlay: %v", err)
 	}
@@ -161,7 +181,7 @@ func (server *Server) setDeviceThreshold(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "critical_usage_percent must be a number", http.StatusBadRequest)
 		return
 	}
-	if err := server.inv.SetDeviceThreshold(path, target, critical); err != nil {
+	if err := server.inv.SetDeviceThreshold(path, r.FormValue("name"), target, critical); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

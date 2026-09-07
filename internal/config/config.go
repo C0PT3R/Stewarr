@@ -342,13 +342,17 @@ func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassoc
 	return updated, nil
 }
 
-// DeviceThreshold is one storage device's reclamation targets. Values
-// outside (0,100) are treated as absent by ThresholdsFor rather than
-// rejected outright, so one malformed entry in a hand-edited config.json
-// doesn't take the whole file down.
+// DeviceThreshold is one storage device's reclamation targets and its
+// user-facing identity. Threshold values outside (0,100) are treated as
+// absent by ThresholdsFor rather than rejected outright, so one malformed
+// entry in a hand-edited config.json doesn't take the whole file down.
 type DeviceThreshold struct {
 	TargetUsagePercent   float64 `json:"target_usage_percent"`
 	CriticalUsagePercent float64 `json:"critical_usage_percent"`
+	// Name is a user-chosen label for the device (e.g. "Media Drive"),
+	// shown in place of its raw root paths once set. Empty means no name
+	// has been assigned yet — see DeviceName.
+	Name string `json:"name,omitempty"`
 }
 
 // defaultTargetUsagePercent and defaultCriticalUsagePercent are used for any
@@ -375,10 +379,18 @@ func (configuration Config) ThresholdsFor(representativePath string) (target, cr
 	return target, critical
 }
 
+// DeviceName returns representativePath's user-chosen name, or "" if none
+// has been set yet.
+func (configuration Config) DeviceName(representativePath string) string {
+	return configuration.Storage.DeviceThresholds[representativePath].Name
+}
+
 // SetDeviceThreshold idempotently upserts one storage device's reclamation
-// thresholds, keyed by its RepresentativePath. Editing the same device from
-// any service overlay that happens to share it converges to this one entry.
-func SetDeviceThreshold(configuration Config, representativePath string, target, critical float64) (Config, error) {
+// thresholds and name together, keyed by its RepresentativePath — the
+// Device settings overlay saves all three as one form. Editing the same
+// device from any service overlay that happens to share it converges to
+// this one entry.
+func SetDeviceThreshold(configuration Config, representativePath, name string, target, critical float64) (Config, error) {
 	if strings.TrimSpace(representativePath) == "" {
 		return configuration, fmt.Errorf("representativePath must not be empty")
 	}
@@ -393,7 +405,7 @@ func SetDeviceThreshold(configuration Config, representativePath string, target,
 	for path, threshold := range configuration.Storage.DeviceThresholds {
 		updated.Storage.DeviceThresholds[path] = threshold
 	}
-	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical}
+	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: strings.TrimSpace(name)}
 	return updated, nil
 }
 

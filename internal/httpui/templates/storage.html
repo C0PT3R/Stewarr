@@ -16,7 +16,10 @@
       {{range $device := .Devices}}
       <section class="card">
         <div class="card-head">
-          <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
+          <div>
+            {{if .Name}}<div>{{.Name}}</div>{{end}}
+            <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
+          </div>
           <button type="button" class="card-link" data-overlay-url="/storage/device-settings?path={{urlquery .Storage.RepresentativePath}}" aria-label="Device settings" title="Device settings">🔧</button>
         </div>
         {{if .Storage.Available}}
