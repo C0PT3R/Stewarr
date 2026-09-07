@@ -48,9 +48,7 @@
     "seerr_request_grace": "8760h",
     "keep_tags": [
       "keep",
-      "connarr_keep",
-      "togetharr_keep",
-      "spartarr_keep"
+      "connarr_keep"
     ],
     "min_torrent_ratio": 0,
     "keep_torrent_tags": []
