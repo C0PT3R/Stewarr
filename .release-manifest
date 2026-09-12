@@ -118,6 +118,8 @@ internal/inventory/seasons_test.go
 internal/inventory/service.go
 internal/inventory/service_test.go
 internal/inventory/refresh_tmdb_test.go
+internal/inventory/enrich_new_media_test.go
+internal/inventory/refresh_jellyfin_seerr_test.go
 internal/inventory/storage_devices.go
 internal/inventory/storage_devices_test.go
 internal/model/media.go

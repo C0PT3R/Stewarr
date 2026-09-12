@@ -154,14 +154,17 @@ func main() {
 			if err != nil {
 				return err
 			}
-			// Fire-and-forget: a newly imported movie or show gets its
-			// TMDB rating/popularity right away instead of waiting for
-			// RefreshTMDB's next scheduled daily pass. Failure here isn't
-			// fatal to the base refresh itself — the next base refresh's
-			// own trigger, or the next scheduled RefreshTMDB, will retry.
+			// Fire-and-forget: a newly imported (or re-identified) movie or
+			// show gets every applicable source's enrichment right away
+			// instead of waiting for that source's next scheduled pass —
+			// see EnrichNewMedia's doc comment for why this is the only
+			// place a new item's enrichment is ever fetched. Failure here
+			// isn't fatal to the base refresh itself — the next base
+			// refresh's own trigger, or that source's next scheduled run,
+			// will retry.
 			go func() {
-				if enrichErr := inv.EnrichNewTMDBItems(context.Background()); enrichErr != nil {
-					log.Printf("[tmdb] immediate enrichment of newly discovered media failed: %v", enrichErr)
+				if enrichErr := inv.EnrichNewMedia(context.Background()); enrichErr != nil {
+					log.Printf("[inventory] immediate enrichment of newly discovered media failed: %v", enrichErr)
 				}
 			}()
 			return nil

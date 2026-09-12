@@ -73,13 +73,11 @@ type Service struct {
 	// delta reconciliation) does it. A writer that read the old topology
 	// before doing its own I/O checks this hasn't moved before publishing,
 	// so a concurrent writer's work is never silently clobbered.
-	fileTopologyVersion      uint64
-	baseFingerprint          [32]byte
-	hasBaseFingerprint       bool
-	enrichmentFingerprint    [32]byte
-	hasEnrichmentFingerprint bool
-	statuses                 map[string]ServiceStatus
-	reconciliationMu         sync.Mutex
+	fileTopologyVersion uint64
+	baseFingerprint     [32]byte
+	hasBaseFingerprint  bool
+	statuses            map[string]ServiceStatus
+	reconciliationMu    sync.Mutex
 	// publishMu serializes concurrent reconciliation publishers (full, delta,
 	// and targeted can all run from different goroutines) against each
 	// other, WITHOUT being held during the database write itself — mu (the
@@ -228,25 +226,8 @@ func New(configuration config.Config, database *store.Store) *Service {
 		service.generation = 1
 		service.baseFingerprint = inventoryFingerprint(service.items, service.torrents)
 		service.hasBaseFingerprint = true
-		service.enrichmentFingerprint = mediaEnrichmentFingerprint(service.items)
-		service.hasEnrichmentFingerprint = true
 	}
 	return service
-}
-
-func mediaEnrichmentFingerprint(items []model.Media) [32]byte {
-	media := append([]model.Media(nil), items...)
-	sort.Slice(media, func(i, j int) bool {
-		if media[i].Type != media[j].Type {
-			return media[i].Type < media[j].Type
-		}
-		return media[i].SourceID < media[j].SourceID
-	})
-	var b strings.Builder
-	for _, m := range media {
-		fmt.Fprintf(&b, "%s\x00%d\x00%d\x00%d\x00%s\n", m.Type, m.SourceID, m.TMDBID, m.TVDBID, m.IMDBID)
-	}
-	return sha256.Sum256([]byte(b.String()))
 }
 
 func inventoryFingerprint(items []model.Media, torrents []model.Torrent) [32]byte {
@@ -759,7 +740,6 @@ func (service *Service) Refresh(ctx context.Context) error {
 		return strings.ToLower(baseTorrents[i].Hash) < strings.ToLower(baseTorrents[j].Hash)
 	})
 	fingerprint := inventoryFingerprint(all, baseTorrents)
-	enrichmentFingerprint := mediaEnrichmentFingerprint(all)
 
 	service.mu.RLock()
 	baseDrift := !service.hasBaseFingerprint || fingerprint != service.baseFingerprint
@@ -802,15 +782,6 @@ func (service *Service) Refresh(ctx context.Context) error {
 		if !service.filesUpdated.IsZero() && topology == nil {
 			service.reliability.FileModel = "stale"
 		}
-	}
-	if !service.hasEnrichmentFingerprint || enrichmentFingerprint != service.enrichmentFingerprint {
-		service.enrichmentFingerprint = enrichmentFingerprint
-		service.hasEnrichmentFingerprint = true
-		service.reliability.Jellyfin = enrichmentInitialState(service.cfg.Jellyfin.URL != "")
-		service.reliability.Seerr = enrichmentInitialState(service.cfg.Seerr.URL != "")
-		service.reliability.TMDB = enrichmentInitialState(service.cfg.TMDB.APIKey != "")
-		service.reliability.Valuation = service.cfg.Jellyfin.URL == "" && service.cfg.Seerr.URL == "" && service.cfg.TMDB.APIKey == ""
-		service.reliability.Message = "Media inventory changed; enrichment must complete before automatic removal planning."
 	}
 	publishGeneration := service.generation
 	preWriteTopologyVersion := service.fileTopologyVersion
@@ -1082,6 +1053,14 @@ func (service *Service) Refresh(ctx context.Context) error {
 
 // RefreshJellyfin updates only playback and favorite facts. It never refreshes
 // authoritative inventory, torrent state, history, or filesystem topology.
+// RefreshJellyfin reconciles Views/Favorite/etc. for the whole catalog
+// against current Jellyfin state. It does not discard its results if the
+// base generation moves on mid-pass — see RefreshTMDB's doc comment for
+// why (the same reasoning applies here): mergeJellyfinFacts matches by
+// stable key onto whatever items are current at merge time, so merging a
+// pass computed against a slightly older generation is safe regardless of
+// what changed in between. A newly discovered or re-identified item is
+// never waiting on this pass in the first place — see EnrichNewMedia.
 func (service *Service) RefreshJellyfin(ctx context.Context) error {
 	defer service.publishChange()
 	if service.cfg.Jellyfin.URL == "" {
@@ -1093,7 +1072,6 @@ func (service *Service) RefreshJellyfin(ctx context.Context) error {
 		return fmt.Errorf("base inventory is not available")
 	}
 	base := cloneMedia(service.items)
-	generation := service.generation
 	service.reliability.Jellyfin = "pending"
 	service.reliability.Valuation = false
 	service.reliability.Message = "Jellyfin enrichment is running; automatic removal planning is paused."
@@ -1108,19 +1086,17 @@ func (service *Service) RefreshJellyfin(ctx context.Context) error {
 		service.mu.Unlock()
 		return err
 	}
+	now := time.Now()
+	for i := range base {
+		base[i].JellyfinEnrichedAt = now
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if generation != service.generation {
-		service.reliability.Jellyfin = "stale"
-		service.reliability.Valuation = false
-		service.reliability.Message = "Jellyfin enrichment no longer matches base inventory; automatic removal planning is paused."
-		return fmt.Errorf("inventory changed during Jellyfin enrichment; result discarded")
-	}
 	items := cloneMedia(service.items)
 	mergeJellyfinFacts(items, base)
 	valuation.ApplyMedia(items, service.cfg)
 	if service.db != nil {
-		if err := service.db.PublishEnrichment("jellyfin", generation, items); err != nil {
+		if err := service.db.PublishEnrichment("jellyfin", service.generation, items); err != nil {
 			service.reliability.Jellyfin = "stale"
 			service.reliability.Valuation = false
 			return err
@@ -1138,8 +1114,9 @@ func (service *Service) RefreshJellyfin(ctx context.Context) error {
 	return nil
 }
 
-// RefreshSeerr updates only request facts and follows the same generation
-// boundary as Jellyfin enrichment.
+// RefreshSeerr updates only request facts. It does not discard its
+// results if the base generation moves on mid-pass — see RefreshTMDB's
+// doc comment for why the same reasoning applies here.
 func (service *Service) RefreshSeerr(ctx context.Context) error {
 	defer service.publishChange()
 	if service.cfg.Seerr.URL == "" {
@@ -1151,7 +1128,6 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 		return fmt.Errorf("base inventory is not available")
 	}
 	base := cloneMedia(service.items)
-	generation := service.generation
 	service.reliability.Seerr = "pending"
 	service.reliability.Valuation = false
 	service.reliability.Message = "Seerr enrichment is running; automatic removal planning is paused."
@@ -1166,19 +1142,17 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 		service.mu.Unlock()
 		return err
 	}
+	now := time.Now()
+	for i := range base {
+		base[i].SeerrEnrichedAt = now
+	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if generation != service.generation {
-		service.reliability.Seerr = "stale"
-		service.reliability.Valuation = false
-		service.reliability.Message = "Seerr enrichment no longer matches base inventory; automatic removal planning is paused."
-		return fmt.Errorf("inventory changed during Seerr enrichment; result discarded")
-	}
 	items := cloneMedia(service.items)
 	mergeSeerrFacts(items, base)
 	valuation.ApplyMedia(items, service.cfg)
 	if service.db != nil {
-		if err := service.db.PublishEnrichment("seerr", generation, items); err != nil {
+		if err := service.db.PublishEnrichment("seerr", service.generation, items); err != nil {
 			service.reliability.Seerr = "stale"
 			service.reliability.Valuation = false
 			return err
@@ -1203,8 +1177,9 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 // meantime — every RefreshInterval, or immediately after any removal — is
 // routine, not exceptional. Discarding a fully-successful pass over that
 // would have meant TMDB data could go indefinitely stale despite running
-// on schedule, since EnrichNewTMDBItems only ever catches up items that
-// were never enriched at all, not ones whose last refresh got thrown away.
+// on schedule, since EnrichNewMedia only ever catches up items that were
+// never checked by this specific source at all, not ones whose last
+// refresh got thrown away.
 // mergeTMDBFacts matches by stable key onto whatever items are current at
 // merge time, so merging a pass computed against an older generation is
 // safe regardless of what changed in between. TMDB also has no
@@ -1269,67 +1244,134 @@ func (service *Service) RefreshTMDB(ctx context.Context) error {
 	return nil
 }
 
-// needsTMDBEnrichment reports whether a media item has never been
-// successfully enriched by TMDB yet, but has an external id TMDB could use
-// to try — see EnrichNewTMDBItems.
+// needsTMDBEnrichment reports whether a media item has never been checked
+// by TMDB at all yet, but has an external id TMDB could use to try — see
+// EnrichNewMedia. needsJellyfinEnrichment/needsSeerrEnrichment mirror this
+// for their own sources; those two never require an external id, since
+// Jellyfin/Seerr matching itself is what determines whether one applies.
 func needsTMDBEnrichment(m model.Media) bool {
 	return m.TMDBEnrichedAt.IsZero() && (m.TMDBID != 0 || m.TVDBID != 0)
 }
+func needsJellyfinEnrichment(m model.Media) bool { return m.JellyfinEnrichedAt.IsZero() }
+func needsSeerrEnrichment(m model.Media) bool    { return m.SeerrEnrichedAt.IsZero() }
 
-// EnrichNewTMDBItems immediately fetches TMDB facts for media items that
-// have never been enriched yet, rather than leaving them to wait for
-// RefreshTMDB's next scheduled daily pass — a newly imported movie or show
-// gets its rating/popularity right away instead of sitting unscored for
-// up to 24h. Meant to be triggered right after a base (Radarr/Sonarr)
-// refresh discovers new media (see cmd/connarr/main.go); a no-op, cheap
-// call when there's nothing new to enrich.
+// EnrichNewMedia immediately fetches Jellyfin/Seerr/TMDB facts — whichever
+// of the three a given item has never been checked by yet — rather than
+// leaving it to wait for that source's next scheduled reconcile pass. A
+// newly discovered item (or one re-identified, e.g. Radarr re-matching a
+// movie to a different TMDB entry — see preserveTMDBFacts) gets every
+// applicable source's data right away instead of sitting unscored until
+// that source's own periodic run, which for TMDB is up to 24h away.
 //
-// Unlike RefreshTMDB this never touches Reliability.TMDB or requires a
-// generation match against the *whole* snapshot — it's a best-effort
-// catch-up for specific new items, not the authoritative full-library
-// refresh, so a base refresh racing ahead of it just means the newly
-// stale-generation items are picked up again next time (by this trigger
-// or by the next scheduled RefreshTMDB, whichever comes first).
-func (service *Service) EnrichNewTMDBItems(ctx context.Context) error {
-	if service.cfg.TMDB.APIKey == "" {
-		return nil
-	}
+// This is deliberately the *only* place a new item's enrichment ever gets
+// fetched: RefreshJellyfin/RefreshSeerr/RefreshTMDB exist purely to catch
+// facts drifting for items already known (a watch state changing, a
+// rating moving, a request being fulfilled), never to discover new items
+// — there is no other path that would ever clear one of the *EnrichedAt
+// fields this function checks. Meant to be triggered right after a base
+// (Radarr/Sonarr) refresh (see cmd/connarr/main.go); a no-op, cheap call
+// when nothing needs any source's attention.
+//
+// Unlike the three Refresh* methods this never touches Reliability.* or
+// requires a generation match against the *whole* snapshot — it's a
+// best-effort catch-up for specific items, not an authoritative full
+// pass, so a base refresh racing ahead of it just means whatever's still
+// unmet is picked up again next cycle (by this trigger, or by that
+// source's own next scheduled run, whichever comes first).
+func (service *Service) EnrichNewMedia(ctx context.Context) error {
 	service.mu.RLock()
 	base := cloneMedia(service.items)
 	generation := service.generation
+	cfg := service.cfg
 	service.mu.RUnlock()
 
-	var pending []model.Media
+	var tmdbPending, jellyfinPending, seerrPending []model.Media
 	for _, m := range base {
-		if needsTMDBEnrichment(m) {
-			pending = append(pending, m)
+		if cfg.TMDB.APIKey != "" && needsTMDBEnrichment(m) {
+			tmdbPending = append(tmdbPending, m)
+		}
+		if cfg.Jellyfin.URL != "" && needsJellyfinEnrichment(m) {
+			jellyfinPending = append(jellyfinPending, m)
+		}
+		if cfg.Seerr.URL != "" && needsSeerrEnrichment(m) {
+			seerrPending = append(seerrPending, m)
 		}
 	}
-	if len(pending) == 0 {
+	if len(tmdbPending) == 0 && len(jellyfinPending) == 0 && len(seerrPending) == 0 {
 		return nil
 	}
-	if err := service.tmdb.WithContext(ctx).Apply(pending); err != nil {
-		return err
+
+	var wg sync.WaitGroup
+	var tmdbErr, jellyfinErr, seerrErr error
+	now := time.Now()
+	if len(tmdbPending) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			// TMDB fetches one item at a time — a cancellation partway
+			// through still leaves earlier items in this batch genuinely
+			// enriched, so tmdbErr below only ever affects the return
+			// value, never whether tmdbPending gets merged.
+			tmdbErr = service.tmdb.WithContext(ctx).Apply(tmdbPending)
+		}()
 	}
+	if len(jellyfinPending) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if jellyfinErr = service.jf.WithContext(ctx).Apply(jellyfinPending); jellyfinErr == nil {
+				for i := range jellyfinPending {
+					jellyfinPending[i].JellyfinEnrichedAt = now
+				}
+			}
+		}()
+	}
+	if len(seerrPending) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if seerrErr = service.seerr.WithContext(ctx).Apply(seerrPending); seerrErr == nil {
+				for i := range seerrPending {
+					seerrPending[i].SeerrEnrichedAt = now
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if generation != service.generation {
 		// Base inventory moved on while this ran; the next base refresh's
-		// own trigger (or the next scheduled RefreshTMDB) will catch
-		// whatever's still unenriched instead of publishing against a
-		// snapshot that's no longer current.
+		// own trigger (or that source's next scheduled run) will catch
+		// whatever's still unmet instead of publishing against a snapshot
+		// that's no longer current.
 		return nil
 	}
 	items := cloneMedia(service.items)
-	mergeTMDBFacts(items, pending)
+	if len(tmdbPending) > 0 {
+		mergeTMDBFacts(items, tmdbPending)
+	}
+	if len(jellyfinPending) > 0 && jellyfinErr == nil {
+		mergeJellyfinFacts(items, jellyfinPending)
+	}
+	if len(seerrPending) > 0 && seerrErr == nil {
+		mergeSeerrFacts(items, seerrPending)
+	}
 	valuation.ApplyMedia(items, service.cfg)
 	if service.db != nil {
-		if err := service.db.PublishEnrichment("tmdb", generation, items); err != nil {
+		if err := service.db.PublishEnrichment("new-media", generation, items); err != nil {
 			return err
 		}
 	}
 	service.items = items
-	return nil
+	if tmdbErr != nil {
+		return tmdbErr
+	}
+	if jellyfinErr != nil {
+		return jellyfinErr
+	}
+	return seerrErr
 }
 
 func enrichmentReliable(state string) bool {
@@ -1721,31 +1763,51 @@ func mediaHasCurrentFiles(m model.Media) bool {
 	return m.SizeBytes > 0
 }
 
+// externalIDsChanged reports whether a's external ids differ from b's —
+// e.g. Radarr/Sonarr re-matching an item to a different TMDB/TVDB/IMDB
+// entry. When true, any cached enrichment keyed to the old identity
+// belongs to a different title now and must not be carried forward.
+func externalIDsChanged(a, b model.Media) bool {
+	return a.TMDBID != b.TMDBID || a.TVDBID != b.TVDBID || a.IMDBID != b.IMDBID
+}
+
+// preserveJellyfinFacts carries forward Jellyfin-sourced facts across a
+// base (Radarr/Sonarr) refresh that has nothing to do with Jellyfin — see
+// preserveTMDBFacts for why a genuine external-id change (not just this
+// item being new) skips preservation instead: Jellyfin's own match was
+// found using the *old* ids, so it may no longer even be correct.
 func preserveJellyfinFacts(dst, previous []model.Media) {
 	byKey := make(map[string]model.Media, len(previous))
 	for _, m := range previous {
 		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
-			dst[i].Views = old.Views
-			dst[i].UniqueViewers = old.UniqueViewers
-			dst[i].LastWatched = old.LastWatched
-			dst[i].Favorite = old.Favorite
+		old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]
+		if !ok || externalIDsChanged(dst[i], old) {
+			continue
 		}
+		dst[i].Views = old.Views
+		dst[i].UniqueViewers = old.UniqueViewers
+		dst[i].LastWatched = old.LastWatched
+		dst[i].Favorite = old.Favorite
+		dst[i].JellyfinEnrichedAt = old.JellyfinEnrichedAt
 	}
 }
 
+// preserveSeerrFacts mirrors preserveJellyfinFacts for Requested/RequestedAt.
 func preserveSeerrFacts(dst, previous []model.Media) {
 	byKey := make(map[string]model.Media, len(previous))
 	for _, m := range previous {
 		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
-			dst[i].Requested = old.Requested
-			dst[i].RequestedAt = old.RequestedAt
+		old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]
+		if !ok || externalIDsChanged(dst[i], old) {
+			continue
 		}
+		dst[i].Requested = old.Requested
+		dst[i].RequestedAt = old.RequestedAt
+		dst[i].SeerrEnrichedAt = old.SeerrEnrichedAt
 	}
 }
 
@@ -1760,6 +1822,7 @@ func mergeJellyfinFacts(dst, enriched []model.Media) {
 			dst[i].UniqueViewers = source.UniqueViewers
 			dst[i].LastWatched = source.LastWatched
 			dst[i].Favorite = source.Favorite
+			dst[i].JellyfinEnrichedAt = source.JellyfinEnrichedAt
 		}
 	}
 }
@@ -1770,6 +1833,7 @@ func clearJellyfinFacts(items []model.Media) {
 		items[i].UniqueViewers = 0
 		items[i].LastWatched = nil
 		items[i].Favorite = false
+		items[i].JellyfinEnrichedAt = time.Time{}
 	}
 }
 
@@ -1782,6 +1846,7 @@ func mergeSeerrFacts(dst, enriched []model.Media) {
 		if source, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
 			dst[i].Requested = source.Requested
 			dst[i].RequestedAt = source.RequestedAt
+			dst[i].SeerrEnrichedAt = source.SeerrEnrichedAt
 		}
 	}
 }
@@ -1790,6 +1855,7 @@ func clearSeerrFacts(items []model.Media) {
 	for i := range items {
 		items[i].Requested = false
 		items[i].RequestedAt = nil
+		items[i].SeerrEnrichedAt = time.Time{}
 	}
 }
 
@@ -1800,21 +1866,33 @@ func clearSeerrFacts(items []model.Media) {
 // never repeated — but only when the base refresh didn't already supply
 // one, since Radarr's own TMDBID for a movie is always the freshest truth
 // and must never be overridden by a stale cached value.
+//
+// If a movie's TMDBID genuinely changed (Radarr re-matched it to a
+// different TMDB entry), the old Rating/VoteCount/Popularity were computed
+// for the *previous* entry and must not be carried forward onto the new
+// one — leaving them zeroed (TMDBEnrichedAt included) is what makes
+// EnrichNewMedia pick this item up for an immediate re-fetch instead of it
+// silently keeping data that now describes the wrong title.
 func preserveTMDBFacts(dst, previous []model.Media) {
 	byKey := make(map[string]model.Media, len(previous))
 	for _, m := range previous {
 		byKey[fmt.Sprintf("%s:%s:%d", m.Type, m.ServiceID, m.SourceID)] = m
 	}
 	for i := range dst {
-		if old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]; ok {
-			dst[i].TMDBRating = old.TMDBRating
-			dst[i].TMDBVoteCount = old.TMDBVoteCount
-			dst[i].Popularity = old.Popularity
-			dst[i].TMDBEnrichedAt = old.TMDBEnrichedAt
-			if dst[i].TMDBID == 0 {
-				dst[i].TMDBID = old.TMDBID
-			}
+		old, ok := byKey[fmt.Sprintf("%s:%s:%d", dst[i].Type, dst[i].ServiceID, dst[i].SourceID)]
+		if !ok {
+			continue
 		}
+		if dst[i].TMDBID == 0 {
+			dst[i].TMDBID = old.TMDBID
+		}
+		if dst[i].TMDBID != old.TMDBID {
+			continue
+		}
+		dst[i].TMDBRating = old.TMDBRating
+		dst[i].TMDBVoteCount = old.TMDBVoteCount
+		dst[i].Popularity = old.Popularity
+		dst[i].TMDBEnrichedAt = old.TMDBEnrichedAt
 	}
 }
 

@@ -855,6 +855,154 @@ and therefore base-inventory refreshes, more frequent:
   error after its worker pool finishes. Guarded by
   `TestApplySurfacesContextCancellationInsteadOfSwallowingIt`.
 
+### Enrichment is now fetched atomically at discovery, not awaited from a periodic task (0.4.7)
+
+0.4.6 fixed two real bugs in `RefreshTMDB`, but production logs still
+showed `task=inventory status=degraded warning="TMDB enrichment stale"`
+recurring for hours in an actively-changing library. The actual root
+cause was a third, coarser mechanism in `Refresh()`: any time the media
+catalog's identity changed at all (a new item imported, or even a show's
+TMDBID simply resolving for the first time), a fingerprint comparison
+force-reset `Reliability.Jellyfin`/`Seerr`/`TMDB` straight back to
+`"stale"` — regardless of whether anything had actually gone wrong.
+Jellyfin/Seerr recovered within their ~1h interval; TMDB, refreshed only
+every 24h, routinely didn't recover before the next reset fired again.
+
+Rather than patch the reset's TMDB case alone, the underlying design was
+wrong: a periodic Refresh* task should only exist to catch *drift* in
+already-known items, not to be the thing a brand-new item waits on for
+its first enrichment. Fixed by:
+
+- Deleting the fingerprint-reset mechanism (and the now-dead
+  `mediaEnrichmentFingerprint` function) entirely.
+- Replacing `EnrichNewTMDBItems` with `EnrichNewMedia`, which fetches
+  Jellyfin, Seerr, and TMDB facts atomically and concurrently for any
+  item none of them has checked yet, right when the base inventory
+  refresh that discovered it completes — the only place a new item's
+  enrichment is ever fetched from now on. Guarded by
+  `TestEnrichNewMediaFetchesAllApplicableSourcesForANewItem` and
+  `TestEnrichNewMediaSkipsSourcesAlreadyChecked`.
+- Extending the same generation-race tolerance 0.4.6 gave `RefreshTMDB`
+  to `RefreshJellyfin`/`RefreshSeerr` too, since both were just as
+  exposed to the same discard-a-good-pass bug. Guarded by
+  `TestRefreshJellyfinDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass`
+  and `TestRefreshSeerrDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass`.
+- Fixing a related correctness bug this surfaced: `preserveTMDBFacts`/
+  `preserveJellyfinFacts`/`preserveSeerrFacts` used to carry cached facts
+  forward across a base refresh purely by stable key, even when an
+  item's TMDB/TVDB/IMDB id had genuinely changed underneath it (Radarr
+  re-matching a movie to a different TMDB entry) — silently keeping a
+  now-wrong title's rating/playback/request facts attached to the new
+  one. Fixed with a new `externalIDsChanged` check that clears cached
+  facts (and the corresponding `*EnrichedAt` timestamp) instead of
+  carrying them forward whenever the id actually changed. Guarded by
+  `TestPreserveTMDBFactsClearsRatingWhenMovieIsReMatchedToADifferentTMDBID`
+  and the equivalent Jellyfin/Seerr tests.
+
+## Next milestone: torrent valuation based on activity and history
+
+Design only — nothing below is implemented yet. This is the confirmed
+next body of work, ahead of the file explorer idea (deferred).
+
+### The problem
+
+`cleanup.rank()` (`internal/cleanup/plan.go`) always drains every
+torrent-domain candidate before it ever looks at a media-domain one —
+"Media Retention Value and Torrent Swarm Value are deliberately
+unrelated scores and are never compared numerically; only this tier
+order decides which domain is tried first" (0.2.11). In practice this
+means a torrent with a great ratio, actively useful to its swarm, gets
+removed before a movie nobody will ever watch, purely because of which
+domain it happens to be in — never because anyone actually compared the
+two.
+
+### Cross-domain comparison, scoped to one device
+
+Replace the strict tier order with a single unified ranking across both
+domains, gated by one new user setting: how much the user cares about
+their torrents relative to their media (a percentage; a 50% default was
+floated but is explicitly **not calibrated yet** — needs more thought
+before implementation, not a placeholder to ship as-is). That setting
+scales a new, fully computed Torrent Value onto the same comparable
+scale Media's Retention Value already uses, so the two can be sorted
+together.
+
+This comparison only ever makes sense between items on the *same*
+physical device — comparing a torrent's value against media sitting on
+an entirely different disk is meaningless. This already falls out for
+free: `cleanup.Build` is already called once per physical device, fed
+only that device's own media and torrents (grouped by the real
+`stat.Dev` number via `knownDeviceRoots`), so a unified ranking
+implemented inside that existing per-device scope never needs special
+handling for this — it's structurally impossible for it to compare
+across devices.
+
+### Torrent evaluation is entirely hardcoded — one dial, not a weights panel
+
+Unlike Media's `ValueWeights` (which stay user-editable), nothing about
+*how a torrent's own value is computed* is user-configurable. The goal
+is to establish what Connarr considers objectively true about a
+torrent's health, not what the user thinks makes one healthy — the only
+thing the user controls is the single relative-care percentage above.
+This retires the existing `TorrentValueWeights` (Seeds/Leechers/
+UploadRate) config surface entirely, superseded by this.
+
+Metrics feeding the hardcoded torrent value, all client-agnostic
+(`model.Torrent` fields any adapter can populate from whatever its own
+API exposes — none of this is qBittorrent-specific, since Connarr will
+eventually support other torrent clients too):
+
+- **Ratio** — cumulative, stable.
+- **Recency of real activity**, via `LastActivity` — the same shape as
+  Media's existing `LastWatchedAge`, not a live instantaneous speed
+  reading. Current upload/download speed was explicitly considered and
+  rejected: it depends entirely on what's happening at the exact instant
+  a calculation runs (peer availability, the user's own bandwidth,
+  time of day), not any lasting property of the torrent.
+- **Private tracker status** — static fact, but a meaningful one: losing
+  standing on a private tracker (ratio requirements, warnings, bans) has
+  real consequences a public-tracker torrent never faces.
+- **Seeds/leechers demand** — a high leecher:seeder ratio is a genuine
+  "other clients need this" signal, but only once confirmed *sustained*
+  over the monitoring history (see below), not from a single live
+  reading, which can be misleading during a stall or a temporary tracker
+  error.
+
+### A real history store, not live snapshots
+
+Every signal above (except the static ones) is derived from *sustained*
+history, not an instantaneous read — a new periodic task samples each
+torrent's key stats over time and persists them, so "has this been
+erroring for a week" replaces "is this erroring right now" everywhere
+it matters. SQLite (already `PRAGMA journal_mode=WAL` +
+`synchronous=NORMAL`, already using batched single-transaction writes
+for other bulk data — see `saveMedia`/`saveTorrents`) is confirmed
+sufficient for this: even a large single-user library sampled every
+15–30 minutes with a sane retention window lands at a few hundred
+thousand rows at most. The new table needs its own retention/pruning
+step (delete samples past the window on each cycle, so it never grows
+unbounded) and an index on torrent hash + timestamp for the "recent
+history for this torrent" query pattern the derived signals need.
+
+### Dead torrents: a flag, not a category, with its own removal trigger
+
+The same health-scan task is responsible for declaring a torrent Dead
+once its accumulated history meets hardcoded conditions (e.g. sustained
+tracker failure/drop over enough consecutive scans — exact thresholds
+TBD, but not user-configurable, consistent with the hardcoded-evaluation
+principle above). `Dead` is a new orthogonal boolean on `model.Torrent`,
+the same shape as `Protected`/`RemovalRestricted` sitting alongside
+`AssociationStatus` rather than replacing it — a torrent can be
+`Current`, hardlinked, and `Dead` all at once.
+
+A dead torrent's removal is **not** gated by storage pressure at all.
+`cleanup.Build` today only ever proposes anything once a device is over
+its target usage — a dead torrent sitting on a device with plenty of
+free space would never surface under that gate, but its removal was
+never about reclaiming needed space in the first place. This needs its
+own always-on trigger, firing at the moment the health scan marks a
+torrent `Dead`, independent of the per-device target/critical cycle.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.

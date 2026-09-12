@@ -140,6 +140,28 @@ func TestFreshJellyfinFactsReplaceRatherThanAccumulateCachedCounts(t *testing.T)
 	}
 }
 
+// TestPreserveJellyfinFactsSkipsWhenExternalIDsChanged mirrors the TMDB
+// case: if Radarr/Sonarr re-matches an item to a different external id,
+// Jellyfin's previous match was found using the *old* id and may no
+// longer even be correct, so it must not be carried forward.
+func TestPreserveJellyfinFactsSkipsWhenExternalIDsChanged(t *testing.T) {
+	enrichedAt := time.Now()
+	previous := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 111, Views: 4, Favorite: true, JellyfinEnrichedAt: enrichedAt}}
+	fresh := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 222}}
+	preserveJellyfinFacts(fresh, previous)
+	if fresh[0].Views != 0 || fresh[0].Favorite || !fresh[0].JellyfinEnrichedAt.IsZero() {
+		t.Fatalf("expected Jellyfin facts keyed to the old id to be dropped, got %+v", fresh[0])
+	}
+}
+
+func TestClearJellyfinFactsAlsoResetsEnrichedAt(t *testing.T) {
+	items := []model.Media{{Type: model.Movie, SourceID: 7, Favorite: true, JellyfinEnrichedAt: time.Now()}}
+	clearJellyfinFacts(items)
+	if !items[0].JellyfinEnrichedAt.IsZero() {
+		t.Fatalf("expected JellyfinEnrichedAt to be reset alongside the other facts: %+v", items[0])
+	}
+}
+
 func TestPreserveSeerrFactsUntilFreshEnrichmentSucceeds(t *testing.T) {
 	requestedAt := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
 	previous := []model.Media{{Type: model.Series, SourceID: 8, Requested: true, RequestedAt: &requestedAt}}
@@ -147,6 +169,24 @@ func TestPreserveSeerrFactsUntilFreshEnrichmentSucceeds(t *testing.T) {
 	preserveSeerrFacts(fresh, previous)
 	if !fresh[0].Requested || fresh[0].RequestedAt == nil || !fresh[0].RequestedAt.Equal(requestedAt) {
 		t.Fatalf("Seerr facts were not preserved: %+v", fresh[0])
+	}
+}
+
+func TestPreserveSeerrFactsSkipsWhenExternalIDsChanged(t *testing.T) {
+	requestedAt := time.Date(2026, 8, 20, 12, 0, 0, 0, time.UTC)
+	previous := []model.Media{{Type: model.Series, SourceID: 8, TVDBID: 111, Requested: true, RequestedAt: &requestedAt, SeerrEnrichedAt: requestedAt}}
+	fresh := []model.Media{{Type: model.Series, SourceID: 8, TVDBID: 222}}
+	preserveSeerrFacts(fresh, previous)
+	if fresh[0].Requested || fresh[0].RequestedAt != nil || !fresh[0].SeerrEnrichedAt.IsZero() {
+		t.Fatalf("expected Seerr facts keyed to the old id to be dropped, got %+v", fresh[0])
+	}
+}
+
+func TestClearSeerrFactsAlsoResetsEnrichedAt(t *testing.T) {
+	items := []model.Media{{Type: model.Series, SourceID: 8, Requested: true, SeerrEnrichedAt: time.Now()}}
+	clearSeerrFacts(items)
+	if !items[0].SeerrEnrichedAt.IsZero() {
+		t.Fatalf("expected SeerrEnrichedAt to be reset alongside the other facts: %+v", items[0])
 	}
 }
 
@@ -183,6 +223,28 @@ func TestPreserveTMDBFactsBackfillsResolvedSeriesIDButNeverOverridesRadarrs(t *t
 	}
 	if fresh[1].TMDBID != 222 {
 		t.Fatalf("expected Radarr's freshly-fetched TMDBID to win, got %d", fresh[1].TMDBID)
+	}
+}
+
+// TestPreserveTMDBFactsClearsRatingWhenMovieIsReMatchedToADifferentTMDBID
+// guards a real bug: preserveTMDBFacts used to carry forward
+// Rating/VoteCount/Popularity/TMDBEnrichedAt unconditionally whenever the
+// service:type:sourceID key matched, even if the item's TMDBID itself had
+// changed — meaning a movie Radarr re-matched to a different TMDB entry
+// would keep showing the *previous* entry's rating/popularity, computed
+// for a different title entirely, until its next scheduled TMDB refresh
+// (up to 24h away). The correct behavior is to drop the cached facts
+// immediately so EnrichNewMedia (which checks TMDBEnrichedAt.IsZero())
+// picks this item up for an atomic re-fetch on the very next cycle.
+func TestPreserveTMDBFactsClearsRatingWhenMovieIsReMatchedToADifferentTMDBID(t *testing.T) {
+	previous := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 111, TMDBRating: 8.2, Popularity: 99, TMDBEnrichedAt: time.Now()}}
+	fresh := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 222}}
+	preserveTMDBFacts(fresh, previous)
+	if fresh[0].TMDBID != 222 {
+		t.Fatalf("expected Radarr's freshly-fetched TMDBID to win, got %d", fresh[0].TMDBID)
+	}
+	if fresh[0].TMDBRating != 0 || fresh[0].Popularity != 0 || !fresh[0].TMDBEnrichedAt.IsZero() {
+		t.Fatalf("expected rating/popularity computed for the old TMDBID to be dropped, not carried onto the new one: %+v", fresh[0])
 	}
 }
 
@@ -238,11 +300,11 @@ func TestRefreshTMDBToleratesPerItemFailureWithoutErasingPriorData(t *testing.T)
 	}
 }
 
-// TestNeedsTMDBEnrichment guards the selection rule EnrichNewTMDBItems
-// uses to pick out newly discovered media for an immediate fetch instead
-// of waiting for RefreshTMDB's next scheduled pass: never-enriched items
-// with an external id are eligible; already-enriched items and items with
-// no TMDB/TVDB id to look up at all are not.
+// TestNeedsTMDBEnrichment guards the selection rule EnrichNewMedia uses to
+// pick out newly discovered media for an immediate fetch instead of
+// waiting for RefreshTMDB's next scheduled pass: never-checked items with
+// an external id are eligible; already-checked items and items with no
+// TMDB/TVDB id to look up at all are not.
 func TestNeedsTMDBEnrichment(t *testing.T) {
 	if !needsTMDBEnrichment(model.Media{TMDBID: 42}) {
 		t.Fatal("a never-enriched movie with a TMDBID should need enrichment")
@@ -258,14 +320,20 @@ func TestNeedsTMDBEnrichment(t *testing.T) {
 	}
 }
 
-func TestEnrichmentFingerprintIgnoresStorageAndTorrentChanges(t *testing.T) {
-	a := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 42, SizeBytes: 100, Path: "/old/movie.mkv"}}
-	b := []model.Media{{Type: model.Movie, SourceID: 7, TMDBID: 42, SizeBytes: 0, Path: "/new/location"}}
-	if mediaEnrichmentFingerprint(a) != mediaEnrichmentFingerprint(b) {
-		t.Fatal("storage-only change incorrectly invalidated media enrichment")
+// TestNeedsJellyfinAndSeerrEnrichment guards their EnrichedAt-only
+// selection: unlike TMDB, neither requires an external id up front —
+// whether a match exists at all is exactly what checking finds out.
+func TestNeedsJellyfinAndSeerrEnrichment(t *testing.T) {
+	if !needsJellyfinEnrichment(model.Media{}) {
+		t.Fatal("a never-checked item should need Jellyfin enrichment")
 	}
-	b = append(b, model.Media{Type: model.Series, SourceID: 8, TVDBID: 99})
-	if mediaEnrichmentFingerprint(a) == mediaEnrichmentFingerprint(b) {
-		t.Fatal("media-set change did not invalidate enrichment")
+	if needsJellyfinEnrichment(model.Media{JellyfinEnrichedAt: time.Now()}) {
+		t.Fatal("an already-checked item should not need enrichment again")
+	}
+	if !needsSeerrEnrichment(model.Media{}) {
+		t.Fatal("a never-checked item should need Seerr enrichment")
+	}
+	if needsSeerrEnrichment(model.Media{SeerrEnrichedAt: time.Now()}) {
+		t.Fatal("an already-checked item should not need enrichment again")
 	}
 }

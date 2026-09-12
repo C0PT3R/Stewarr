@@ -243,9 +243,22 @@ type Media struct {
 	UniqueViewers int        `json:"uniqueViewers"`
 	LastWatched   *time.Time `json:"lastWatched,omitempty"`
 	Favorite      bool       `json:"favorite"`
+	// JellyfinEnrichedAt is when Views/UniqueViewers/LastWatched/Favorite
+	// were last confirmed against Jellyfin for this specific item — set
+	// after every successful Apply() call this item was included in
+	// (Jellyfin's own pass is all-or-nothing, unlike TMDB's per-item
+	// fetches, so a successful call means every item it covered was
+	// checked, whether or not Jellyfin actually had a match for it). Zero
+	// means never yet checked — see EnrichNewMedia in
+	// internal/inventory/service.go, which fetches a newly discovered (or
+	// re-identified) item's enrichment immediately rather than waiting for
+	// RefreshJellyfin's next scheduled pass.
+	JellyfinEnrichedAt time.Time `json:"jellyfinEnrichedAt,omitempty"`
 
 	Requested   bool       `json:"requested"`
 	RequestedAt *time.Time `json:"requestedAt,omitempty"`
+	// SeerrEnrichedAt mirrors JellyfinEnrichedAt for Requested/RequestedAt.
+	SeerrEnrichedAt time.Time `json:"seerrEnrichedAt,omitempty"`
 
 	// TMDBRating/TMDBVoteCount are TMDB's own rating data, populated by TMDB
 	// enrichment when configured. They are deliberately separate from
