@@ -1,20 +1,38 @@
 # Stewarr
 
-> **0.2.10 storage devices:** There is no configured global storage path. Stewarr derives known storage devices from the roots each service already discovers on its own, and Home shows one usage graphic per device broken down by which service's files occupy it.
-
-> **0.2.9 scheduler rewrite:** Background and mutation work now runs on a durable, domain-neutral engine with trigger/execution identity, coverage-aware coalescing, resource arbitration, and workflow-driven post-removal consistency. See `Scheduler-Spec.md` for the full contract.
-
-> **0.2.8 relationship and removal clarity:** Proven physical backing promotes a torrent to Current, and media removal presents the complete Current/Superseded set without exposing the physical graph as the primary interface.
-
 > **Your media stack, together.**
 
 Stewarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Retention Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
 
 Stewarr does not try to replace the applications it integrates with. Services provide facts; Stewarr provides context across them.
 
+> **Status:** Stewarr is a work in progress. Core flows (inventory, removal planning, storage accounting) are functional and used daily, but interfaces and configuration may still change between releases. See `CHANGELOG.md` for release history and `ROADMAP.md` for planned direction.
+
+## Quickstart
+
+```yaml
+services:
+  stewarr:
+    build: https://github.com/C0PT3R/stewarr.git
+    container_name: stewarr
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./config:/config
+      - /mnt/media:/data
+```
+
+1. Create a `config` directory next to your compose file, writable by the UID/GID you run the container as.
+2. Copy [`config.example.json`](config.example.json) into it as `config.json` and fill in your services' URLs and API keys.
+3. `docker compose up -d`, then open `http://<host>:8088`.
+
+See [Configuration](#configuration) and [Docker](#docker) below for details.
+
 ## Current version
 
-`0.2.10`
+`0.4.8`
 
 There is no configured global storage path. Stewarr derives its known
 storage devices from the roots each service already discovers on its
@@ -86,6 +104,10 @@ hardlinks remain preserved, keep reclaimability at zero, and are reported
 explicitly.
 
 A Torrent may be **Unassociated** with managed Media while its files remain claimed by qBittorrent. `Unassociated` is therefore a Torrent provenance state. `Unmanaged` means only that Stewarr currently knows no owner claim; it is neither ownership nor deletion authority.
+
+Manual removal operates on owner-backed managed files rather than deleting Radarr/Sonarr Media objects. Movies normally collapse to one managed-file action; series can be selected by season/episode-file groups. Torrent-originated plans only expose managed-file actions when Stewarr can prove the file correspondence. Manual managed-file removal can optionally unmonitor affected Radarr movies or Sonarr episodes; monitoring is otherwise left unchanged.
+
+Because removal deletes files through Radarr/Sonarr's own file-delete API rather than deleting the Movie/Series record, an emptied series or movie folder is left on disk until Radarr/Sonarr cleans it up themselves. Enable **Settings → Media Management → Delete empty folders** in Radarr/Sonarr so they remove now-empty folders as part of that same file-delete call; otherwise Jellyfin (or any other library scanner) keeps indexing the leftover empty folder.
 
 ## Persistent state
 
@@ -310,36 +332,10 @@ Stewarr began as a storage-pressure cleanup experiment called **Spartarr**. Its 
 
 Spartarr discovered the problem. Togetharr broadened the purpose. Stewarr is the current name.
 
-
 ### Data loading policy
 
 Stewarr keeps routine inventory refreshes and its durable SQLite model deliberately small. List/index data, provenance, relationships, valuation inputs, sync cursors, and expensive reconciliation results are retained; cheap source-owned diagnostics are lazy-loaded on detail pages. Torrent detail pages now fetch full qBittorrent diagnostics on demand instead of relying on persisted copies. Media with no files remain part of the media model but are hidden from Library by default; use **Show media with no files** to include them.
 
+## License
 
-
-## 0.1.11 media relationship/UI corrections
-
-- Media detail pages receive torrent relationships bidirectionally from both current and historical provenance. Superseded and formerly related torrents therefore appear on the media they previously backed.
-- Historical torrents are visible context only for media Retention Value; torrent activity contributes only from current, physically hardlinked torrents.
-- The Torrents table shows historical media for superseded or formerly related torrents instead of an unexplained dash when provenance is known.
-- The media detail page was compacted into a denser profile layout with summary panels followed by full-width Files and Torrents sections.
-
-## 0.1.10 UI
-Media detail pages group torrent relationships into current, superseded, and unassociated sections, with former relationships identified as historical context and release names shown as the primary identifier.
-
-## 0.1.13 File topology
-
-- File is now the storage bridge between Media and Torrent ownership.
-- Same physical data is derived from filesystem device+inode identity and exposed on media/torrent detail pages.
-- Media pages show the storage effect of unlinking media files alone versus media plus current torrent files.
-- Torrent pages show the storage effect of unlinking torrent files.
-- Torrent reclaimability now uses the reconciled File topology; the old per-torrent directory-walking inspector was removed.
-- Normal inventory refresh therefore reuses the latest File reconciliation snapshot and does not perform storage walks for torrent reclaimability.
-
-### Managed-file removal
-
-Manual removal now operates on owner-backed managed files rather than deleting Radarr/Sonarr Media objects. Movies normally collapse to one managed-file action; series can be selected by season/episode-file groups. Torrent-originated plans only expose managed-file actions when Stewarr can prove the file correspondence.
-
-Manual managed-file removal can optionally unmonitor affected Radarr movies or Sonarr episodes; monitoring is otherwise left unchanged.
-
-Because removal deletes files through Radarr/Sonarr's own file-delete API rather than deleting the Movie/Series record, an emptied series or movie folder is left on disk until Radarr/Sonarr cleans it up themselves. Enable **Settings → Media Management → Delete empty folders** in Radarr/Sonarr so they remove now-empty folders as part of that same file-delete call; otherwise Jellyfin (or any other library scanner) keeps indexing the leftover empty folder.
+MIT — see [`LICENSE`](LICENSE).
