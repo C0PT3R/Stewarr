@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"connarr/internal/cleanup"
-	"connarr/internal/inventory"
-	"connarr/internal/model"
-	"connarr/internal/product"
-	"connarr/internal/tasks"
+	"stewarr/internal/cleanup"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
+	"stewarr/internal/product"
+	"stewarr/internal/tasks"
 )
 
 // elementID turns an arbitrary stable key (a device's representative path)

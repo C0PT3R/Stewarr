@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"connarr/internal/model"
-	"connarr/internal/removal"
+	"stewarr/internal/model"
+	"stewarr/internal/removal"
 )
 
 type relatedRemovalTorrent struct {
@@ -955,7 +955,7 @@ func (server *Server) buildMediaRemovalPlan(kind model.MediaType, id int, servic
 	contextByHash := map[string]relatedRemovalTorrent{}
 	if mediaItem != nil {
 		for _, torrent := range mediaItem.Torrents {
-			// Every torrent Connarr has ever related to this media — Current,
+			// Every torrent Stewarr has ever related to this media — Current,
 			// Superseded, or Orphaned — is disclosed and selectable here, so
 			// removing the media can also clean up its old releases in one
 			// action. Only a torrent with no relationship to this media at all

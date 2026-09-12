@@ -3,11 +3,11 @@ package cleanup
 import (
 	"testing"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 func TestBuildUnavailableStorage(t *testing.T) {
-	p, err := Build("/definitely/not/a/connarr/storage/path", 90, 95, nil, nil, true)
+	p, err := Build("/definitely/not/a/stewarr/storage/path", 90, 95, nil, nil, true)
 	if err == nil {
 		t.Fatal("expected storage probe error")
 	}

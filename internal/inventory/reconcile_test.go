@@ -1,10 +1,10 @@
 package inventory
 
 import (
-	"connarr/internal/config"
 	"context"
 	"os"
 	"path/filepath"
+	"stewarr/internal/config"
 	"testing"
 )
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 func TestApplyDoesNotCrossMovieAndSeriesProviderNamespaces(t *testing.T) {

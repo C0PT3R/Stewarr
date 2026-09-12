@@ -67,10 +67,10 @@ type RemovalConfig struct {
 	// submission.
 	AutoMode string `json:"auto_mode"`
 	// AutoRemoveUnassociatedTorrents gates automatic removal of torrents
-	// Connarr has no owning-media relationship for. Defaults to false: an
+	// Stewarr has no owning-media relationship for. Defaults to false: an
 	// Unassociated torrent may simply be something the user downloaded
 	// through that client for their own purposes, or from a service
-	// Connarr doesn't track — automatic removal has no basis to judge those
+	// Stewarr doesn't track — automatic removal has no basis to judge those
 	// are safe to delete unattended, unlike a torrent it can prove is
 	// Superseded or an independent copy of managed media. This gate is
 	// separate from and in addition to Service.AllowAutomaticRemoval: that

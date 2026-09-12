@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 // TestAggregateSeasonsUsesAirDateNotImportDate guards the fix for a real
-// ranking bug: season recency used to come from AddedAt (when Connarr's
+// ranking bug: season recency used to come from AddedAt (when Stewarr's
 // library imported the file), which barely varies for a show backfilled
 // all at once — letting unrelated noise decide which season looked "most
 // recent." LastAiredAt now comes from each episode's own broadcast date

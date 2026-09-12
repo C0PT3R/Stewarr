@@ -6,7 +6,7 @@ import (
 	"strings"
 	"syscall"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 // ActionKind distinguishes the three shapes a cleanup candidate can take.

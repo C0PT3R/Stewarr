@@ -5,12 +5,12 @@
 package tmdb
 
 import (
-	"connarr/internal/model"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"stewarr/internal/model"
 	"sync"
 	"time"
 )

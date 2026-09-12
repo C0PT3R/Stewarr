@@ -1,7 +1,7 @@
 services:
-  connarr:
+  stewarr:
     build: .
-    container_name: connarr
+    container_name: stewarr
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     environment:

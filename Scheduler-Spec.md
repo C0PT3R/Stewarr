@@ -1,6 +1,6 @@
-# Connarr Scheduler Specification
+# Stewarr Scheduler Specification
 
-Status: implemented in `internal/tasks` and composed by `cmd/connarr/main.go`
+Status: implemented in `internal/tasks` and composed by `cmd/stewarr/main.go`
 and the removal admission path in `internal/httpui`. Core policy confirmed and
 built 2026-08-29. `internal/tasks/manager_test.go` exercises every mandatory
 acceptance test in section 14 under an injected clock, and no legacy manager,
@@ -13,7 +13,7 @@ Confirmed policy decisions:
   coalesced successor.
 - At the five-minute dirty deadline, consistency restoration temporarily
   precedes new ordinary removals.
-- After an interrupted removal, Connarr verifies external state before resuming
+- After an interrupted removal, Stewarr verifies external state before resuming
   only demonstrably incomplete, safe/idempotent actions; unknowable outcomes
   require attention.
 - Downtime produces at most one catch-up execution per periodic task.
@@ -86,7 +86,7 @@ A trigger is a request that work become true. It has:
 Submission returns the trigger ID and its disposition. Coalescing names the
 surviving trigger or execution.
 
-Connarr's default durability is:
+Stewarr's default durability is:
 
 - mutation, consistency-workflow, and accepted manual triggers are durable;
 - startup and periodic ticks are ephemeral and reconstructible;
@@ -302,7 +302,7 @@ Durable work is committed before the caller is told it was accepted. After
 that commit, its lifetime belongs to the application context, never to the HTTP
 request context.
 
-## 11. Connarr composition requirements
+## 11. Stewarr composition requirements
 
 These are application declarations built on the generic engine, not scheduler
 special cases.

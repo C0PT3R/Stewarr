@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 type identity struct {

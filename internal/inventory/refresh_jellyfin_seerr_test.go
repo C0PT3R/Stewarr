@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/jellyfin"
-	"connarr/internal/integrations/seerr"
-	"connarr/internal/model"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/jellyfin"
+	"stewarr/internal/integrations/seerr"
+	"stewarr/internal/model"
 )
 
 // TestRefreshJellyfinDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass

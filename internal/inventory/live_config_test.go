@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"connarr/internal/config"
+	"stewarr/internal/config"
 )
 
 func TestAddServicePersistsAndActivatesLiveWithoutConfigPath(t *testing.T) {

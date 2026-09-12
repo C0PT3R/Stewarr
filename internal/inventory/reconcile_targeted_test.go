@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"connarr/internal/config"
-	"connarr/internal/model"
-	"connarr/internal/store"
+	"stewarr/internal/config"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
 )
 
 func TestRefreshTargetedPathsExpandsAndRestatsHardlinkPeers(t *testing.T) {

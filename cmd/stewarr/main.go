@@ -8,22 +8,21 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
 
-	"connarr/internal/applog"
-	"connarr/internal/config"
-	"connarr/internal/httpui"
-	"connarr/internal/inventory"
-	"connarr/internal/product"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/applog"
+	"stewarr/internal/config"
+	"stewarr/internal/httpui"
+	"stewarr/internal/inventory"
+	"stewarr/internal/product"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 const (
-	databasePath               = "/config/state/connarr.db"
+	databasePath               = "/config/state/inventory.db"
 	logDirectory               = "/config/log"
 	logRetentionDays           = 10
 	fileReconcileInterval      = 12 * time.Hour
@@ -37,57 +36,12 @@ const (
 	enrichmentRemovalCooldown = 30 * time.Minute
 )
 
-var legacyDatabasePaths = []string{
-	"/config/state/togetharr.db",
-	"/config/state/spartarr.db",
-}
-
-func migrateLegacyDatabase() error {
-	return migrateLegacyDatabaseAt(databasePath, legacyDatabasePaths...)
-}
-
-func migrateLegacyDatabaseAt(destination string, candidates ...string) error {
-	if _, err := os.Stat(destination); err == nil {
-		return nil
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	var source string
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			source = candidate
-			break
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	if source == "" {
-		return nil
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o775); err != nil {
-		return err
-	}
-	if err := os.Rename(source, destination); err != nil {
-		return err
-	}
-	for _, suffix := range []string{"-wal", "-shm"} {
-		oldp := source + suffix
-		newp := destination + suffix
-		if _, err := os.Stat(oldp); err == nil {
-			_ = os.Rename(oldp, newp)
-		}
-	}
-	log.Printf("[app] migrated legacy database %s to %s", source, destination)
-	return nil
-}
-
 func main() {
 	configPath := flag.String("config", "/config/config.json", "path to config file")
 	flag.Parse()
-	applicationLog, err := applog.OpenDaily(logDirectory, "connarr", logRetentionDays, time.Now)
+	applicationLog, err := applog.OpenDaily(logDirectory, "stewarr", logRetentionDays, time.Now)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Connarr cannot start without its persistent application log: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Stewarr cannot start without its persistent application log: %v\n", err)
 		os.Exit(1)
 	}
 	defer applicationLog.Close()
@@ -105,9 +59,6 @@ func main() {
 		log.Fatalf("[app] config: %v", err)
 	}
 
-	if err := migrateLegacyDatabase(); err != nil {
-		log.Fatalf("[app] database migration: %v", err)
-	}
 	db, err := store.Open(databasePath)
 	if err != nil {
 		log.Fatalf("[app] database: %v", err)
@@ -120,7 +71,7 @@ func main() {
 	go func() {
 		select {
 		case loggingError := <-applicationLog.Errors():
-			fmt.Fprintf(os.Stderr, "Connarr is stopping because its mandatory application log failed: %v\n", loggingError)
+			fmt.Fprintf(os.Stderr, "Stewarr is stopping because its mandatory application log failed: %v\n", loggingError)
 			cancel()
 		case <-ctx.Done():
 		}
@@ -227,7 +178,7 @@ func main() {
 	cancel()
 	<-taskManager.Done()
 	if loggingError := applicationLog.Err(); loggingError != nil {
-		fmt.Fprintf(os.Stderr, "Connarr terminated after mandatory application log failure: %v\n", loggingError)
+		fmt.Fprintf(os.Stderr, "Stewarr terminated after mandatory application log failure: %v\n", loggingError)
 		os.Exit(1)
 	}
 	if runError != nil {

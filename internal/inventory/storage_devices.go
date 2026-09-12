@@ -7,15 +7,15 @@ import (
 	"strings"
 	"syscall"
 
-	"connarr/internal/model"
-	"connarr/internal/storagecap"
+	"stewarr/internal/model"
+	"stewarr/internal/storagecap"
 )
 
 // StorageDevice reports one physical storage device known from the last file
 // reconciliation's service-discovered roots, with real filesystem usage
-// alongside Connarr's own attribution of claimed bytes by service. The
+// alongside Stewarr's own attribution of claimed bytes by service. The
 // two are kept separate rather than forced to agree: OtherBytes is whatever
-// real usage Connarr's claims do not account for, preserved as Unknown
+// real usage Stewarr's claims do not account for, preserved as Unknown
 // rather than guessed away.
 type StorageDevice struct {
 	Filesystem         string
@@ -104,7 +104,7 @@ func (service *Service) deviceGroups() (groups map[uint64]*deviceGroup, order []
 }
 
 // StorageDevices reports one entry per physical device, with real filesystem
-// usage and Connarr's own attribution of claimed bytes by service.
+// usage and Stewarr's own attribution of claimed bytes by service.
 func (service *Service) StorageDevices() []StorageDevice {
 	groups, order, files, mediaRefs, torrentRefs := service.deviceGroups()
 	if len(groups) == 0 {

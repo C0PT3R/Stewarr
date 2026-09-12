@@ -52,7 +52,7 @@
             </select>
             <span class="muted">Disabled: the evaluation never runs. Confirm: it evaluates candidates on schedule but never submits anything — review and remove them yourself. Auto: it submits them on its own. Each service also needs "Allow automatic removal" checked in its own settings before anything it owns is touched.</span>
           </label>
-          <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}><span>Also remove torrents with no known owner<span class="muted">Off by default: Connarr has no relationship to judge these safe to delete unattended.</span></span></label>
+          <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}><span>Also remove torrents with no known owner<span class="muted">Off by default: Stewarr has no relationship to judge these safe to delete unattended.</span></span></label>
           <label class="toggle"><input type="checkbox" name="dry_run" {{if .DryRun}}checked{{end}}><span>Dry run<span class="muted">Simulates every removal, manual or automatic, without deleting anything. Turn this off once you trust what's being selected.</span></span></label>
         </div>
         <button type="submit">Save</button>

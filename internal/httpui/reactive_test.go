@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/model"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 func TestRevisionHubDeliversNewestInvalidation(t *testing.T) {

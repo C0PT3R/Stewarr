@@ -11,17 +11,17 @@ RUN npm --prefix internal/httpui/static/src ci
 RUN npm --prefix internal/httpui/static/src run typecheck
 RUN go run ./tools/buildassets
 RUN go test ./...
-RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/connarr ./cmd/connarr
+RUN CGO_ENABLED=1 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/stewarr ./cmd/stewarr
 
 FROM alpine:3.22
 RUN apk add --no-cache sqlite-libs tzdata \
-    && addgroup -g 1000 -S connarr \
-    && adduser -u 1000 -S -G connarr connarr \
+    && addgroup -g 1000 -S stewarr \
+    && adduser -u 1000 -S -G stewarr stewarr \
     && mkdir -p /config/state \
-    && chown -R connarr:connarr /config
+    && chown -R stewarr:stewarr /config
 WORKDIR /app
-COPY --from=build /out/connarr /usr/local/bin/connarr
+COPY --from=build /out/stewarr /usr/local/bin/stewarr
 USER 1000:1000
 EXPOSE 8088
-ENTRYPOINT ["connarr"]
+ENTRYPOINT ["stewarr"]
 CMD ["-config", "/config/config.json"]

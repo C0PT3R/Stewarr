@@ -5,8 +5,7 @@ Makefile
 README.md
 ROADMAP.md
 VERSION
-cmd/connarr/main.go
-cmd/connarr/main_test.go
+cmd/stewarr/main.go
 config.example.json
 docker-compose.yml
 go.mod

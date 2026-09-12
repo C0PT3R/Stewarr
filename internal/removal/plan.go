@@ -116,7 +116,7 @@ func Build(kind ObjectKind, key, label string, dryRun bool, candidates []Candida
 
 		stat, identityAvailable := fileInfo.Sys().(*syscall.Stat_t)
 		if !identityAvailable {
-			// Without physical identity, Connarr cannot determine whether another
+			// Without physical identity, Stewarr cannot determine whether another
 			// path references this File. Count a selected existing File once.
 			if candidate.Selected {
 				plan.SelectedPathBytes += fileState.SizeBytes

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
 )
 
 func TestEditServiceEndToEndOverHTTP(t *testing.T) {

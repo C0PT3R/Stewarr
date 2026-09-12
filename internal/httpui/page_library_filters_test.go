@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 // TestLibraryTemplateShowsEmptyStateWithoutMediaLibrary guards the same

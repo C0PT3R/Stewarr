@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"connarr/internal/config"
-	"connarr/internal/model"
+	"stewarr/internal/config"
+	"stewarr/internal/model"
 )
 
 func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T) {

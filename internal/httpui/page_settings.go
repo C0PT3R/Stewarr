@@ -3,8 +3,8 @@ package httpui
 import (
 	"net/http"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/tmdb"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/tmdb"
 )
 
 type settingsPageData struct {

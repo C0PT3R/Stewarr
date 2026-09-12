@@ -16,11 +16,11 @@ import (
 	"syscall"
 	"time"
 
-	"connarr/internal/inventory"
-	"connarr/internal/model"
-	"connarr/internal/removal"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
+	"stewarr/internal/removal"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 func selectedUnmanagedStates(plan removal.RemovalPlan, paths []string) []removal.FileState {
@@ -212,7 +212,7 @@ type removalAdmission struct {
 	DryRun bool
 }
 
-// admitRemoval validates only identifiers against Connarr's published state.
+// admitRemoval validates only identifiers against Stewarr's published state.
 // Filesystem topology and owner state are intentionally revalidated inside the
 // scheduler's exclusive execution boundary, not on the browser request.
 func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
@@ -629,7 +629,7 @@ func (server *Server) executeRemovalNowContext(w http.ResponseWriter, r *http.Re
 		}
 	}
 	auditRemovalComplete(historyID, status, d, len(results), len(errs))
-	if r.Header.Get("X-Connarr-Overlay") == "1" {
+	if r.Header.Get("X-Stewarr-Overlay") == "1" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": status, "dryRun": dry, "results": results, "errors": errs})
 		return

@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"log"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/jellyfin"
-	"connarr/internal/integrations/qbittorrent"
-	"connarr/internal/integrations/radarr"
-	"connarr/internal/integrations/seerr"
-	"connarr/internal/integrations/sonarr"
-	"connarr/internal/integrations/tmdb"
-	"connarr/internal/valuation"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/jellyfin"
+	"stewarr/internal/integrations/qbittorrent"
+	"stewarr/internal/integrations/radarr"
+	"stewarr/internal/integrations/seerr"
+	"stewarr/internal/integrations/sonarr"
+	"stewarr/internal/integrations/tmdb"
+	"stewarr/internal/valuation"
 )
 
 // AddService is the first slice of live config editing: validate a new

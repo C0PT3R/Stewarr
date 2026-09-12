@@ -22,5 +22,5 @@ export function decodeModel<T = unknown>(encoded: string | undefined): T {
 }
 
 export function dispatchRevision(detail: Record<string, unknown>): void {
-  document.dispatchEvent(new CustomEvent("connarr:revision", { detail }));
+  document.dispatchEvent(new CustomEvent("stewarr:revision", { detail }));
 }

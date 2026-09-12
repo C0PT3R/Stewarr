@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"connarr/internal/cleanup"
-	"connarr/internal/inventory"
-	"connarr/internal/store"
+	"stewarr/internal/cleanup"
+	"stewarr/internal/inventory"
+	"stewarr/internal/store"
 )
 
 func (server *Server) apiMedia(w http.ResponseWriter, r *http.Request) {

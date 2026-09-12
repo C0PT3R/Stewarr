@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/model"
+	"stewarr/internal/config"
+	"stewarr/internal/model"
 )
 
 func daysSince(timestamp time.Time) float64 { return time.Since(timestamp).Hours() / 24 }

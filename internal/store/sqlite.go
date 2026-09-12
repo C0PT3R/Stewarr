@@ -19,7 +19,7 @@ import (
 	"time"
 	"unsafe"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 type Store struct {
@@ -381,7 +381,7 @@ func (s *Store) saveTorrents(items []model.Torrent) error {
 	defer C.sqlite3_finalize(st)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, p := range items {
-		// Persist only the torrent index Connarr needs for lists, valuation,
+		// Persist only the torrent index Stewarr needs for lists, valuation,
 		// relationships and storage work. Client-owned diagnostics are lazy.
 		p.Tracker = ""
 		p.TotalSizeBytes = 0

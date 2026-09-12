@@ -1,4 +1,4 @@
-// Package applog provides Connarr's mandatory persistent application log.
+// Package applog provides Stewarr's mandatory persistent application log.
 package applog
 
 import (

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
 )
 
 // consistencyWorkflowInstanceID identifies the single global workflow
@@ -49,7 +49,7 @@ type serviceTypeOption struct {
 	Value, Label string
 }
 
-// allServiceTypes is every adapter Connarr currently supports, in the
+// allServiceTypes is every adapter Stewarr currently supports, in the
 // order they've always been presented — the default when no category
 // narrows the list (e.g. opened from the Services page directly).
 var allServiceTypes = []serviceTypeOption{

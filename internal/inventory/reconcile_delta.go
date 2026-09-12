@@ -9,12 +9,12 @@ import (
 	"strings"
 	"sync"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/qbittorrent"
-	"connarr/internal/integrations/radarr"
-	"connarr/internal/integrations/sonarr"
-	"connarr/internal/model"
-	"connarr/internal/store"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/qbittorrent"
+	"stewarr/internal/integrations/radarr"
+	"stewarr/internal/integrations/sonarr"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
 )
 
 // inventoryDelta is the set of media/torrent identities whose base-catalog

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"connarr/internal/inventory"
-	"connarr/internal/model"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
 )
 
 type torrentData struct {

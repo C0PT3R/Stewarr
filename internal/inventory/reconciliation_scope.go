@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"connarr/internal/model"
-	"connarr/internal/tasks"
+	"stewarr/internal/model"
+	"stewarr/internal/tasks"
 )
 
 const reconciliationScopeKey = "inventory.reconciliation.scope.v1"

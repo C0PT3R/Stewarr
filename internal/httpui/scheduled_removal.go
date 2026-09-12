@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"connarr/internal/inventory"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/inventory"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 const removalTaskID = "removal-operation"
@@ -121,7 +121,7 @@ func (server *Server) runScheduledRemoval(schedulerContext context.Context, payl
 	form.Set("_history_id", strconv.FormatInt(command.HistoryID, 10))
 	server.publishUIChange("operation-started")
 	request := &http.Request{Method: http.MethodPost, Form: form, Header: make(http.Header)}
-	request.Header.Set("X-Connarr-Overlay", "1")
+	request.Header.Set("X-Stewarr-Overlay", "1")
 	operationContext, cancel := context.WithTimeout(schedulerContext, 30*time.Minute)
 	defer cancel()
 	response := &capturedResponse{}

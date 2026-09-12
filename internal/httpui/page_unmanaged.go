@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 type unmanagedFileGroup struct {
@@ -167,7 +167,7 @@ func (server *Server) scanUnmanagedNow(w http.ResponseWriter, r *http.Request) {
 	} else {
 		err = server.inv.ScanUnmanaged(r.Context())
 	}
-	if r.Header.Get("X-Connarr-Scan") == "1" {
+	if r.Header.Get("X-Stewarr-Scan") == "1" {
 		w.Header().Set("Content-Type", "application/json")
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)

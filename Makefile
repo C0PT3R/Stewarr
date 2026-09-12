@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 REMOTE ?= user@your-server
-REMOTE_DIR ?= ./servarr/connarr
+REMOTE_DIR ?= ./servarr/stewarr
 
 .PHONY: build run fmt test test-browser deploy logs assets typecheck
 
@@ -20,10 +20,10 @@ assets: typecheck
 	go run ./tools/buildassets
 
 build: assets
-	go build ./cmd/connarr
+	go build ./cmd/stewarr
 
 run: assets
-	go run ./cmd/connarr -config ./config.json
+	go run ./cmd/stewarr -config ./config.json
 
 fmt:
 	gofmt -w ./cmd ./internal ./tools
@@ -43,4 +43,4 @@ deploy: assets
 	ssh $(REMOTE) 'cd $(REMOTE_DIR) && PUID=$$(id -u) PGID=$$(id -g) docker compose up -d --build'
 
 logs:
-	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f connarr'
+	ssh $(REMOTE) 'cd $(REMOTE_DIR) && docker compose logs -f stewarr'

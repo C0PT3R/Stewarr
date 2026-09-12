@@ -34,7 +34,7 @@ interface PhysicalGroup {
 }
 
 interface ModalRoot extends HTMLElement {
-  _connarrOpener?: HTMLElement;
+  _stewarrOpener?: HTMLElement;
 }
 
 export class RemovalController extends window.Stimulus.Controller {
@@ -88,7 +88,7 @@ export class RemovalController extends window.Stimulus.Controller {
   cancel(): void {
     if (this.busy) return;
     const root = document.getElementById("modal-root") as ModalRoot | null;
-    const opener = root?._connarrOpener;
+    const opener = root?._stewarrOpener;
     root?.replaceChildren();
     document.body.classList.remove("modal-open");
     if (opener && document.contains(opener)) opener.focus();
@@ -280,7 +280,7 @@ export class RemovalController extends window.Stimulus.Controller {
       const response = await fetch(this.executeTarget.action, {
         method: "POST",
         body: new FormData(this.executeTarget),
-        headers: { "Accept": "application/json", "X-Connarr-Overlay": "1" }
+        headers: { "Accept": "application/json", "X-Stewarr-Overlay": "1" }
       });
       const responseText = await response.text();
       let body: { error?: string; message?: string } = {};
@@ -289,7 +289,7 @@ export class RemovalController extends window.Stimulus.Controller {
       const label = this.element.querySelector("#removal-title")?.nextElementSibling?.textContent?.trim() || "Removal";
       this.cancelAfterAcceptance();
       announce(`${label} queued for removal.`);
-      document.dispatchEvent(new CustomEvent("connarr:mutation-accepted", { detail: body }));
+      document.dispatchEvent(new CustomEvent("stewarr:mutation-accepted", { detail: body }));
     } catch (error) {
       this.busy = false;
       this.submitButtonTarget.textContent = this.model.dryRun ? "Simulate" : "Remove selected";

@@ -17,12 +17,12 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/model"
-	"connarr/internal/removal"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
+	"stewarr/internal/removal"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 // loginForTest drives a server's real first-run setup flow (POST /setup)
@@ -59,7 +59,7 @@ func TestRemovalSubmissionParsesBrowserMultipartForm(t *testing.T) {
 	if err := formWriter.Close(); err != nil {
 		t.Fatal(err)
 	}
-	request := httptest.NewRequest(http.MethodPost, "http://connarr.local/removal/execute", &body)
+	request := httptest.NewRequest(http.MethodPost, "http://stewarr.local/removal/execute", &body)
 	request.Header.Set("Content-Type", formWriter.FormDataContentType())
 	response := httptest.NewRecorder()
 	if err := parseRemovalForm(response, request); err != nil {
@@ -209,8 +209,8 @@ func containsString(values []string, want string) bool {
 
 func TestCrossOriginWriteIsRejected(t *testing.T) {
 	h := sameOriginWrites(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
-	r := httptest.NewRequest(http.MethodPost, "http://connarr.local/removal/execute", nil)
-	r.Host = "connarr.local"
+	r := httptest.NewRequest(http.MethodPost, "http://stewarr.local/removal/execute", nil)
+	r.Host = "stewarr.local"
 	r.Header.Set("Origin", "http://evil.local")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)

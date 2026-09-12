@@ -14,15 +14,15 @@
         <h1>{{.Label}}</h1>
         {{if eq .Notice.Status "queued"}}
         <p>
-          Removal is queued. Connarr owns this operation now; closing this page will not interrupt it.
+          Removal is queued. Stewarr owns this operation now; closing this page will not interrupt it.
         </p>
         {{else if eq .Notice.Status "started"}}
         <p>
-          Removal is in progress. Connarr will reconcile inventory and storage when it completes.
+          Removal is in progress. Stewarr will reconcile inventory and storage when it completes.
         </p>
         {{else if eq .Notice.Status "success"}}
         <p>
-          Removal completed successfully. Connarr has reconciled this view with the operation result.
+          Removal completed successfully. Stewarr has reconciled this view with the operation result.
         </p>
         {{else if eq .Notice.Status "dry_run"}}
         <p>The removal simulation completed. No owner or filesystem changes were made.</p>
@@ -33,7 +33,7 @@
         {{else if eq .Notice.Status "failed"}}
         <p class="bad">Removal failed. No successful removal is hidden from this view.</p>
         {{else}}
-        <p>This removal needs attention while Connarr restores a consistent view.</p>
+        <p>This removal needs attention while Stewarr restores a consistent view.</p>
         {{end}} {{if .Notice.Message}}
         <p class="bad">{{.Notice.Message}}</p>
         {{end}}

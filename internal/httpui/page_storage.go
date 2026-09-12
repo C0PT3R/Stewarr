@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"connarr/internal/config"
+	"stewarr/internal/config"
 )
 
 type storageData struct {

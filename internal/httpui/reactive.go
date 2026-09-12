@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 type uiRevision struct {

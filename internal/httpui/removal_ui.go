@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"connarr/internal/model"
-	"connarr/internal/removal"
+	"stewarr/internal/model"
+	"stewarr/internal/removal"
 )
 
 // removalSelectionModel contains only facts already inspected while the modal

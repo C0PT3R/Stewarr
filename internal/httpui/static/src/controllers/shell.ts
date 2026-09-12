@@ -1,7 +1,7 @@
 import { announce, dispatchRevision } from "../shared";
 
 interface ModalRoot extends HTMLElement {
-  _connarrOpener?: HTMLElement;
+  _stewarrOpener?: HTMLElement;
 }
 
 interface StorageStatsDevice {
@@ -54,9 +54,9 @@ export class ShellController extends window.Stimulus.Controller {
     document.addEventListener("input", this.onInput);
     document.addEventListener("change", this.onChange);
     document.addEventListener("submit", this.onSubmit);
-    document.addEventListener("connarr:revision", this.onRevision as EventListener);
-    document.addEventListener("connarr:apply-updates", this.onApply);
-    document.addEventListener("connarr:mutation-accepted", this.onAccepted);
+    document.addEventListener("stewarr:revision", this.onRevision as EventListener);
+    document.addEventListener("stewarr:apply-updates", this.onApply);
+    document.addEventListener("stewarr:mutation-accepted", this.onAccepted);
   }
 
   disconnect(): void {
@@ -64,9 +64,9 @@ export class ShellController extends window.Stimulus.Controller {
     document.removeEventListener("input", this.onInput);
     document.removeEventListener("change", this.onChange);
     document.removeEventListener("submit", this.onSubmit);
-    document.removeEventListener("connarr:revision", this.onRevision as EventListener);
-    document.removeEventListener("connarr:apply-updates", this.onApply);
-    document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
+    document.removeEventListener("stewarr:revision", this.onRevision as EventListener);
+    document.removeEventListener("stewarr:apply-updates", this.onApply);
+    document.removeEventListener("stewarr:mutation-accepted", this.onAccepted);
     if (this.filterTimer) clearTimeout(this.filterTimer);
     if (this.modalRequest) this.modalRequest.abort();
   }
@@ -324,7 +324,7 @@ export class ShellController extends window.Stimulus.Controller {
     (button as HTMLButtonElement).disabled = true;
     button.textContent = "Scanning…";
     try {
-      const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
+      const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Stewarr-Scan": "1" } });
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
       this.refreshFragments(true, true);
@@ -457,10 +457,10 @@ export class ShellController extends window.Stimulus.Controller {
     if (!root) return;
     root.innerHTML = '<div class="modal-overlay"><main class="modal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading…</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
     root.dataset.openerId = opener.id || "";
-    root._connarrOpener = opener;
+    root._stewarrOpener = opener;
     document.body.classList.add("modal-open");
     try {
-      const response = await fetch(url, { signal: this.modalRequest.signal, headers: { "X-Connarr-Overlay": "1" } });
+      const response = await fetch(url, { signal: this.modalRequest.signal, headers: { "X-Stewarr-Overlay": "1" } });
       const content = await response.text();
       if (!response.ok) throw new Error(content.trim() || `status ${response.status}`);
       root.innerHTML = content;
@@ -485,7 +485,7 @@ export class ShellController extends window.Stimulus.Controller {
   closeModal(): void {
     const root = document.getElementById("modal-root") as ModalRoot | null;
     if (!root) return;
-    const opener = root._connarrOpener;
+    const opener = root._stewarrOpener;
     root.replaceChildren();
     document.body.classList.remove("modal-open");
     if (opener && document.contains(opener)) opener.focus();

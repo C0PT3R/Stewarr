@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/inventory"
+	"stewarr/internal/inventory"
 )
 
 func TestServicesTemplateRendersServiceDetailAndRootPaths(t *testing.T) {

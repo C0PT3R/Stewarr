@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/radarr"
-	"connarr/internal/model"
-	"connarr/internal/store"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/radarr"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
 )
 
 func TestComputeInventoryDeltaDetectsNewChangedAndRemoved(t *testing.T) {

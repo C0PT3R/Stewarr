@@ -1,4 +1,4 @@
-module connarr
+module stewarr
 
 go 1.23
 

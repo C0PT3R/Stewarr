@@ -1,5 +1,5 @@
 {
-  "name": "connarr-assets",
+  "name": "stewarr-assets",
   "private": true,
   "description": "TypeScript sources bundled into ../app.js. Node/npm are build-time-only (type-checking here, esbuild's Go API does the actual bundling) — never part of the shipped runtime image.",
   "scripts": {

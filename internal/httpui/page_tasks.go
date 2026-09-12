@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"connarr/internal/tasks"
+	"stewarr/internal/tasks"
 )
 
 type taskGroup struct {
@@ -109,6 +109,6 @@ func (server *Server) runTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "task could not be scheduled: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.Header().Set("X-Connarr-Trigger-ID", receipt.TriggerID)
+	w.Header().Set("X-Stewarr-Trigger-ID", receipt.TriggerID)
 	http.Redirect(w, r, "/tasks?trigger="+url.QueryEscape(receipt.TriggerID), http.StatusSeeOther)
 }

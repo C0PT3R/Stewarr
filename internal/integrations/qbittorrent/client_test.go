@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 func TestApplyEnrichesMovieDirectlyByTMDBID(t *testing.T) {

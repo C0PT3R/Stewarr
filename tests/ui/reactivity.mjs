@@ -95,7 +95,7 @@ const server = createServer(async (request, response) => {
 
 await new Promise(resolveListen => server.listen(0, "127.0.0.1", resolveListen));
 const address = server.address();
-if (process.env.CONNARR_FIXTURE_ONLY === "1") {
+if (process.env.STEWARR_FIXTURE_ONLY === "1") {
   console.log(`http://127.0.0.1:${address.port}/`);
   await new Promise(resolveStop => {
     process.once("SIGINT", resolveStop);
@@ -104,7 +104,7 @@ if (process.env.CONNARR_FIXTURE_ONLY === "1") {
   await new Promise(resolveClose => server.close(resolveClose));
   process.exit(0);
 }
-const executablePath = process.env.CONNARR_BROWSER_EXECUTABLE || chromium.executablePath();
+const executablePath = process.env.STEWARR_BROWSER_EXECUTABLE || chromium.executablePath();
 const browser = await chromium.launch({ executablePath, headless: true });
 const page = await browser.newPage();
 
@@ -178,7 +178,7 @@ try {
   } finally {
     await ssePage.close();
   }
-  console.log("Connarr browser reactivity tests passed");
+  console.log("Stewarr browser reactivity tests passed");
 } finally {
   await browser.close();
   await new Promise(resolveClose => server.close(resolveClose));

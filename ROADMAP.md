@@ -1,4 +1,4 @@
-# Connarr Roadmap
+# Stewarr Roadmap
 
 This file separates implemented behavior from intended direction. It is not a promise of release dates.
 
@@ -7,7 +7,7 @@ This file separates implemented behavior from intended direction. It is not a pr
 ### Reactive UI state
 
 - Server-rendered Go templates enhanced by pinned, embedded htmx and Stimulus;
-  Connarr has no CDN, SPA, or mandatory frontend build service.
+  Stewarr has no CDN, SPA, or mandatory frontend build service.
 - Cached, revisioned dashboard state with SSE invalidation and conditional
   five-second polling fallback. Storage sampling is independent and no UI
   refresh calls a service or starts a filesystem scan.
@@ -80,7 +80,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   service's files occupy it, with Unmanaged and unattributed real usage
   kept as separate, honestly-labeled segments rather than forced to match.
 - Target/Critical reclamation thresholds apply independently to every known
-  device; a device Connarr cannot measure is reported Unavailable without
+  device; a device Stewarr cannot measure is reported Unavailable without
   affecting others.
 
 ### Cross-domain cleanup planning (0.2.11)
@@ -338,7 +338,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   selected by default, other Current torrents remain optional, Superseded
   torrents remain preserved context, and the physical action graph synchronizes
   selections without becoming the primary UI.
-- PUID/PGID-friendly Docker deployment and centralized Connarr product identity.
+- PUID/PGID-friendly Docker deployment and centralized Stewarr product identity.
 
 ### Overlay/UI polish and removal fixes (0.2.41-0.2.44)
 
@@ -443,20 +443,20 @@ This file separates implemented behavior from intended direction. It is not a pr
 
 ### Authentication (0.3.0)
 
-- Connarr had no authentication at all — only `sameOriginWrites`, a
+- Stewarr had no authentication at all — only `sameOriginWrites`, a
   CSRF-style guard, not an identity check. 0.3.0 adds a single-admin login
   gate in front of every route (`authGate`, `internal/httpui/auth.go`).
   There is deliberately no multi-user support, roles, or invitations —
-  Connarr remains a private single-deployment app for one person.
+  Stewarr remains a private single-deployment app for one person.
 - Credentials (`config.Auth{Username, PasswordHash}`) live in `config.json`
   like every other secret; the password is bcrypt-hashed, never stored or
   logged in plain text. An empty `Auth.Username` is the "no account yet"
-  signal — Connarr has no default/backdoor account.
+  signal — Stewarr has no default/backdoor account.
 - First run shows a one-time setup screen (`/setup`) to create the admin
   account, instead of requiring a hand-edited config file or CLI step.
   There is no separate password-reset flow: like many apps in the *arr
   ecosystem, erasing the `auth` key from `config.json` and restarting puts
-  Connarr back into first-run setup.
+  Stewarr back into first-run setup.
 - Sessions are server-side (a `sessions` table: token/created/expires),
   not JWTs — revoking one is a `DELETE`, not a client-side expectation.
   Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` when the request
@@ -472,7 +472,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   that made the change, so that browser isn't logged out too.
 - `authGate` fails open when no durable store is available, since sessions
   cannot be persisted at all without one. Every real deployment opens a
-  store before constructing the server (`cmd/connarr/main.go`); this only
+  store before constructing the server (`cmd/stewarr/main.go`); this only
   ever applies to handler-level tests built without one — and that bypass
   now logs a warning the first time it's hit, rather than silently leaving
   every route unauthenticated with no signal anything is wrong.
@@ -501,9 +501,9 @@ This file separates implemented behavior from intended direction. It is not a pr
   groundwork ahead of the 0.4.0 auto-removal milestone) now excludes
   Unassociated torrents by default, gated by a new
   `removal.auto_remove_unassociated_torrents` config flag (default false).
-  An Unassociated torrent with no relationship Connarr has ever recorded
+  An Unassociated torrent with no relationship Stewarr has ever recorded
   may simply be something the user downloaded through that client for
-  their own purposes, or from a service Connarr doesn't track — automatic
+  their own purposes, or from a service Stewarr doesn't track — automatic
   removal has no basis to judge those safe to delete unattended, unlike a
   torrent it can prove is Superseded or Orphaned (see below). This was
   originally implemented as a side-check on `FormerMediaItems`; the
@@ -545,12 +545,12 @@ This file separates implemented behavior from intended direction. It is not a pr
 ### Season removal order now tracks air date, not import date (0.3.4)
 
 - Season Retention Value's recency factor came from `LastAddedAt` — when
-  Connarr's library *imported* the season's files — not from when the
+  Stewarr's library *imported* the season's files — not from when the
   content itself aired. This barely varies for a show backfilled all at
   once (every season gets nearly the same import timestamp), so which
   season looked "most recent" could come down to unrelated noise, letting
   an early season outrank a genuinely newer one in the removal order.
-  Sonarr's episode API already reports each episode's air date; Connarr
+  Sonarr's episode API already reports each episode's air date; Stewarr
   just didn't fetch it. Added it (`internal/integrations/sonarr/client.go`
   now reads `airDateUtc`), threaded it through as
   `model.MediaFilePart.AiredAt`, and `Season.LastAiredAt` (renamed from
@@ -573,7 +573,7 @@ Radarr/Sonarr's own rating data is a weak proxy for how much anyone would
 actually miss a title, and neither service had anything resembling a real
 popularity signal — Sonarr's TVDB-sourced rating has no equivalent at all,
 and Radarr's own `popularity` field (TMDB's, distinct from rating/votes)
-wasn't even parsed. Since Connarr aims to become a publicly usable app,
+wasn't even parsed. Since Stewarr aims to become a publicly usable app,
 not a single deployment tuned by hand, this is closed with an always-on
 enrichment source rather than a per-service quirk — fetched directly from
 TMDB itself (`internal/integrations/tmdb`), covering movies and TV under
@@ -627,7 +627,7 @@ popularity metric at all, just a redundant rating).
   RefreshTMDB's next scheduled daily pass: `EnrichNewTMDBItems`
   (`internal/inventory/service.go`) fires as a fire-and-forget goroutine
   right after every successful base (Radarr/Sonarr) refresh
-  (`cmd/connarr/main.go`'s `inventory` task), fetching only items that
+  (`cmd/stewarr/main.go`'s `inventory` task), fetching only items that
   have never been successfully enriched (`needsTMDBEnrichment` —
   `TMDBEnrichedAt` still zero and an external id exists to look up), so a
   freshly imported movie or show gets its rating/popularity right away
@@ -899,6 +899,35 @@ its first enrichment. Fixed by:
   `TestPreserveTMDBFactsClearsRatingWhenMovieIsReMatchedToADifferentTMDBID`
   and the equivalent Jellyfin/Seerr tests.
 
+### Renamed Connarr to Stewarr (0.4.8)
+
+Connarr was named that way partly as a joke (*connard* is French for
+"dumbass"). Renamed to Stewarr instead — short, reads as "steward," and
+still fits alongside Radarr/Sonarr/Overseerr's `*arr` convention without
+carrying the joke. This is a mechanical, repo-wide rename: the Go module
+path, every `connarr/internal/...` import, `cmd/connarr` →
+`cmd/stewarr`, `product.Name`/`Slug`, Docker image/container/user names,
+`Makefile` targets, and every doc/template/frontend string that spelled
+out the old name.
+
+Two things went further than a plain find-and-replace:
+
+- The legacy database-migration mechanism (`migrateLegacyDatabaseAt`,
+  carried since the app's Togetharr/Spartarr days) is removed entirely,
+  and the database file itself is renamed from the brand-tied
+  `connarr.db` to a generic `inventory.db` — this app has exactly one
+  real deployment, and its database gets wiped by hand as part of this
+  upgrade rather than migrated, so there is nothing left for that
+  mechanism to do.
+- The on-disk project directory itself (previously `spartarr`, the
+  app's original name, predating even Connarr) is renamed to `stewarr`
+  to match.
+
+No back-compat shims: this is a single-user, single-deployment app (see
+prior convention — DB schema changes get a "wipe the DB" answer, not a
+migration), so an old binary or config path is simply retired, not kept
+working alongside the new one.
+
 ## Next milestone: torrent valuation based on activity and history
 
 Design only — nothing below is implemented yet. This is the confirmed
@@ -941,7 +970,7 @@ across devices.
 
 Unlike Media's `ValueWeights` (which stay user-editable), nothing about
 *how a torrent's own value is computed* is user-configurable. The goal
-is to establish what Connarr considers objectively true about a
+is to establish what Stewarr considers objectively true about a
 torrent's health, not what the user thinks makes one healthy — the only
 thing the user controls is the single relative-care percentage above.
 This retires the existing `TorrentValueWeights` (Seeds/Leechers/
@@ -949,7 +978,7 @@ UploadRate) config surface entirely, superseded by this.
 
 Metrics feeding the hardcoded torrent value, all client-agnostic
 (`model.Torrent` fields any adapter can populate from whatever its own
-API exposes — none of this is qBittorrent-specific, since Connarr will
+API exposes — none of this is qBittorrent-specific, since Stewarr will
 eventually support other torrent clients too):
 
 - **Ratio** — cumulative, stable.
@@ -1049,6 +1078,6 @@ torrent `Dead`, independent of the per-device target/critical cycle.
 
 ## Product direction
 
-Connarr should become the missing coordination layer in a modular media stack:
+Stewarr should become the missing coordination layer in a modular media stack:
 not another specialized media manager, but the place where facts from
 specialized tools gain cross-stack context and purpose.

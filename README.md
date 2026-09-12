@@ -1,6 +1,6 @@
-# Connarr
+# Stewarr
 
-> **0.2.10 storage devices:** There is no configured global storage path. Connarr derives known storage devices from the roots each service already discovers on its own, and Home shows one usage graphic per device broken down by which service's files occupy it.
+> **0.2.10 storage devices:** There is no configured global storage path. Stewarr derives known storage devices from the roots each service already discovers on its own, and Home shows one usage graphic per device broken down by which service's files occupy it.
 
 > **0.2.9 scheduler rewrite:** Background and mutation work now runs on a durable, domain-neutral engine with trigger/execution identity, coverage-aware coalescing, resource arbitration, and workflow-driven post-removal consistency. See `Scheduler-Spec.md` for the full contract.
 
@@ -8,15 +8,15 @@
 
 > **Your media stack, together.**
 
-Connarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Retention Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
+Stewarr is a coordination and storage-intelligence layer for self-hosted media stacks. It currently integrates Radarr, Sonarr, Jellyfin, Seerr and qBittorrent, correlates their data, assigns Library media **Retention Value**, tracks torrent provenance, derives hardlink-aware reclaimable storage from the reconciled File topology, and discovers download data that no current torrent claims.
 
-Connarr does not try to replace the applications it integrates with. Services provide facts; Connarr provides context across them.
+Stewarr does not try to replace the applications it integrates with. Services provide facts; Stewarr provides context across them.
 
 ## Current version
 
 `0.2.10`
 
-There is no configured global storage path. Connarr derives its known
+There is no configured global storage path. Stewarr derives its known
 storage devices from the roots each service already discovers on its
 own, grouping roots that resolve to the same physical device. Home shows one
 usage graphic per device, broken down by which service's files occupy
@@ -67,7 +67,7 @@ Manual Removal is available from discreet trash actions on Media and Torrent vie
 }
 ```
 
-`removal.dry_run` defaults to **true**. In dry-run mode Connarr performs no destructive owner API calls; confirming a plan records the simulation in History. Setting it to `false` enables owner-backed execution. Managed Media is removed only through Radarr/Sonarr and Torrent data only through qBittorrent. Unmanaged files are removed by direct OS deletion — the only removal kind not delegated to a service, since nothing claims them — with the same admission, revalidation, and physical-identity re-verification every other removal kind goes through.
+`removal.dry_run` defaults to **true**. In dry-run mode Stewarr performs no destructive owner API calls; confirming a plan records the simulation in History. Setting it to `false` enables owner-backed execution. Managed Media is removed only through Radarr/Sonarr and Torrent data only through qBittorrent. Unmanaged files are removed by direct OS deletion — the only removal kind not delegated to a service, since nothing claims them — with the same admission, revalidation, and physical-identity re-verification every other removal kind goes through.
 
 Every confirmed operation is written durably with status `queued` before
 scheduler admission and advances to `started` before any mutation. Once execution begins it uses an application-owned bounded context,
@@ -85,27 +85,27 @@ section rather than repeated beneath every episode it backs. Unknown external
 hardlinks remain preserved, keep reclaimability at zero, and are reported
 explicitly.
 
-A Torrent may be **Unassociated** with managed Media while its files remain claimed by qBittorrent. `Unassociated` is therefore a Torrent provenance state. `Unmanaged` means only that Connarr currently knows no owner claim; it is neither ownership nor deletion authority.
+A Torrent may be **Unassociated** with managed Media while its files remain claimed by qBittorrent. `Unassociated` is therefore a Torrent provenance state. `Unmanaged` means only that Stewarr currently knows no owner claim; it is neither ownership nor deletion authority.
 
 ## Persistent state
 
 SQLite lives at the fixed path:
 
 ```text
-/config/state/connarr.db
+/config/state/inventory.db
 ```
 
-The database path is intentionally not configurable. On first start after upgrading, Connarr automatically migrates `/config/state/togetharr.db` or the still-older `/config/state/spartarr.db` when the Connarr database does not yet exist. If both legacy files exist, the Togetharr database takes precedence; legacy files that are not selected are left untouched.
+The database path is intentionally not configurable.
 
 ## Application logs
 
 Every application log entry is written both to container stdout and to a mandatory daily file under `/config/log`:
 
 ```text
-/config/log/connarr-YYYY-MM-DD.log
+/config/log/stewarr-YYYY-MM-DD.log
 ```
 
-The date follows the container's local timezone. Connarr appends across restarts on the same day, opens a new file at local midnight, and retains the latest ten daily files. It refuses to start if the log directory or current file cannot be opened. A runtime write or rollover failure stops the application with a non-zero exit instead of continuing without its audit trail.
+The date follows the container's local timezone. Stewarr appends across restarts on the same day, opens a new file at local midnight, and retains the latest ten daily files. It refuses to start if the log directory or current file cannot be opened. A runtime write or rollover failure stops the application with a non-zero exit instead of continuing without its audit trail.
 
 Lines identify their origin, such as `[app]`, `[http]`, `[inventory]`, `[scheduler]`, and `[removal]`. Removal lines also carry `[operation=N]`. Each removal audit records the authoritative plan, every selected and preserved path, physical identity facts, warnings, options, owner actions, results, errors, and terminal status. Credentials, cookies, API keys, passwords, and browser operation tokens are never written.
 
@@ -113,7 +113,7 @@ Lines identify their origin, such as `[app]`, `[http]`, `[inventory]`, `[schedul
 
 ## Scheduler and background tasks
 
-Connarr currently exposes independent maintenance tasks:
+Stewarr currently exposes independent maintenance tasks:
 
 - **Base inventory** — uses `server.refresh_interval` (default `30m`) for Radarr, Sonarr, qBittorrent and incremental import provenance.
 - **Jellyfin enrichment** — runs every **12 hours** for playback and favorite facts.
@@ -159,34 +159,34 @@ Torrents have an independent Swarm Value based on current swarm facts. The initi
 
 ## Torrent provenance
 
-Connarr relates qBittorrent torrents to media using authoritative Radarr/Sonarr import-history `downloadId` values matched to torrent hashes and reconciled filesystem identity. It does not establish ownership from fuzzy title matching.
+Stewarr relates qBittorrent torrents to media using authoritative Radarr/Sonarr import-history `downloadId` values matched to torrent hashes and reconciled filesystem identity. It does not establish ownership from fuzzy title matching.
 
 Current torrent relationship states are:
 
 - **Current** — an authoritative current import relates the torrent to managed Library media, or reconciled device/inode identity proves that it physically backs the media.
 - **Superseded** — the torrent backed an older imported release that was replaced by a later release.
-- **Unassociated** — neither current provenance nor physical topology establishes a current media relationship. Connarr may still retain a former relationship in History; that historical fact is not a fourth current state and is not evidence that the torrent is safe to remove.
+- **Unassociated** — neither current provenance nor physical topology establishes a current media relationship. Stewarr may still retain a former relationship in History; that historical fact is not a fourth current state and is not evidence that the torrent is safe to remove.
 
 Torrent reclaimability is derived from the reconciled File topology rather than by walking torrent content directories during normal inventory refresh. The same device+inode+link-count model therefore explains hardlinked, copied, and separate-device layouts consistently.
 
 
 ## File model
 
-Connarr treats files as first-class, general storage objects rather than assuming that a media item or torrent is itself a file. The durable relationship is:
+Stewarr treats files as first-class, general storage objects rather than assuming that a media item or torrent is itself a file. The durable relationship is:
 
 ```text
 Media -> Files <-> Files <- Torrent
 ```
 
-A `File` is intentionally generic enough to represent any regular file a future service may own (video, subtitle, ebook, text, and so on). Current mutation owners are Radarr movie files, Sonarr episode files, and qBittorrent torrent files. Jellyfin independently contributes playback and favourite facts; it is not required to share Connarr's filesystem namespace. Ownership is stored separately from path-level filesystem facts, and relationships never create transitive mutation rights.
+A `File` is intentionally generic enough to represent any regular file a future service may own (video, subtitle, ebook, text, and so on). Current mutation owners are Radarr movie files, Sonarr episode files, and qBittorrent torrent files. Jellyfin independently contributes playback and favourite facts; it is not required to share Stewarr's filesystem namespace. Ownership is stored separately from path-level filesystem facts, and relationships never create transitive mutation rights.
 
 File reconciliation records only path, size, existence, modification time, device, inode and hardlink count. It does not hash content, inspect codecs, or crawl the full storage tree. Media and torrent detail pages show a bounded preview of reconciled files, same-physical-data peers, and hypothetical unlink effects. `/api/files` exposes the indexed file and ownership records. Reclaimability is derived from the File model: unlinking one side of a hardlink pair reclaims 0 B, while unlinking every link to the inode reclaims the inode size.
 
 ## Unmanaged file inventory
 
-Connarr can discover regular files under reconciled storage roots that no current service claims. This state is **Unmanaged**, not a third ownership category: a file is either managed by a service or it isn't.
+Stewarr can discover regular files under reconciled storage roots that no current service claims. This state is **Unmanaged**, not a third ownership category: a file is either managed by a service or it isn't.
 
-The scan fails closed: it must successfully retrieve the authoritative owner inventories before absence is reported. If an owner inventory fails, previous successful results are retained and the scan is marked unavailable. Even a complete absence of claims does not grant Connarr ownership.
+The scan fails closed: it must successfully retrieve the authoritative owner inventories before absence is reported. If an owner inventory fails, previous successful results are retained and the scan is marked unavailable. Even a complete absence of claims does not grant Stewarr ownership.
 
 Hardlinks are grouped by device+inode to explain physical storage potential. No Unmanaged path can be removed directly in this release.
 
@@ -224,7 +224,7 @@ Example:
 }
 ```
 
-There is no configured storage path. Connarr derives its known storage
+There is no configured storage path. Stewarr derives its known storage
 devices from the roots each service already discovers on its own
 (Radarr/Sonarr root folders, qBittorrent save paths); roots that resolve to
 the same physical device are grouped into one device. Each device's
@@ -238,7 +238,7 @@ Critical is independent and reserved for a future emergency policy such as
 alerting or pausing new downloads; it does not activate or gate cleanup
 planning.
 
-A device Connarr cannot measure is reported as **UNAVAILABLE** and produces
+A device Stewarr cannot measure is reported as **UNAVAILABLE** and produces
 no cleanup plan; other devices are unaffected.
 
 ## Docker
@@ -247,9 +247,9 @@ Example Compose:
 
 ```yaml
 services:
-  connarr:
+  stewarr:
     build: .
-    container_name: connarr
+    container_name: stewarr
     restart: unless-stopped
     user: "${PUID:-1000}:${PGID:-1000}"
     ports:
@@ -276,7 +276,7 @@ features without exposing storage capabilities at all.
 
 ```bash
 go test ./...
-go build ./cmd/connarr
+go build ./cmd/stewarr
 ```
 
 The real-browser reactivity suite uses Playwright and an installed Chromium:
@@ -289,31 +289,31 @@ Deployment defaults:
 
 ```makefile
 REMOTE ?= user@your-server
-REMOTE_DIR ?= ./servarr/connarr
+REMOTE_DIR ?= ./servarr/stewarr
 ```
 
 Override them as needed:
 
 ```bash
-make deploy REMOTE=myuser@myserver REMOTE_DIR=/opt/connarr
+make deploy REMOTE=myuser@myserver REMOTE_DIR=/opt/stewarr
 ```
 
 ## Current safety posture
 
-Connarr remains non-destructive by default because `removal.dry_run` defaults to `true`. Cleanup statistics distinguish **Library bytes removed** from **actual filesystem bytes reclaimed**, because hardlinks and other forms of shared storage mean those values are not necessarily equal.
+Stewarr remains non-destructive by default because `removal.dry_run` defaults to `true`. Cleanup statistics distinguish **Library bytes removed** from **actual filesystem bytes reclaimed**, because hardlinks and other forms of shared storage mean those values are not necessarily equal.
 
 Unsupported or uncertain storage capabilities must remain explicitly unavailable rather than being guessed.
 
 ## Origins
 
-Connarr began as a storage-pressure cleanup experiment called **Spartarr**. Its first proposed name was the regrettable **Shovitupyoarr**. As it outgrew cleanup-only scope it became **Togetharr**, then **Connarr** when a shorter name proved preferable. Product identity is centralized in code because this may not be the final rename.
+Stewarr began as a storage-pressure cleanup experiment called **Spartarr**. Its first proposed name was the regrettable **Shovitupyoarr**. As it outgrew cleanup-only scope it became **Togetharr**, then **Stewarr** when a shorter name proved preferable. Product identity is centralized in code because this may not be the final rename.
 
-Spartarr discovered the problem. Togetharr broadened the purpose. Connarr is the current name.
+Spartarr discovered the problem. Togetharr broadened the purpose. Stewarr is the current name.
 
 
 ### Data loading policy
 
-Connarr keeps routine inventory refreshes and its durable SQLite model deliberately small. List/index data, provenance, relationships, valuation inputs, sync cursors, and expensive reconciliation results are retained; cheap source-owned diagnostics are lazy-loaded on detail pages. Torrent detail pages now fetch full qBittorrent diagnostics on demand instead of relying on persisted copies. Media with no files remain part of the media model but are hidden from Library by default; use **Show media with no files** to include them.
+Stewarr keeps routine inventory refreshes and its durable SQLite model deliberately small. List/index data, provenance, relationships, valuation inputs, sync cursors, and expensive reconciliation results are retained; cheap source-owned diagnostics are lazy-loaded on detail pages. Torrent detail pages now fetch full qBittorrent diagnostics on demand instead of relying on persisted copies. Media with no files remain part of the media model but are hidden from Library by default; use **Show media with no files** to include them.
 
 
 
@@ -338,7 +338,7 @@ Media detail pages group torrent relationships into current, superseded, and una
 
 ### Managed-file removal
 
-Manual removal now operates on owner-backed managed files rather than deleting Radarr/Sonarr Media objects. Movies normally collapse to one managed-file action; series can be selected by season/episode-file groups. Torrent-originated plans only expose managed-file actions when Connarr can prove the file correspondence.
+Manual removal now operates on owner-backed managed files rather than deleting Radarr/Sonarr Media objects. Movies normally collapse to one managed-file action; series can be selected by season/episode-file groups. Torrent-originated plans only expose managed-file actions when Stewarr can prove the file correspondence.
 
 Manual managed-file removal can optionally unmonitor affected Radarr movies or Sonarr episodes; monitoring is otherwise left unchanged.
 

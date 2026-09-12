@@ -1,17 +1,6 @@
 package inventory
 
 import (
-	"connarr/internal/config"
-	"connarr/internal/filetopology"
-	"connarr/internal/integrations/jellyfin"
-	"connarr/internal/integrations/qbittorrent"
-	"connarr/internal/integrations/radarr"
-	"connarr/internal/integrations/seerr"
-	"connarr/internal/integrations/sonarr"
-	"connarr/internal/integrations/tmdb"
-	"connarr/internal/model"
-	"connarr/internal/store"
-	"connarr/internal/valuation"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -19,6 +8,17 @@ import (
 	"log"
 	"path/filepath"
 	"sort"
+	"stewarr/internal/config"
+	"stewarr/internal/filetopology"
+	"stewarr/internal/integrations/jellyfin"
+	"stewarr/internal/integrations/qbittorrent"
+	"stewarr/internal/integrations/radarr"
+	"stewarr/internal/integrations/seerr"
+	"stewarr/internal/integrations/sonarr"
+	"stewarr/internal/integrations/tmdb"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
+	"stewarr/internal/valuation"
 	"strings"
 	"sync"
 	"time"
@@ -899,7 +899,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 			m.DownloadIDs = sids[ownerKey{ServiceID: m.ServiceID, OwnerID: m.SourceID}]
 		}
 		// A logical media item may remain in Radarr/Sonarr after all of its files
-		// have been deleted. Keep that media in Connarr, but do not let its
+		// have been deleted. Keep that media in Stewarr, but do not let its
 		// historical latest download hash claim a torrent as currently associated.
 		// Until first-class media files are indexed, SizeBytes > 0 is our current
 		// authoritative summary that this media has file data in the library.
@@ -1269,7 +1269,7 @@ func needsSeerrEnrichment(m model.Media) bool    { return m.SeerrEnrichedAt.IsZe
 // rating moving, a request being fulfilled), never to discover new items
 // — there is no other path that would ever clear one of the *EnrichedAt
 // fields this function checks. Meant to be triggered right after a base
-// (Radarr/Sonarr) refresh (see cmd/connarr/main.go); a no-op, cheap call
+// (Radarr/Sonarr) refresh (see cmd/stewarr/main.go); a no-op, cheap call
 // when nothing needs any source's attention.
 //
 // Unlike the three Refresh* methods this never touches Reliability.* or
@@ -2034,7 +2034,7 @@ func (service *Service) TorrentDetail(hash, svcID string) (model.Torrent, error)
 	if err != nil {
 		return indexed, err
 	}
-	// Preserve Connarr-owned interpretations and expensive reconciliation facts.
+	// Preserve Stewarr-owned interpretations and expensive reconciliation facts.
 	live.ServiceID = indexed.ServiceID
 	live.SwarmValue = indexed.SwarmValue
 	live.SwarmValueReasons = indexed.SwarmValueReasons

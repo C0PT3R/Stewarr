@@ -1,8 +1,8 @@
 package valuation
 
 import (
-	"connarr/internal/config"
-	"connarr/internal/model"
+	"stewarr/internal/config"
+	"stewarr/internal/model"
 	"testing"
 	"time"
 )

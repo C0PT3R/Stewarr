@@ -1,11 +1,11 @@
 package seerr
 
 import (
-	"connarr/internal/model"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"stewarr/internal/model"
 	"strconv"
 	"strings"
 	"time"

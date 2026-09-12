@@ -1,7 +1,7 @@
 package filetopology
 
 import (
-	"connarr/internal/model"
+	"stewarr/internal/model"
 	"testing"
 )
 

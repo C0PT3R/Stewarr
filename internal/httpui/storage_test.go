@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/cleanup"
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/model"
+	"stewarr/internal/cleanup"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/model"
 )
 
 func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {

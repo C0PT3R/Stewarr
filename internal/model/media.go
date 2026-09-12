@@ -30,11 +30,11 @@ const (
 	// proves it was replaced by a specific newer import; e.g. the media it
 	// belonged to was removed from Radarr/Sonarr entirely.
 	TorrentOrphaned = "ORPHANED"
-	// TorrentUnassociated means Connarr has no import provenance for this
+	// TorrentUnassociated means Stewarr has no import provenance for this
 	// torrent at all — unlike Superseded or Orphaned, there is no known
 	// relationship to lean on, historical or otherwise. It may simply be
 	// something downloaded through that client for personal use, or from
-	// a service Connarr doesn't track.
+	// a service Stewarr doesn't track.
 	TorrentUnassociated = "UNASSOCIATED"
 )
 
@@ -280,7 +280,7 @@ type Media struct {
 	// never successfully enriched. This does not gate whether valuation
 	// uses the data (a transient failure preserves the last known values
 	// rather than blanking them); it only lets auto-removal specifically
-	// exclude an item whose data has gone stale — see cmd/connarr/main.go
+	// exclude an item whose data has gone stale — see cmd/stewarr/main.go
 	// and internal/httpui/auto_removal.go.
 	TMDBEnrichedAt time.Time `json:"tmdbEnrichedAt,omitempty"`
 
@@ -315,7 +315,7 @@ type Season struct {
 	SizeBytes int64 `json:"sizeBytes"`
 	// LastAiredAt is the most recent original broadcast date among this
 	// season's episodes — this drives season-recency scoring so it tracks
-	// how recently the content itself is, not when Connarr's library
+	// how recently the content itself is, not when Stewarr's library
 	// happened to import it (a show backfilled all at once would otherwise
 	// give every season nearly the same import date).
 	LastAiredAt      time.Time `json:"lastAiredAt,omitempty"`

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/tmdb"
-	"connarr/internal/model"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/tmdb"
+	"stewarr/internal/model"
 )
 
 // TestRefreshTMDBDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass

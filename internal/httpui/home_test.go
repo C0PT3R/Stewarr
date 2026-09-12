@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/inventory"
+	"stewarr/internal/inventory"
 )
 
 func TestHomeTemplateRendersStorageSummaryOnly(t *testing.T) {

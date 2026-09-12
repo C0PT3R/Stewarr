@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	sessionCookieName = "connarr_session"
-	// sessionDuration is deliberately long: Connarr is a single-user app
+	sessionCookieName = "stewarr_session"
+	// sessionDuration is deliberately long: Stewarr is a single-user app
 	// meant to stay signed in on the devices you actually use, not a
 	// multi-tenant service where a short session limits blast radius.
 	sessionDuration = 30 * 24 * time.Hour
@@ -24,7 +24,7 @@ const (
 // Bcrypt's own per-attempt cost already slows brute-forcing, but does
 // nothing to stop a sustained scripted run over hours; this adds an
 // escalating lockout on top of it. It is intentionally in-memory and
-// per-process — Connarr has one admin account and one process, so nothing
+// per-process — Stewarr has one admin account and one process, so nothing
 // durable is lost by resetting on restart.
 type loginLimiter struct {
 	mu    sync.Mutex
@@ -105,9 +105,9 @@ func newSessionToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(random), nil
 }
 
-// requestIsHTTPS reports whether the browser's connection to Connarr (not
+// requestIsHTTPS reports whether the browser's connection to Stewarr (not
 // necessarily this process's own listener) was HTTPS, so the session
-// cookie's Secure flag reflects reality whether Connarr terminates TLS
+// cookie's Secure flag reflects reality whether Stewarr terminates TLS
 // itself or sits behind a reverse proxy that does.
 func requestIsHTTPS(r *http.Request) bool {
 	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
@@ -152,10 +152,10 @@ func (server *Server) startSession(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// authGate enforces Connarr's single-admin login in front of every route.
+// authGate enforces Stewarr's single-admin login in front of every route.
 // It fails open when no durable store is available (Store() nil) because
 // sessions cannot be persisted at all without one — every real deployment
-// opens a store before constructing Server (see cmd/connarr/main.go), so
+// opens a store before constructing Server (see cmd/stewarr/main.go), so
 // this only ever applies to handler-level tests built without one. That
 // bypass is loud, not silent: the first request it affects logs a warning,
 // so a future caller that unexpectedly ends up here in a real deployment
@@ -201,7 +201,7 @@ type setupPageData struct {
 	Error    string
 }
 
-// setupPage handles Connarr's one-time "create the admin account" screen.
+// setupPage handles Stewarr's one-time "create the admin account" screen.
 // Reachable without a session only while no account exists yet — once one
 // does, authGate stops exempting this path and a signed-in visit here just
 // bounces home instead of allowing a second account to overwrite the first.

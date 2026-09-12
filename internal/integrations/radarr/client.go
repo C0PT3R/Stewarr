@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 type Client struct {

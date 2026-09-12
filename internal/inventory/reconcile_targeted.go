@@ -11,13 +11,13 @@ import (
 	"syscall"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/integrations/radarr"
-	"connarr/internal/integrations/sonarr"
-	"connarr/internal/model"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
-	"connarr/internal/valuation"
+	"stewarr/internal/config"
+	"stewarr/internal/integrations/radarr"
+	"stewarr/internal/integrations/sonarr"
+	"stewarr/internal/model"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
+	"stewarr/internal/valuation"
 )
 
 func (service *Service) promoteTargeted(ctx context.Context, reason string) error {

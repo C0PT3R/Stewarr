@@ -1,7 +1,7 @@
 package inventory
 
 import (
-	"connarr/internal/model"
+	"stewarr/internal/model"
 	"testing"
 	"time"
 )

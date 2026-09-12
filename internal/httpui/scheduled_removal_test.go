@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/store"
-	"connarr/internal/tasks"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/store"
+	"stewarr/internal/tasks"
 )
 
 func TestPostRemovalConsistencyIsReadyImmediately(t *testing.T) {

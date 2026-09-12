@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/tasks"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/tasks"
 )
 
 // multipartServiceForm builds a request body shaped exactly like the

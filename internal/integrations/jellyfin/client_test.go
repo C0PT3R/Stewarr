@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"connarr/internal/model"
+	"stewarr/internal/model"
 )
 
 func TestApplyFetchesSparseUserSignals(t *testing.T) {

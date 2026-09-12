@@ -5,8 +5,8 @@ import (
 	"log"
 	"net/http"
 
-	"connarr/internal/removal"
-	"connarr/internal/store"
+	"stewarr/internal/removal"
+	"stewarr/internal/store"
 )
 
 type historyEventView struct {

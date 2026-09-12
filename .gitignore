@@ -1,5 +1,5 @@
 config.json
 .env
 .DS_Store
-spartarr
+stewarr
 internal/httpui/static/src/node_modules

@@ -2615,7 +2615,7 @@ Copyright © 2023 Basecamp, LLC
     return JSON.parse(new TextDecoder().decode(bytes));
   }
   function dispatchRevision(detail) {
-    document.dispatchEvent(new CustomEvent("connarr:revision", { detail }));
+    document.dispatchEvent(new CustomEvent("stewarr:revision", { detail }));
   }
 
   // internal/httpui/static/src/controllers/revisions.ts
@@ -2766,7 +2766,7 @@ Copyright © 2023 Basecamp, LLC
   var UpdatesController = class extends window.Stimulus.Controller {
     apply() {
       this.element.hidden = true;
-      document.dispatchEvent(new CustomEvent("connarr:apply-updates"));
+      document.dispatchEvent(new CustomEvent("stewarr:apply-updates"));
     }
   };
 
@@ -2783,10 +2783,10 @@ Copyright © 2023 Basecamp, LLC
         if (kind === "tasks") return;
         this.refresh();
       };
-      document.addEventListener("connarr:revision", this.onRevision);
+      document.addEventListener("stewarr:revision", this.onRevision);
     }
     disconnect() {
-      document.removeEventListener("connarr:revision", this.onRevision);
+      document.removeEventListener("stewarr:revision", this.onRevision);
     }
     field(name) {
       return this.element.querySelector(`[data-dashboard-field="${name}"]`);
@@ -2848,18 +2848,18 @@ Copyright © 2023 Basecamp, LLC
       document.addEventListener("input", this.onInput);
       document.addEventListener("change", this.onChange);
       document.addEventListener("submit", this.onSubmit);
-      document.addEventListener("connarr:revision", this.onRevision);
-      document.addEventListener("connarr:apply-updates", this.onApply);
-      document.addEventListener("connarr:mutation-accepted", this.onAccepted);
+      document.addEventListener("stewarr:revision", this.onRevision);
+      document.addEventListener("stewarr:apply-updates", this.onApply);
+      document.addEventListener("stewarr:mutation-accepted", this.onAccepted);
     }
     disconnect() {
       document.removeEventListener("click", this.onClick);
       document.removeEventListener("input", this.onInput);
       document.removeEventListener("change", this.onChange);
       document.removeEventListener("submit", this.onSubmit);
-      document.removeEventListener("connarr:revision", this.onRevision);
-      document.removeEventListener("connarr:apply-updates", this.onApply);
-      document.removeEventListener("connarr:mutation-accepted", this.onAccepted);
+      document.removeEventListener("stewarr:revision", this.onRevision);
+      document.removeEventListener("stewarr:apply-updates", this.onApply);
+      document.removeEventListener("stewarr:mutation-accepted", this.onAccepted);
       if (this.filterTimer) clearTimeout(this.filterTimer);
       if (this.modalRequest) this.modalRequest.abort();
     }
@@ -3107,7 +3107,7 @@ Copyright © 2023 Basecamp, LLC
       button.disabled = true;
       button.textContent = "Scanning\u2026";
       try {
-        const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Connarr-Scan": "1" } });
+        const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Stewarr-Scan": "1" } });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
         this.refreshFragments(true, true);
@@ -3221,10 +3221,10 @@ Copyright © 2023 Basecamp, LLC
       if (!root) return;
       root.innerHTML = '<div class="modal-overlay"><main class="modal-dialog preparing" role="dialog" aria-modal="true"><p class="muted">Loading\u2026</p><div class="actions"><button type="button" data-modal-cancel-loading>Cancel</button></div></main></div>';
       root.dataset.openerId = opener.id || "";
-      root._connarrOpener = opener;
+      root._stewarrOpener = opener;
       document.body.classList.add("modal-open");
       try {
-        const response = await fetch(url, { signal: this.modalRequest.signal, headers: { "X-Connarr-Overlay": "1" } });
+        const response = await fetch(url, { signal: this.modalRequest.signal, headers: { "X-Stewarr-Overlay": "1" } });
         const content = await response.text();
         if (!response.ok) throw new Error(content.trim() || `status ${response.status}`);
         root.innerHTML = content;
@@ -3243,7 +3243,7 @@ Copyright © 2023 Basecamp, LLC
     closeModal() {
       const root = document.getElementById("modal-root");
       if (!root) return;
-      const opener = root._connarrOpener;
+      const opener = root._stewarrOpener;
       root.replaceChildren();
       document.body.classList.remove("modal-open");
       if (opener && document.contains(opener)) opener.focus();
@@ -3275,7 +3275,7 @@ Copyright © 2023 Basecamp, LLC
     cancel() {
       if (this.busy) return;
       const root = document.getElementById("modal-root");
-      const opener = root?._connarrOpener;
+      const opener = root?._stewarrOpener;
       root?.replaceChildren();
       document.body.classList.remove("modal-open");
       if (opener && document.contains(opener)) opener.focus();
@@ -3452,7 +3452,7 @@ Copyright © 2023 Basecamp, LLC
         const response = await fetch(this.executeTarget.action, {
           method: "POST",
           body: new FormData(this.executeTarget),
-          headers: { "Accept": "application/json", "X-Connarr-Overlay": "1" }
+          headers: { "Accept": "application/json", "X-Stewarr-Overlay": "1" }
         });
         const responseText = await response.text();
         let body = {};
@@ -3465,7 +3465,7 @@ Copyright © 2023 Basecamp, LLC
         const label = this.element.querySelector("#removal-title")?.nextElementSibling?.textContent?.trim() || "Removal";
         this.cancelAfterAcceptance();
         announce(`${label} queued for removal.`);
-        document.dispatchEvent(new CustomEvent("connarr:mutation-accepted", { detail: body }));
+        document.dispatchEvent(new CustomEvent("stewarr:mutation-accepted", { detail: body }));
       } catch (error) {
         this.busy = false;
         this.submitButtonTarget.textContent = this.model.dryRun ? "Simulate" : "Remove selected";

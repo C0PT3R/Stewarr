@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"connarr/internal/config"
+	"stewarr/internal/config"
 )
 
 // TestSyncDeviceRegistryPersistsIDAndDefaultNameForANewDevice guards the

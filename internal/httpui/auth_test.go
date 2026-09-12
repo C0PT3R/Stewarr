@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"connarr/internal/config"
-	"connarr/internal/inventory"
-	"connarr/internal/store"
+	"stewarr/internal/config"
+	"stewarr/internal/inventory"
+	"stewarr/internal/store"
 )
 
 // newAuthTestServer builds a server backed by a real store and a real
