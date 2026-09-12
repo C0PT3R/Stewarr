@@ -162,6 +162,31 @@ func TestSetDeviceThresholdPreservesAssignedID(t *testing.T) {
 	}
 }
 
+// TestSetDeviceThresholdClearingNameRevertsToDefault guards the actual
+// point of clearing a device's Name: it's how a user reverts to the
+// default, not how they end up with no name at all — SyncDeviceRegistry
+// only sets "Device #<id>" once, the first time a device is seen, so
+// without this an empty submission would just stay blank forever instead
+// of reverting.
+func TestSetDeviceThresholdClearingNameRevertsToDefault(t *testing.T) {
+	registered, _ := SyncDeviceRegistry(Config{}, []string{"/data"})
+	renamed, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := renamed.DeviceName("/data"); got != "Media Drive" {
+		t.Fatalf("setup: expected the custom name to be saved, got %q", got)
+	}
+	reverted, err := SetDeviceThreshold(renamed, "/data", "", 70, 85)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantID := registered.Storage.DeviceThresholds["/data"].ID
+	if got := reverted.DeviceName("/data"); got != fmt.Sprintf("Device #%d", wantID) {
+		t.Fatalf("expected clearing the name to revert to the default, got %q", got)
+	}
+}
+
 // TestSyncDeviceRegistryAssignsLowestUnusedIDAndDefaultName guards the
 // actual assignment algorithm: a brand-new device gets the lowest id not
 // already in use, and its Name is set to the literal "Device #<id>" string

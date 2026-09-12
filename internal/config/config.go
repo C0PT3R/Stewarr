@@ -412,7 +412,15 @@ func SetDeviceThreshold(configuration Config, representativePath, name string, t
 	// Preserve whatever id SyncDeviceRegistry already assigned — this call
 	// only ever touches thresholds/name, never identity.
 	existingID := configuration.Storage.DeviceThresholds[representativePath].ID
-	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: strings.TrimSpace(name), ID: existingID}
+	trimmedName := strings.TrimSpace(name)
+	// Clearing the name is how a user reverts to the default, not how they
+	// end up with no name at all — SyncDeviceRegistry only ever sets
+	// "Device #<id>" once, the first time a device is seen, so without
+	// this a cleared name would just stay blank forever.
+	if trimmedName == "" && existingID > 0 {
+		trimmedName = fmt.Sprintf("Device #%d", existingID)
+	}
+	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: trimmedName, ID: existingID}
 	return updated, nil
 }
 

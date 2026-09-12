@@ -812,6 +812,49 @@ silently wiped whatever id this feature assigned the moment someone
 saved the Device settings overlay. Guarded by
 `TestSetDeviceThresholdPreservesAssignedID`.
 
+### Clearing a device's name reverts to the default, not to blank (0.4.6)
+
+`SetDeviceThreshold` treated an empty submitted name as "clear it,"
+leaving the device with no name at all — but `SyncDeviceRegistry` only
+ever sets `"Device #<id>"` once, the first time a device is seen, so a
+cleared name had nothing to revert to. Clearing the Name field in the
+Device settings overlay now reverts to that default instead. Guarded by
+`TestSetDeviceThresholdClearingNameRevertsToDefault`.
+
+### Fixed two ways TMDB data could go stale despite refreshing on schedule (0.4.6)
+
+The design was supposed to make staleness impossible (full refresh every
+24h, staleness threshold at 48h), but two bugs let it happen anyway —
+both compounded by the auto-removal pipeline (0.4.0+) making removals,
+and therefore base-inventory refreshes, more frequent:
+
+- `RefreshTMDB` discarded its *entire* pass — including every item
+  that was successfully re-fetched — the moment the base
+  Radarr/Sonarr/qBittorrent generation ticked at all during the run.
+  Since TMDB fetches one item at a time (a full pass over a real
+  library can run for minutes) while the base refresh interval is
+  routinely 30 minutes and every removal also bumps it, this discard
+  fired far more often than the design assumed, and nothing else
+  re-fetches an item that's already been enriched once
+  (`EnrichNewTMDBItems` only ever catches up never-enriched items).
+  Fixed by merging directly onto whatever's current at commit time
+  (`mergeTMDBFacts` already matches by stable key, so this was safe all
+  along) instead of comparing generations and discarding. Guarded by
+  `TestRefreshTMDBDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass`.
+- The `tmdb` task is `Interruptible`, so a higher-priority removal can
+  cancel it mid-pass via the scheduler's own `context.Canceled`
+  mechanism — but `tmdb.Client.Apply` swallowed that exactly like an
+  ordinary per-item fetch failure and always returned `nil`. The
+  scheduler only recognizes an interruption (and fast-retries via
+  `InterruptionDelay` instead of waiting a full 24h) by checking
+  `errors.Is(runError, context.Canceled)`, so every interrupted pass was
+  misreported as a plain success, `Reliability.TMDB` was marked
+  `"reliable"`, and whichever items the batch hadn't reached yet stayed
+  silently stale until the next attempt — itself just as likely to be
+  cut off the same way. Fixed by having `Apply` return the context's own
+  error after its worker pool finishes. Guarded by
+  `TestApplySurfacesContextCancellationInsteadOfSwallowingIt`.
+
 ## Near-term
 
 - Make task schedules configurable through the GUI.
@@ -849,6 +892,12 @@ saved the Device settings overlay. Guarded by
   approve/execute from it and add a Keep tag to anything they'd rather
   protect than remove, right from that review — instead of only being
   able to react to what's already about to be gone.
+- TMDB trending (`/trending/movie|tv/{day|week}`): a different shape from
+  Rating/Popularity — a curated top-N list fetched once per refresh
+  cycle rather than a per-item lookup — with a rank-based score (top of
+  the list near full weight, tapering toward the bottom) rather than a
+  raw number. The Settings copy already promises "popularity and
+  trending"; only popularity exists so far.
 
 ## Product direction
 

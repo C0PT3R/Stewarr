@@ -14,6 +14,7 @@ import (
 	"connarr/internal/valuation"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -1195,10 +1196,20 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 	return nil
 }
 
-// RefreshTMDB updates TMDB's own rating/vote/popularity facts and follows
-// the same generation boundary as Jellyfin/Seerr enrichment. Unlike those
-// two, TMDB has no service-page status to report to (it isn't a
-// config.Service — see Config.TMDB), so it never calls setStatus.
+// RefreshTMDB updates TMDB's own rating/vote/popularity facts. Unlike
+// Jellyfin/Seerr, it does not discard its results if the base generation
+// moves on mid-pass: TMDB fetches one item at a time (this pass can run
+// for minutes across a real library), so a base refresh ticking in the
+// meantime — every RefreshInterval, or immediately after any removal — is
+// routine, not exceptional. Discarding a fully-successful pass over that
+// would have meant TMDB data could go indefinitely stale despite running
+// on schedule, since EnrichNewTMDBItems only ever catches up items that
+// were never enriched at all, not ones whose last refresh got thrown away.
+// mergeTMDBFacts matches by stable key onto whatever items are current at
+// merge time, so merging a pass computed against an older generation is
+// safe regardless of what changed in between. TMDB also has no
+// service-page status to report to (it isn't a config.Service — see
+// Config.TMDB), so it never calls setStatus.
 func (service *Service) RefreshTMDB(ctx context.Context) error {
 	defer service.publishChange()
 	if service.cfg.TMDB.APIKey == "" {
@@ -1210,7 +1221,6 @@ func (service *Service) RefreshTMDB(ctx context.Context) error {
 		return fmt.Errorf("base inventory is not available")
 	}
 	base := cloneMedia(service.items)
-	generation := service.generation
 	service.reliability.TMDB = "pending"
 	service.reliability.Valuation = false
 	service.reliability.Message = "TMDB enrichment is running; automatic removal planning is paused."
@@ -1220,28 +1230,29 @@ func (service *Service) RefreshTMDB(ctx context.Context) error {
 	// the current live values, not cleared first), or a single flaky
 	// fetch would erase yesterday's good data immediately instead of
 	// leaving it in place until it's actually gone stale (see
-	// mediaTMDBDataStale in internal/httpui/auto_removal.go).
+	// mediaTMDBDataStale in internal/httpui/auto_removal.go). Apply only
+	// returns an error when this whole pass was cancelled out from under
+	// it (e.g. yielding to a higher-priority removal, since this task is
+	// Interruptible) — see its doc comment.
 	if err := service.tmdb.WithContext(ctx).Apply(base); err != nil {
 		service.mu.Lock()
 		service.reliability.TMDB = "stale"
 		service.reliability.Valuation = false
-		service.reliability.Message = "TMDB enrichment failed; automatic removal planning is paused."
+		if errors.Is(err, context.Canceled) {
+			service.reliability.Message = "TMDB enrichment yielded to higher-priority work; retrying shortly."
+		} else {
+			service.reliability.Message = "TMDB enrichment failed; automatic removal planning is paused."
+		}
 		service.mu.Unlock()
 		return err
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if generation != service.generation {
-		service.reliability.TMDB = "stale"
-		service.reliability.Valuation = false
-		service.reliability.Message = "TMDB enrichment no longer matches base inventory; automatic removal planning is paused."
-		return fmt.Errorf("inventory changed during TMDB enrichment; result discarded")
-	}
 	items := cloneMedia(service.items)
 	mergeTMDBFacts(items, base)
 	valuation.ApplyMedia(items, service.cfg)
 	if service.db != nil {
-		if err := service.db.PublishEnrichment("tmdb", generation, items); err != nil {
+		if err := service.db.PublishEnrichment("tmdb", service.generation, items); err != nil {
 			service.reliability.TMDB = "stale"
 			service.reliability.Valuation = false
 			return err

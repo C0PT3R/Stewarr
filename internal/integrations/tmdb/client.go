@@ -28,6 +28,15 @@ func New(apiKey string) *Client {
 	return &Client{apiKey: apiKey, base: defaultBase, hc: &http.Client{Timeout: 20 * time.Second}}
 }
 
+// NewWithBaseURL is New with the API base overridden — for tests outside
+// this package that need a real *Client pointed at a local httptest
+// server instead of the real TMDB API.
+func NewWithBaseURL(apiKey, baseURL string) *Client {
+	client := New(apiKey)
+	client.base = baseURL
+	return client
+}
+
 func (client *Client) WithContext(ctx context.Context) *Client {
 	clientCopy := *client
 	clientCopy.ctx = ctx
@@ -114,6 +123,16 @@ func (client *Client) resolveSeriesTMDBID(tvdbID int) (int, error) {
 // id first. One item's lookup failing (no match, transient error) never
 // aborts the rest of the pass — it's simply left unenriched, and valuation
 // falls back to Radarr/Sonarr's own Rating/VoteCount for it.
+//
+// The one error this does return is the context's own — e.g. context.
+// Canceled when the caller's task was interrupted mid-pass (the TMDB task
+// is registered Interruptible, so higher-priority work like a removal can
+// cancel it). That distinction matters to the caller: the task scheduler
+// only recognizes an interruption (and fast-retries via InterruptionDelay,
+// instead of waiting for the next scheduled run) by checking
+// errors.Is(err, context.Canceled) on what the runner returns. Swallowing
+// this the same way per-item failures are swallowed would misreport a
+// cut-short pass as a plain success.
 func (client *Client) Apply(items []model.Media) error {
 	if client.apiKey == "" {
 		return nil
@@ -139,7 +158,7 @@ func (client *Client) Apply(items []model.Media) error {
 	}
 	close(jobs)
 	wg.Wait()
-	return nil
+	return client.requestContext().Err()
 }
 
 func (client *Client) applyOne(item *model.Media) {
