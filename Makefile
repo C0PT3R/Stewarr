@@ -1,5 +1,7 @@
 SHELL := /bin/sh
 
+-include Makefile.local
+
 REMOTE ?= user@your-server
 REMOTE_DIR ?= ./servarr/stewarr
 
