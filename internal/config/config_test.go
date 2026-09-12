@@ -28,6 +28,31 @@ func TestLoadDoesNotRequireDatabaseConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadCreatesDefaultConfigWhenMissing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "config.json")
+	configuration, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(configuration.Services) != 0 {
+		t.Fatalf("expected no demo services in the default config, got %d", len(configuration.Services))
+	}
+	if !configuration.Removal.DryRun {
+		t.Fatal("expected the default config to keep dry_run true")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected Load to have written the default config to disk: %v", err)
+	}
+	reloaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("reloading the just-created default config failed: %v", err)
+	}
+	if reloaded.Server.Listen != configuration.Server.Listen {
+		t.Fatalf("reloaded config diverged from the freshly created one: %+v vs %+v", reloaded, configuration)
+	}
+}
+
 func TestRejectsUnknownServiceType(t *testing.T) {
 	p := writeConfig(t, `{"services":[{"type":"mystery","name":"Mystery","root_path":"/data"}]}`)
 	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "unsupported type") {

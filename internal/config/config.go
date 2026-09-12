@@ -490,12 +490,81 @@ type QBittorrentService struct {
 	APIKey   string `json:"api_key"`
 }
 
+// defaultConfigJSON is written to path by Load when no config file exists
+// yet (a fresh install). It mirrors config.example.json with the demo
+// services removed: services are meant to be added from the running app's
+// Services page, not hand-edited in before first start.
+const defaultConfigJSON = `{
+  "server": {
+    "listen": ":8088",
+    "refresh_interval": "30m"
+  },
+  "services": [],
+  "storage": {
+    "device_thresholds": {}
+  },
+  "protection": {
+    "favorite": true,
+    "seerr_request_grace": "8760h",
+    "keep_tags": ["keep", "stewarr_keep"],
+    "min_torrent_ratio": 0,
+    "keep_torrent_tags": []
+  },
+  "valuation": {
+    "weights": {
+      "rating": 40,
+      "never_watched": 25,
+      "last_watched_age": 15,
+      "library_age": 10,
+      "low_popularity": 10,
+      "old_request": 12,
+      "torrent_activity": 10,
+      "season_recency": 8
+    },
+    "request_value_bonus": 100,
+    "favorite_value_bonus": 100,
+    "keep_tag_value_bonus": 1000,
+    "torrent_weights": {
+      "seeds": 1,
+      "leechers": 5,
+      "upload_rate": 5
+    }
+  },
+  "removal": {
+    "dry_run": true,
+    "auto_enabled": false
+  }
+}
+`
+
+// createDefaultConfig writes defaultConfigJSON to path, creating any missing
+// parent directories first, so a fresh install never requires a human to
+// create /config or config.json by hand before the first start.
+func createDefaultConfig(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(defaultConfigJSON), 0o600); err != nil {
+		return fmt.Errorf("write default config: %w", err)
+	}
+	return nil
+}
+
 func Load(path string) (Config, error) {
 	var configuration Config
 	configuration.Removal.DryRun = true
 	fileContents, err := os.ReadFile(path)
 	if err != nil {
-		return configuration, err
+		if !os.IsNotExist(err) {
+			return configuration, err
+		}
+		if err := createDefaultConfig(path); err != nil {
+			return configuration, err
+		}
+		fileContents, err = os.ReadFile(path)
+		if err != nil {
+			return configuration, err
+		}
 	}
 	if err := json.Unmarshal(fileContents, &configuration); err != nil {
 		return configuration, err

@@ -24,9 +24,8 @@ services:
       - /mnt/media:/data
 ```
 
-1. Create a `config` directory next to your compose file, writable by the UID/GID you run the container as.
-2. Copy [`config.example.json`](config.example.json) into it as `config.json` and fill in your services' URLs and API keys.
-3. `docker compose up -d`, then open `http://<host>:8088`.
+1. `docker compose up -d`, then open `http://<host>:8088`. Stewarr creates `/config/config.json`, its database, and its log directory on first start if they don't already exist — no manual setup required.
+2. Follow the first-run screen to create the admin account, then add Radarr/Sonarr/Jellyfin/Seerr/qBittorrent from the Services page. Manually editing `config.json` (see [`config.example.json`](config.example.json) for the shape) is still possible but is meant for debugging or scripted setups, not routine service configuration.
 
 See [Configuration](#configuration) and [Docker](#docker) below for details.
 
