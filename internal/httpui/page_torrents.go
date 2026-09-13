@@ -59,9 +59,9 @@ func sortTorrents(items []model.Torrent, key, order string) {
 		cmp := 0
 		switch key {
 		case "value":
-			if a.SwarmValue < b.SwarmValue {
+			if a.TorrentValue < b.TorrentValue {
 				cmp = -1
-			} else if a.SwarmValue > b.SwarmValue {
+			} else if a.TorrentValue > b.TorrentValue {
 				cmp = 1
 			}
 		case "status":

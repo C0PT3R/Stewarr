@@ -86,9 +86,9 @@ type TrackerHealth struct {
 }
 
 type Torrent struct {
-	ServiceID         string   `json:"serviceId,omitempty"`
-	SwarmValue        float64  `json:"swarmValue"`
-	SwarmValueReasons []Reason `json:"swarmValueReasons,omitempty"`
+	ServiceID           string   `json:"serviceId,omitempty"`
+	TorrentValue        float64  `json:"torrentValue"`
+	TorrentValueReasons []Reason `json:"torrentValueReasons,omitempty"`
 	// TrackerWorking/TrackerWorkingKnown/TrackerMessage mirror
 	// TrackerHealth once an adapter has reported it for this torrent — see
 	// TrackerHealth's field docs for what each one means.

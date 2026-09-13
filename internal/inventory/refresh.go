@@ -619,7 +619,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	attachSeasons(all, mediaFileRefs, files)
 	applySeasonFileEstimates(all, files, mediaFileRefs)
 	applySeasonBundleEstimates(all, torrentList, files, mediaFileRefs, torrentFileRefs)
-	valuation.ApplyTorrents(torrentList, service.cfg)
+	valuation.ApplyTorrentValue(torrentList, service.cfg, service.recentTorrentHistory())
 	service.setStageTiming("relationships", relationshipsStarted)
 
 	sort.SliceStable(torrentList, func(i, j int) bool {
@@ -643,7 +643,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	applySeasonFileEstimates(all, service.files, service.mediaFileRefs)
 	applySeasonBundleEstimates(all, torrentList, service.files, service.mediaFileRefs, service.torrentFileRefs)
 	projectTorrentRelations(all, torrentList)
-	valuation.ApplyTorrents(torrentList, service.cfg)
+	valuation.ApplyTorrentValue(torrentList, service.cfg, service.recentTorrentHistory())
 	valuation.ApplyMedia(all, service.cfg)
 	// setStageTiming locks service.mu itself, and it is already held here.
 	service.stageTimings["relationships merge"] = time.Since(relationshipsMergeStarted)

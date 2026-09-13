@@ -23,9 +23,9 @@
         <span class=status>{{.Torrent.AssociationStatus}}</span> · {{.Torrent.Client}} · {{.Torrent.State}} · {{pct .Torrent.Progress}}
       </p>
       <div class=card>
-        <strong>Swarm Value · {{printf "%.1f" .Torrent.SwarmValue}}</strong>{{if .Torrent.SwarmValueReasons}}
+        <strong>Torrent Value · {{printf "%.1f" .Torrent.TorrentValue}}</strong>{{if .Torrent.TorrentValueReasons}}
         <div class=kv style="margin-top:10px">
-          {{range .Torrent.SwarmValueReasons}}
+          {{range .Torrent.TorrentValueReasons}}
           <div>{{.Label}}</div>
           <div>{{.Value}} · {{printf "%+.1f" .Points}}</div>
           {{end}}

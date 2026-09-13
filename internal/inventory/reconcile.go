@@ -571,7 +571,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	attachSeasons(mc, mediaRefs, files)
 	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
-	valuation.ApplyTorrents(tc, cfg)
+	valuation.ApplyTorrentValue(tc, cfg, service.recentTorrentHistory())
 	valuation.ApplyMedia(mc, cfg)
 	metrics["relationships"] = time.Since(relationshipsStarted).Round(time.Millisecond)
 	stageStarted = time.Now()

@@ -7,6 +7,7 @@ import (
 
 	"stewarr/internal/model"
 	"stewarr/internal/store"
+	"stewarr/internal/valuation"
 )
 
 // TorrentHistoryRetention is how long sampled torrent health readings are
@@ -51,6 +52,23 @@ func (service *Service) TorrentHistorySampling(ctx context.Context) error {
 		return err
 	}
 	return service.db.PruneTorrentHistory(now.Add(-TorrentHistoryRetention))
+}
+
+// recentTorrentHistory fetches every retained sample within
+// valuation.TorrentDemandWindow, for valuation.ApplyTorrentValue's
+// sustained-demand computation. A best-effort empty result (rather than
+// aborting the caller) keeps a database hiccup from blocking an otherwise
+// normal refresh; every torrent just scores without demand points that
+// cycle, same as genuinely having too little history yet.
+func (service *Service) recentTorrentHistory() map[string][]store.TorrentHistorySample {
+	if service.db == nil {
+		return map[string][]store.TorrentHistorySample{}
+	}
+	history, err := service.db.TorrentHistorySince(time.Now().Add(-valuation.TorrentDemandWindow))
+	if err != nil {
+		return map[string][]store.TorrentHistorySample{}
+	}
+	return history
 }
 
 // trackerHealthByKey fetches tracker health per configured qBittorrent

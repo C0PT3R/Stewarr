@@ -529,7 +529,7 @@ func cloneTorrents(in []model.Torrent) []model.Torrent {
 	out := make([]model.Torrent, len(in))
 	for i := range in {
 		out[i] = in[i]
-		out[i].SwarmValueReasons = append([]model.Reason(nil), in[i].SwarmValueReasons...)
+		out[i].TorrentValueReasons = append([]model.Reason(nil), in[i].TorrentValueReasons...)
 		out[i].MediaItems = append([]model.MediaRef(nil), in[i].MediaItems...)
 		out[i].FormerMediaItems = append([]model.MediaRef(nil), in[i].FormerMediaItems...)
 		out[i].HardlinkKnownMediaItems = append([]model.MediaRef(nil), in[i].HardlinkKnownMediaItems...)

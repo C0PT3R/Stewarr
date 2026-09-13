@@ -59,7 +59,7 @@ func TestBuildUsesTargetWithoutWaitingForCritical(t *testing.T) {
 }
 
 func TestBuildLocksHardlinkedMediaAndTorrentIntoOneBundle(t *testing.T) {
-	torrent := model.Torrent{Hash: "abc", Name: "Release", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "abc", Name: "Release", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -81,7 +81,7 @@ func TestBuildLocksHardlinkedMediaAndTorrentIntoOneBundle(t *testing.T) {
 }
 
 func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenMediaIsProtected(t *testing.T) {
-	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", Protected: true, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -93,7 +93,7 @@ func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenMediaIsProtected(
 }
 
 func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenBundleEstimateIsUnknown(t *testing.T) {
-	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: false, Torrents: []model.Torrent{torrent}}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenBundleEstimateIsU
 }
 
 func TestBuildExcludesProtectedStandaloneTorrent(t *testing.T) {
-	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, Protected: true, SwarmValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, Protected: true, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
 	p, err := Build(t.TempDir(), 0, 0, nil, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestBuildExcludesProtectedStandaloneTorrent(t *testing.T) {
 }
 
 func TestBuildBlocksWholeBundleWhenAHardlinkedTorrentIsProtected(t *testing.T) {
-	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, Protected: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, Protected: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -153,7 +153,7 @@ func TestBuildExcludesMediaAndTorrentsFromNonOptedInServices(t *testing.T) {
 // only the opted-in side alone would still delete files the other side
 // needs.
 func TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted(t *testing.T) {
-	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, RemovalRestricted: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, RemovalRestricted: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -163,7 +163,7 @@ func TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted(t *testing.T) {
 		t.Fatalf("a removal-restricted hardlinked torrent must veto the whole bundle, got %#v", p.Actions)
 	}
 
-	restrictedMediaTorrent := model.Torrent{Hash: "def", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	restrictedMediaTorrent := model.Torrent{Hash: "def", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	restrictedMedia := model.Media{Title: "Movie 2", RemovalRestricted: true, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{restrictedMediaTorrent}}
 	p2, err := Build(t.TempDir(), 0, 0, []model.Media{restrictedMedia}, []model.Torrent{restrictedMediaTorrent}, true)
 	if err != nil {
@@ -247,7 +247,7 @@ func TestBuildSkipsProtectedOrUnknownSeasons(t *testing.T) {
 }
 
 func TestBuildLocksHardlinkedSeasonBundle(t *testing.T) {
-	torrent := model.Torrent{Hash: "s1", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, HardlinkedSeasons: []int{1}, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "s1", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, HardlinkedSeasons: []int{1}, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	series := model.Media{
 		Type: model.Series, Title: "Show", RetentionValue: 1,
 		Torrents: []model.Torrent{torrent},
@@ -277,7 +277,7 @@ func TestBuildMoviesAreUnaffectedBySeasonLogic(t *testing.T) {
 }
 
 func TestBuildTreatsProvenNonHardlinkedCurrentTorrentAsIndependent(t *testing.T) {
-	torrent := model.Torrent{Hash: "copy", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, SwarmValue: 3, ReclaimableKnown: true, ReclaimableBytes: 50}
+	torrent := model.Torrent{Hash: "copy", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, TorrentValue: 3, ReclaimableKnown: true, ReclaimableBytes: 50}
 	media := model.Media{Title: "Movie", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 200}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -299,8 +299,8 @@ func TestBuildTreatsProvenNonHardlinkedCurrentTorrentAsIndependent(t *testing.T)
 
 func TestBuildTreatsSupersededAndUnassociatedTorrentsAsStandaloneRegardlessOfHardlinkFields(t *testing.T) {
 	torrents := []model.Torrent{
-		{Hash: "old", AssociationStatus: model.TorrentSuperseded, SwarmValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10},
-		{Hash: "orphan", AssociationStatus: model.TorrentUnassociated, SwarmValue: 2, ReclaimableKnown: true, ReclaimableBytes: 10},
+		{Hash: "old", AssociationStatus: model.TorrentSuperseded, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10},
+		{Hash: "orphan", AssociationStatus: model.TorrentUnassociated, TorrentValue: 2, ReclaimableKnown: true, ReclaimableBytes: 10},
 	}
 	p, err := Build(t.TempDir(), 0, 0, nil, torrents, true)
 	if err != nil {
@@ -312,7 +312,7 @@ func TestBuildTreatsSupersededAndUnassociatedTorrentsAsStandaloneRegardlessOfHar
 }
 
 func TestBuildExcludesCurrentTorrentWithUnknownHardlinkStatus(t *testing.T) {
-	torrent := model.Torrent{Hash: "unknown", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: false, SwarmValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
+	torrent := model.Torrent{Hash: "unknown", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: false, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
 	p, err := Build(t.TempDir(), 0, 0, nil, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
@@ -329,7 +329,7 @@ func TestBuildDrainsTorrentDomainBeforeEverTouchingMedia(t *testing.T) {
 	// t.TempDir(), which this test cannot control, so it asserts ranking
 	// order (rank's job) rather than how many actions the greedy accumulator
 	// ends up keeping (Build's separate, pre-existing, unchanged job).
-	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, SwarmValue: 50, ReclaimableKnown: true, ReclaimableBytes: 10}
+	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, TorrentValue: 50, ReclaimableKnown: true, ReclaimableBytes: 10}
 	media := model.Media{Title: "Movie", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10}
 	p, err := Build(t.TempDir(), 0, 0, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
@@ -343,11 +343,11 @@ func TestBuildDrainsTorrentDomainBeforeEverTouchingMedia(t *testing.T) {
 	}
 }
 
-func TestBuildSortsTorrentTierAscendingBySwarmValue(t *testing.T) {
+func TestBuildSortsTorrentTierAscendingByTorrentValue(t *testing.T) {
 	torrents := []model.Torrent{
-		{Hash: "high", AssociationStatus: model.TorrentUnassociated, SwarmValue: 9, ReclaimableKnown: true, ReclaimableBytes: 1},
-		{Hash: "low", AssociationStatus: model.TorrentUnassociated, SwarmValue: 1, ReclaimableKnown: true, ReclaimableBytes: 1},
-		{Hash: "mid", AssociationStatus: model.TorrentUnassociated, SwarmValue: 5, ReclaimableKnown: true, ReclaimableBytes: 1},
+		{Hash: "high", AssociationStatus: model.TorrentUnassociated, TorrentValue: 9, ReclaimableKnown: true, ReclaimableBytes: 1},
+		{Hash: "low", AssociationStatus: model.TorrentUnassociated, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 1},
+		{Hash: "mid", AssociationStatus: model.TorrentUnassociated, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 1},
 	}
 	p, err := Build(t.TempDir(), 0, 90, nil, torrents, true)
 	if err != nil {

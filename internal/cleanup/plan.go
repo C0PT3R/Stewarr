@@ -101,8 +101,8 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 					var reasons []model.Reason
 					reasons = append(reasons, season.RetentionValueReasons...)
 					for _, t := range hardlinked {
-						value += t.SwarmValue
-						reasons = append(reasons, t.SwarmValueReasons...)
+						value += t.TorrentValue
+						reasons = append(reasons, t.TorrentValueReasons...)
 					}
 					mediaTier = append(mediaTier, Action{Kind: HardlinkedBundle, Media: m, Season: &season, Torrents: hardlinked, Value: value, ReclaimableBytes: season.BundleReclaimableBytes, Reasons: reasons})
 					continue
@@ -140,8 +140,8 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 			var reasons []model.Reason
 			reasons = append(reasons, m.RetentionValueReasons...)
 			for _, t := range hardlinked {
-				value += t.SwarmValue
-				reasons = append(reasons, t.SwarmValueReasons...)
+				value += t.TorrentValue
+				reasons = append(reasons, t.TorrentValueReasons...)
 			}
 			mediaTier = append(mediaTier, Action{Kind: HardlinkedBundle, Media: m, Torrents: hardlinked, Value: value, ReclaimableBytes: m.BundleReclaimableBytes, Reasons: reasons})
 			continue
@@ -174,7 +174,7 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 		if !t.ReclaimableKnown || t.ReclaimableBytes <= 0 {
 			continue
 		}
-		torrentTier = append(torrentTier, Action{Kind: StandaloneTorrent, Torrents: []model.Torrent{t}, Value: t.SwarmValue, ReclaimableBytes: t.ReclaimableBytes, Reasons: t.SwarmValueReasons})
+		torrentTier = append(torrentTier, Action{Kind: StandaloneTorrent, Torrents: []model.Torrent{t}, Value: t.TorrentValue, ReclaimableBytes: t.ReclaimableBytes, Reasons: t.TorrentValueReasons})
 	}
 
 	sort.SliceStable(torrentTier, func(i, j int) bool { return torrentTier[i].Value < torrentTier[j].Value })
