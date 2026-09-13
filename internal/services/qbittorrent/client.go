@@ -723,9 +723,31 @@ func (client *Client) Validate() error {
 	return client.login()
 }
 
+// RootPurposeIncompleteDownloads labels a root discovered from qBittorrent's
+// own "keep incomplete torrents in" setting (temp_path), as distinct from an
+// ordinary save-path root — a directory that only ever holds in-progress
+// downloads is easy to leave out of a Docker mount by accident, since it's
+// not the directory most setups think of as "the media/downloads path."
+const RootPurposeIncompleteDownloads = "incomplete downloads"
+
+// RootPath is one storage root discovered from qBittorrent, together with
+// why it's a root at all — see RootPurposeIncompleteDownloads. Purpose is
+// empty for an ordinary save-path root.
+type RootPath struct {
+	Path    string
+	Purpose string
+}
+
 // StorageRoots returns save roots qBittorrent exposes. Current torrent save
-// paths are authoritative; the default save_path is included for empty/new clients.
-func (client *Client) StorageRoots(torrents map[string]model.Torrent) ([]string, error) {
+// paths are authoritative; the default save_path is included for empty/new
+// clients. It also discovers the separate incomplete-downloads directory
+// two ways: proactively from qBittorrent's own temp_path/temp_path_enabled
+// preference (so it's known even with nothing currently downloading into
+// it), and reactively from each torrent's live ContentPath (which qBittorrent
+// reports as wherever the content actually currently lives — the temp
+// directory while still downloading, the final one after completion) —
+// catching it even if temp_path_enabled were ever misreported.
+func (client *Client) StorageRoots(torrents map[string]model.Torrent) ([]RootPath, error) {
 	if !client.enabled() {
 		return nil, nil
 	}
@@ -733,8 +755,11 @@ func (client *Client) StorageRoots(torrents map[string]model.Torrent) ([]string,
 		return nil, err
 	}
 	set := map[string]bool{}
+	incomplete := map[string]bool{}
 	var prefs struct {
-		SavePath string `json:"save_path"`
+		SavePath        string `json:"save_path"`
+		TempPath        string `json:"temp_path"`
+		TempPathEnabled bool   `json:"temp_path_enabled"`
 	}
 	if err := client.get("/api/v2/app/preferences", &prefs); err != nil {
 		return nil, err
@@ -742,15 +767,31 @@ func (client *Client) StorageRoots(torrents map[string]model.Torrent) ([]string,
 	if strings.TrimSpace(prefs.SavePath) != "" {
 		set[filepath.Clean(prefs.SavePath)] = true
 	}
+	if prefs.TempPathEnabled && strings.TrimSpace(prefs.TempPath) != "" {
+		p := filepath.Clean(prefs.TempPath)
+		set[p] = true
+		incomplete[p] = true
+	}
 	for _, t := range torrents {
 		if strings.TrimSpace(t.SavePath) != "" {
 			set[filepath.Clean(t.SavePath)] = true
 		}
+		if strings.TrimSpace(t.ContentPath) != "" {
+			set[filepath.Clean(t.ContentPath)] = true
+		}
 	}
-	out := make([]string, 0, len(set))
+	paths := make([]string, 0, len(set))
 	for p := range set {
-		out = append(out, p)
+		paths = append(paths, p)
 	}
-	sort.Strings(out)
+	sort.Strings(paths)
+	out := make([]RootPath, 0, len(paths))
+	for _, p := range paths {
+		root := RootPath{Path: p}
+		if incomplete[p] {
+			root.Purpose = RootPurposeIncompleteDownloads
+		}
+		out = append(out, root)
+	}
 	return out, nil
 }

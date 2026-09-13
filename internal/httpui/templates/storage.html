@@ -15,7 +15,7 @@
       <p class="warn">Some paths reported by your services aren't reachable from Stewarr's own container:</p>
       <ul>
         {{range .UnreachableRoots}}
-        <li><code>{{.Path}}</code> — {{.ServiceName}} ({{.ServiceType}})</li>
+        <li><code>{{.Path}}</code> — {{.ServiceName}} ({{.ServiceType}}){{if .Purpose}} · {{.Purpose}}{{end}}</li>
         {{end}}
       </ul>
       <p class="muted">Add a matching volume mount to Stewarr's own container for each — the host-side path is whatever directory you already mounted into that service's own container; Stewarr can't see or guess that part.</p>
@@ -55,7 +55,7 @@
               {{range .Storage.Claimed}}
               <li class="claim">
                 <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
-                {{with index $.ServiceRoots .Service}}
+                {{with index $device.Storage.ServiceRoots .Service}}
                 <ul class="service-roots">{{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}</ul>
                 {{end}}
               </li>

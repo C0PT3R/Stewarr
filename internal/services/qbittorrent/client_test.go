@@ -179,3 +179,84 @@ func TestTrackerHealthToleratesOneTorrentRemovedDirectlyInQBittorrent(t *testing
 		t.Fatalf("expected the still-present torrent to report Working=true, got %#v", out["present"])
 	}
 }
+
+func TestStorageRootsIncludesIncompleteDownloadsFromPreferences(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/app/preferences" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"save_path":         "/data/complete",
+			"temp_path":         "/data/incomplete",
+			"temp_path_enabled": true,
+		})
+	}))
+	defer srv.Close()
+	client := New("qBittorrent", srv.URL, "", "", "token")
+	roots, err := client.StorageRoots(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundIncomplete, foundSave bool
+	for _, r := range roots {
+		if r.Path == "/data/incomplete" {
+			foundIncomplete = true
+			if r.Purpose != RootPurposeIncompleteDownloads {
+				t.Fatalf("expected the temp_path root to carry RootPurposeIncompleteDownloads, got %#v", r)
+			}
+		}
+		if r.Path == "/data/complete" {
+			foundSave = true
+			if r.Purpose != "" {
+				t.Fatalf("expected the save_path root to have no purpose, got %#v", r)
+			}
+		}
+	}
+	if !foundIncomplete || !foundSave {
+		t.Fatalf("expected both save_path and temp_path roots, got %#v", roots)
+	}
+}
+
+func TestStorageRootsOmitsIncompleteDownloadsWhenDisabled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"save_path":         "/data/complete",
+			"temp_path":         "/data/incomplete",
+			"temp_path_enabled": false,
+		})
+	}))
+	defer srv.Close()
+	client := New("qBittorrent", srv.URL, "", "", "token")
+	roots, err := client.StorageRoots(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range roots {
+		if r.Path == "/data/incomplete" {
+			t.Fatalf("expected no incomplete-downloads root when temp_path_enabled is false, got %#v", roots)
+		}
+	}
+}
+
+func TestStorageRootsReactivelyPicksUpContentPathEvenWithoutTempPathPreference(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"save_path": "/data/complete"})
+	}))
+	defer srv.Close()
+	client := New("qBittorrent", srv.URL, "", "", "token")
+	roots, err := client.StorageRoots(map[string]model.Torrent{
+		"abc": {Hash: "abc", SavePath: "/data/complete", ContentPath: "/data/incomplete/abc-folder"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range roots {
+		if r.Path == "/data/incomplete/abc-folder" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the torrent's live ContentPath to be discovered as a root, got %#v", roots)
+	}
+}

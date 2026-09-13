@@ -11,3 +11,4 @@ services:
     volumes:
       - ./config:/config
       - /mnt/media:/data
+      - /mnt/torrents:/torrent-cache
