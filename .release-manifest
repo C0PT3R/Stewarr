@@ -132,6 +132,8 @@ internal/inventory/refresh_jellyfin_seerr_test.go
 internal/inventory/storage_devices.go
 internal/inventory/storage_devices_test.go
 internal/inventory/storage_views.go
+internal/inventory/torrent_history.go
+internal/inventory/torrent_history_test.go
 internal/model/media.go
 internal/model/media_test.go
 internal/product/product.go
@@ -146,6 +148,8 @@ internal/store/media_torrents.go
 internal/store/sessions.go
 internal/store/sqlite.go
 internal/store/sqlite_test.go
+internal/store/torrent_history.go
+internal/store/torrent_history_test.go
 internal/tasks/clock.go
 internal/tasks/manager.go
 internal/tasks/manager_test.go
