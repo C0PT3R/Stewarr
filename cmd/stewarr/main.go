@@ -34,6 +34,7 @@ const (
 	// often keeps steady-state API usage low regardless of library size.
 	tmdbEnrichmentInterval    = 24 * time.Hour
 	enrichmentRemovalCooldown = 30 * time.Minute
+	torrentHistoryInterval    = 30 * time.Minute
 )
 
 func main() {
@@ -129,6 +130,7 @@ func main() {
 			}
 			return inv.ReconcileFiles(ctx)
 		}), Resources: []tasks.ResourceClaim{maintenanceClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
+		tasks.Definition{ID: "torrent-history", Name: "Torrent history sampling", Description: "Record torrent health signals over time for sustained-history-based torrent valuation.", Interval: torrentHistoryInterval, Runner: retryable(inv.TorrentHistorySampling), Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 	)
 	if err != nil {
 		log.Fatalf("[scheduler] initialization: %v", err)
