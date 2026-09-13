@@ -301,6 +301,27 @@ func TestSetRemovalSettingsPersistsCheckboxState(t *testing.T) {
 	}
 }
 
+// TestSetRemovalSettingsTorrentCarePercentPersistsAndIsPreservedWhenAbsent
+// guards torrent_care_percent's different shape from the checkboxes above:
+// an absent field has no natural "off" meaning, so it must be preserved
+// from the last save rather than reset — unlike auto_remove_unassociated_
+// torrents/dry_run, which do mean false when absent.
+func TestSetRemovalSettingsTorrentCarePercentPersistsAndIsPreservedWhenAbsent(t *testing.T) {
+	handler, _ := newAuthTestServer(t)
+	setupResponse := postForm(t, handler, "/setup", url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}, "confirm": {"correct-horse-battery"}}, nil)
+	session := sessionCookieFrom(setupResponse)
+
+	set := postForm(t, handler, "/settings/removal", url.Values{"auto_mode": {"disabled"}, "torrent_care_percent": {"75"}}, session)
+	if set.Code != http.StatusOK || !strings.Contains(set.Body.String(), `value="75"`) {
+		t.Fatalf("expected torrent_care_percent=75 to be reflected back, got status=%d body=%q", set.Code, set.Body.String())
+	}
+
+	unrelated := postForm(t, handler, "/settings/removal", url.Values{"auto_mode": {"disabled"}, "dry_run": {"on"}}, session)
+	if unrelated.Code != http.StatusOK || !strings.Contains(unrelated.Body.String(), `value="75"`) {
+		t.Fatalf("expected torrent_care_percent to remain 75 after an unrelated save, got status=%d body=%q", unrelated.Code, unrelated.Body.String())
+	}
+}
+
 // TestSetRemovalSettingsRejectsUnknownAutoModeOverHTTP guards the select
 // against a malformed/hand-crafted request: an unrecognized auto_mode must
 // be rejected, not silently coerced into disabled or left unchanged.

@@ -54,6 +54,10 @@
           </label>
           <label class="toggle"><input type="checkbox" name="auto_remove_unassociated_torrents" {{if .AutoRemoveUnassociatedTorrents}}checked{{end}}><span>Also remove torrents with no known owner<span class="muted">Off by default: Stewarr has no relationship to judge these safe to delete unattended.</span></span></label>
           <label class="toggle"><input type="checkbox" name="dry_run" {{if .DryRun}}checked{{end}}><span>Dry run<span class="muted">Simulates every removal, manual or automatic, without deleting anything. Turn this off once you trust what's being selected.</span></span></label>
+          <label for="settings-torrent-care">Torrent care (%)
+            <input id="settings-torrent-care" name="torrent_care_percent" type="number" min="0" max="100" step="1" value="{{printf "%.0f" .TorrentCarePercent}}">
+            <span class="muted">How much torrents are weighed against library media when both are candidates for the same device's cleanup. 50 compares them directly; higher keeps torrents longer, lower removes them sooner. How each torrent's own value is computed is not configurable.</span>
+          </label>
         </div>
         <button type="submit">Save</button>
       </form>

@@ -2,6 +2,7 @@ package httpui
 
 import (
 	"net/http"
+	"strconv"
 
 	"stewarr/internal/config"
 	"stewarr/internal/services/tmdb"
@@ -21,6 +22,7 @@ type settingsPageData struct {
 	AutoMode                       string
 	AutoRemoveUnassociatedTorrents bool
 	DryRun                         bool
+	TorrentCarePercent             float64
 }
 
 func (server *Server) settingsData() settingsPageData {
@@ -35,6 +37,7 @@ func (server *Server) settingsData() settingsPageData {
 		AutoMode:                       autoMode,
 		AutoRemoveUnassociatedTorrents: cfg.Removal.AutoRemoveUnassociatedTorrents,
 		DryRun:                         cfg.Removal.DryRun,
+		TorrentCarePercent:             cfg.Removal.TorrentCarePercent,
 	}
 }
 
@@ -128,7 +131,22 @@ func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request)
 	autoRemoveUnassociated := r.FormValue("auto_remove_unassociated_torrents") == "on"
 	dryRun := r.FormValue("dry_run") == "on"
 	data := server.settingsData()
-	if err := server.inv.SetRemovalSettings(autoMode, autoRemoveUnassociated, dryRun); err != nil {
+	// Unlike the checkboxes above (an absent field unambiguously means
+	// off), an absent or empty torrent_care_percent has no such natural
+	// default — treat it as "leave unchanged" the same way an unrelated
+	// credential field is preserved on the service-edit form, rather than
+	// silently resetting it every time an unrelated removal setting is saved.
+	torrentCarePercent := data.TorrentCarePercent
+	if raw := r.FormValue("torrent_care_percent"); raw != "" {
+		parsed, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			data.RemovalError = "torrent_care_percent must be a number"
+			_ = renderTemplate(w, server.settingsTpl, data)
+			return
+		}
+		torrentCarePercent = parsed
+	}
+	if err := server.inv.SetRemovalSettings(autoMode, autoRemoveUnassociated, dryRun, torrentCarePercent); err != nil {
 		data.RemovalError = err.Error()
 		_ = renderTemplate(w, server.settingsTpl, data)
 		return

@@ -70,6 +70,13 @@ type RemovalConfig struct {
 	// opts a whole service's torrents into automatic removal at all, this
 	// narrows it further to exclude the specific case of no known owner.
 	AutoRemoveUnassociatedTorrents bool `json:"auto_remove_unassociated_torrents"`
+	// TorrentCarePercent scales Torrent Value onto Media Retention Value's
+	// scale for cross-domain ranking (cleanup.rank): 50 compares them
+	// directly (the default), above 50 makes torrents relatively more
+	// worth keeping, below 50 less. This is deliberately the only
+	// user-facing dial in torrent valuation — how the torrent's own value
+	// is computed is entirely hardcoded, not user-configurable.
+	TorrentCarePercent float64 `json:"torrent_care_percent"`
 }
 
 type Service struct {
@@ -322,16 +329,20 @@ func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 // autoRemoveUnassociated are meaningless for an item whose own service
 // hasn't checked "Allow automatic removal" (see Media.RemovalRestricted);
 // dryRun applies to every removal, manual or automatic, not just this one.
-func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool) (Config, error) {
+func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64) (Config, error) {
 	switch autoMode {
 	case RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto:
 	default:
 		return configuration, fmt.Errorf("auto_mode must be one of %q, %q, %q", RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto)
 	}
+	if torrentCarePercent < 0 || torrentCarePercent > 100 {
+		return configuration, fmt.Errorf("torrent_care_percent must be between 0 and 100")
+	}
 	updated := configuration
 	updated.Removal.AutoMode = autoMode
 	updated.Removal.AutoRemoveUnassociatedTorrents = autoRemoveUnassociated
 	updated.Removal.DryRun = dryRun
+	updated.Removal.TorrentCarePercent = torrentCarePercent
 	return updated, nil
 }
 
@@ -521,7 +532,8 @@ const defaultConfigJSON = `{
   },
   "removal": {
     "dry_run": true,
-    "auto_mode": "disabled"
+    "auto_mode": "disabled",
+    "torrent_care_percent": 50
   }
 }
 `
@@ -564,6 +576,9 @@ func Load(path string) (Config, error) {
 				Popularity *json.RawMessage `json:"popularity"`
 			} `json:"weights"`
 		} `json:"valuation"`
+		Removal struct {
+			TorrentCarePercent *json.RawMessage `json:"torrent_care_percent"`
+		} `json:"removal"`
 	}
 	_ = json.Unmarshal(fileContents, &present)
 	seenNames := map[string]bool{}
@@ -629,6 +644,12 @@ func Load(path string) (Config, error) {
 	// to add the key themselves.
 	if present.Valuation.Weights.Popularity == nil {
 		configuration.Valuation.Weights.Popularity = 15
+	}
+	// TorrentCarePercent's zero value (0) is a legitimate, meaningful
+	// setting ("never prefer torrents over media"), so it needs the same
+	// presence check as Popularity rather than a zero-value default.
+	if present.Removal.TorrentCarePercent == nil {
+		configuration.Removal.TorrentCarePercent = 50
 	}
 	if assignedFreshID {
 		if err := Save(path, configuration); err != nil {
