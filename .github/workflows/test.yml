@@ -1,0 +1,40 @@
+name: Test
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: internal/httpui/static/src/package-lock.json
+
+      - name: Install cgo/sqlite build dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libsqlite3-dev
+
+      - name: Install TypeScript dependencies
+        run: npm ci
+        working-directory: internal/httpui/static/src
+
+      - name: Typecheck
+        run: npm run typecheck
+        working-directory: internal/httpui/static/src
+
+      - name: Build embedded assets
+        run: go run ./tools/buildassets
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
