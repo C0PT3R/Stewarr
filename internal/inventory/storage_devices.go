@@ -329,6 +329,42 @@ func (service *Service) ServiceRootPaths() map[string][]string {
 	return out
 }
 
+// UnreachableRoot is one service-reported storage root that Stewarr's own
+// container cannot stat — almost always a missing or mismatched Docker
+// volume mount, since the same host directory must be mounted into every
+// container (Stewarr included) for file identity, hardlink proof, and
+// Unmanaged discovery to work at all.
+type UnreachableRoot struct {
+	Path        string
+	ServiceName string
+	ServiceType string
+}
+
+// UnreachableServiceRoots reports every currently known service root
+// Stewarr cannot see from inside its own container. Each service's own API
+// reports paths in that service's own container namespace, so this only
+// ever names Stewarr's side of the mismatch — it cannot know or guess the
+// real host directory behind a path it can't reach.
+func (service *Service) UnreachableServiceRoots() []UnreachableRoot {
+	service.mu.RLock()
+	roots := append([]storageRoot(nil), service.storageRoots...)
+	service.mu.RUnlock()
+
+	seen := map[string]bool{}
+	var out []UnreachableRoot
+	for _, root := range roots {
+		if root.Service.Name == "" || seen[root.Path] {
+			continue
+		}
+		if _, err := os.Stat(root.Path); err != nil {
+			seen[root.Path] = true
+			out = append(out, UnreachableRoot{Path: root.Path, ServiceName: root.Service.Name, ServiceType: root.Service.Type})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
 func sortedKeys(set map[string]bool) []string {
 	out := make([]string, 0, len(set))
 	for k := range set {

@@ -158,6 +158,30 @@ func TestServiceRootPathsGroupsByServiceNameAndDedupes(t *testing.T) {
 	}
 }
 
+func TestUnreachableServiceRootsReportsOnlyPathsStewarrCannotStat(t *testing.T) {
+	present := t.TempDir()
+	service := New(config.Config{}, nil)
+	service.mu.Lock()
+	service.storageRoots = []storageRoot{
+		{Path: present, Service: config.Service{ID: "radarr", Name: "Movies", Type: "radarr"}},
+		{Path: "/definitely/not/mounted/movies", Service: config.Service{ID: "radarr", Name: "Movies", Type: "radarr"}},
+		{Path: "/definitely/not/mounted/downloads", Service: config.Service{ID: "deluge", Name: "Downloader", Type: "deluge"}},
+		{Path: "/definitely/not/mounted/downloads", Service: config.Service{ID: "deluge", Name: "Downloader", Type: "deluge"}}, // duplicate, must not double up
+	}
+	service.mu.Unlock()
+
+	unreachable := service.UnreachableServiceRoots()
+	if len(unreachable) != 2 {
+		t.Fatalf("expected exactly 2 unreachable roots (the present one excluded, the duplicate collapsed), got %#v", unreachable)
+	}
+	if unreachable[0].Path != "/definitely/not/mounted/downloads" || unreachable[0].ServiceName != "Downloader" || unreachable[0].ServiceType != "deluge" {
+		t.Fatalf("unexpected first unreachable root: %#v", unreachable[0])
+	}
+	if unreachable[1].Path != "/definitely/not/mounted/movies" || unreachable[1].ServiceName != "Movies" {
+		t.Fatalf("unexpected second unreachable root: %#v", unreachable[1])
+	}
+}
+
 func TestStorageDevicesEmptyWhenNoRootsKnown(t *testing.T) {
 	service := New(config.Config{}, nil)
 	if devices := service.StorageDevices(); devices != nil {
