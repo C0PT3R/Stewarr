@@ -40,7 +40,7 @@ services:
 - **Home** — storage state, Library/Torrent summaries, service health, storage capabilities and lifetime cleanup statistics.
 - **Library** — searchable, filterable, sortable, server-paginated Radarr/Sonarr media ranked by Retention Value.
 - **Torrents** — searchable, filterable, sortable, server-paginated qBittorrent inventory with provenance and reclaimable-space information.
-- **Unmanaged files** — observational inventory of paths that no current service claims; not directly removable.
+- **Unmanaged files** — observational inventory of paths that no current service claims. Removable manually, but never selected as an automatic cleanup candidate.
 - **Tasks** — background maintenance tasks, their schedules/status, and **Run now** controls.
 - **History** — durable event history. Removal simulations and live removal outcomes are recorded here.
 
@@ -52,11 +52,12 @@ A retention score for library media — higher means more valuable to keep when 
 
 ### Torrent provenance
 
-Every torrent Stewarr knows about is in one of three states:
+Every torrent Stewarr knows about is in one of four states:
 
 - **Current** — it backs library media right now, proven by import data or by physical hardlink identity.
-- **Superseded** — it backed an older release that's since been replaced by a newer import.
-- **Unassociated** — no current relationship to library media is established. This isn't proof it's safe to remove; it just means Stewarr has no basis to link it to anything.
+- **Superseded** — it backed an older release that's since been replaced by a newer import for the same still-existing media.
+- **Orphaned** — it was imported for media that Radarr/Sonarr no longer has any record of at all (the media itself was removed), so there's no newer import to point to.
+- **Unassociated** — no current or historical relationship to library media is established. This isn't proof it's safe to remove; it just means Stewarr has no basis to link it to anything.
 
 ### Manual removal and dry run
 
