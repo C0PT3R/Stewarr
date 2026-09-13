@@ -450,28 +450,12 @@ func TestLoadFailsClosedOnDuplicateSingleInstanceRuntimeType(t *testing.T) {
 	}
 }
 
-func TestExplicitZeroTorrentWeightsArePreserved(t *testing.T) {
-	p := filepath.Join(t.TempDir(), "config.json")
-	body := `{"valuation":{"torrent_weights":{"seeds":0,"leechers":0,"upload_rate":0}},"storage":{}}`
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	c, err := Load(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Valuation.TorrentWeights != (TorrentValueWeights{}) {
-		t.Fatalf("explicit zero torrent weights were replaced: %#v", c.Valuation.TorrentWeights)
-	}
-}
-
 // TestLoadDefaultsPopularityWeightForConfigWrittenBeforeItExisted guards
 // the fix for a real gap: Popularity is a newer weight than the rest of
 // Weights, so a config.json predating it has no value at all — which
 // would otherwise silently make TMDB's popularity signal count for
 // nothing even with TMDB fully enabled and fetching, until the user
-// happened to notice and add the key themselves. Mirrors how
-// TorrentWeights already gets a one-time default for the same reason.
+// happened to notice and add the key themselves.
 func TestLoadDefaultsPopularityWeightForConfigWrittenBeforeItExisted(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.json")
 	body := `{"valuation":{"weights":{"rating":40}},"storage":{}}`

@@ -31,18 +31,11 @@ type ValueWeights struct {
 	SeasonRecency float64 `json:"season_recency"`
 }
 
-type TorrentValueWeights struct {
-	Seeds      float64 `json:"seeds"`
-	Leechers   float64 `json:"leechers"`
-	UploadRate float64 `json:"upload_rate"`
-}
-
 type ValuationConfig struct {
-	Weights            ValueWeights        `json:"weights"`
-	TorrentWeights     TorrentValueWeights `json:"torrent_weights"`
-	RequestValueBonus  float64             `json:"request_value_bonus"`
-	FavoriteValueBonus float64             `json:"favorite_value_bonus"`
-	KeepTagValueBonus  float64             `json:"keep_tag_value_bonus"`
+	Weights            ValueWeights `json:"weights"`
+	RequestValueBonus  float64      `json:"request_value_bonus"`
+	FavoriteValueBonus float64      `json:"favorite_value_bonus"`
+	KeepTagValueBonus  float64      `json:"keep_tag_value_bonus"`
 }
 
 // Removal.AutoMode's three valid values. Empty (a config.json written
@@ -524,12 +517,7 @@ const defaultConfigJSON = `{
     },
     "request_value_bonus": 100,
     "favorite_value_bonus": 100,
-    "keep_tag_value_bonus": 1000,
-    "torrent_weights": {
-      "seeds": 1,
-      "leechers": 5,
-      "upload_rate": 5
-    }
+    "keep_tag_value_bonus": 1000
   },
   "removal": {
     "dry_run": true,
@@ -572,8 +560,7 @@ func Load(path string) (Config, error) {
 	}
 	var present struct {
 		Valuation struct {
-			TorrentWeights *json.RawMessage `json:"torrent_weights"`
-			Weights        struct {
+			Weights struct {
 				Popularity *json.RawMessage `json:"popularity"`
 			} `json:"weights"`
 		} `json:"valuation"`
@@ -634,11 +621,6 @@ func Load(path string) (Config, error) {
 	}
 	if configuration.RequestGrace < 0 {
 		return configuration, fmt.Errorf("protection.seerr_request_grace must not be negative")
-	}
-	if present.Valuation.TorrentWeights == nil {
-		configuration.Valuation.TorrentWeights.Seeds = 1
-		configuration.Valuation.TorrentWeights.Leechers = 5
-		configuration.Valuation.TorrentWeights.UploadRate = 5
 	}
 	// Popularity is a newer weight than the rest of Weights; a config.json
 	// written before it existed has no value for it at all, which would

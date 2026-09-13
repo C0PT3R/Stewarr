@@ -179,24 +179,6 @@ func TestHardlinkedTorrentContributionExplainsWhy(t *testing.T) {
 	}
 }
 
-func TestTorrentValueIsIndependentFromMediaAndStorage(t *testing.T) {
-	c := testConfig()
-	c.Valuation.TorrentWeights.Seeds = 1
-	c.Valuation.TorrentWeights.Leechers = 5
-	c.Valuation.TorrentWeights.UploadRate = 5
-	items := []model.Torrent{
-		{Name: "active", SeedsSwarm: 100, LeechersSwarm: 10, UploadSpeed: 2 * 1024 * 1024, ReclaimableBytes: 99 << 30, AssociationStatus: model.TorrentUnassociated},
-		{Name: "quiet", SeedsSwarm: 1, ReclaimableBytes: 0, AssociationStatus: model.TorrentCurrent},
-	}
-	ApplyTorrents(items, c)
-	if items[0].SwarmValue <= items[1].SwarmValue {
-		t.Fatalf("active swarm should have greater torrent value: %#v", items)
-	}
-	if len(items[0].SwarmValueReasons) != 3 {
-		t.Fatalf("expected explainable torrent value reasons: %#v", items[0].SwarmValueReasons)
-	}
-}
-
 // TestApplyMediaSetsRemovalRestrictedFromServiceOptIn guards the fix for
 // series (and any other media) appearing as removal candidates even though
 // their owning service hasn't checked "Allow automatic removal": an
@@ -230,14 +212,14 @@ func TestApplyMediaSetsRemovalRestrictedFromServiceOptIn(t *testing.T) {
 	}
 }
 
-func TestApplyTorrentsSetsRemovalRestrictedFromServiceOptIn(t *testing.T) {
+func TestApplyTorrentValueSetsRemovalRestrictedFromServiceOptIn(t *testing.T) {
 	c := testConfig()
 	c.Services = []config.Service{{ID: "qbittorrent-in", AllowAutomaticRemoval: true}}
 	torrents := []model.Torrent{
 		{Hash: "in", ServiceID: "qbittorrent-in"},
 		{Hash: "out", ServiceID: "does-not-exist"},
 	}
-	ApplyTorrents(torrents, c)
+	ApplyTorrentValue(torrents, c, nil)
 	if torrents[0].RemovalRestricted {
 		t.Fatalf("expected an opted-in service's torrent to not be removal-restricted: %#v", torrents[0])
 	}
@@ -310,11 +292,11 @@ func TestApplyMediaSeasonsScopeTorrentActivityToTheirOwnSeason(t *testing.T) {
 	}
 }
 
-func TestApplyTorrentsProtectsBelowMinimumRatio(t *testing.T) {
+func TestApplyTorrentValueProtectsBelowMinimumRatio(t *testing.T) {
 	c := testConfig()
 	c.Protection.MinTorrentRatio = 1.0
 	items := []model.Torrent{{Name: "low", Ratio: 0.5}, {Name: "high", Ratio: 2.0}}
-	ApplyTorrents(items, c)
+	ApplyTorrentValue(items, c, nil)
 	if !items[0].Protected || items[0].ProtectionReason != "Below minimum ratio" {
 		t.Fatalf("expected below-ratio torrent to be protected: %#v", items[0])
 	}
@@ -323,11 +305,11 @@ func TestApplyTorrentsProtectsBelowMinimumRatio(t *testing.T) {
 	}
 }
 
-func TestApplyTorrentsProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing.T) {
+func TestApplyTorrentValueProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing.T) {
 	c := testConfig()
 	c.Protection.KeepTorrentTags = []string{"keep"}
 	items := []model.Torrent{{Name: "tagged", Ratio: 5, Tags: "other, Keep "}, {Name: "untagged", Ratio: 5, Tags: "other"}}
-	ApplyTorrents(items, c)
+	ApplyTorrentValue(items, c, nil)
 	if !items[0].Protected || items[0].ProtectionReason != "Keep tag" {
 		t.Fatalf("expected keep-tagged torrent to be protected: %#v", items[0])
 	}
@@ -336,21 +318,21 @@ func TestApplyTorrentsProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing.T) 
 	}
 }
 
-func TestApplyTorrentsMinRatioZeroProtectsNothing(t *testing.T) {
+func TestApplyTorrentValueMinRatioZeroProtectsNothing(t *testing.T) {
 	c := testConfig()
 	items := []model.Torrent{{Name: "zero-ratio", Ratio: 0}}
-	ApplyTorrents(items, c)
+	ApplyTorrentValue(items, c, nil)
 	if items[0].Protected {
 		t.Fatalf("MinTorrentRatio of zero (unset) must never protect anything: %#v", items[0])
 	}
 }
 
-func TestApplyTorrentsBothRatioAndTagCanProtectTheSameTorrent(t *testing.T) {
+func TestApplyTorrentValueBothRatioAndTagCanProtectTheSameTorrent(t *testing.T) {
 	c := testConfig()
 	c.Protection.MinTorrentRatio = 1.0
 	c.Protection.KeepTorrentTags = []string{"keep"}
 	items := []model.Torrent{{Name: "both", Ratio: 0.1, Tags: "keep"}}
-	ApplyTorrents(items, c)
+	ApplyTorrentValue(items, c, nil)
 	if !items[0].Protected {
 		t.Fatalf("expected torrent satisfying both protection rules to be protected: %#v", items[0])
 	}

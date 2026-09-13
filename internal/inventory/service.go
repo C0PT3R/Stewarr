@@ -460,8 +460,8 @@ func (service *Service) TorrentDetail(hash, svcID string) (model.Torrent, error)
 	}
 	// Preserve Stewarr-owned interpretations and expensive reconciliation facts.
 	live.ServiceID = indexed.ServiceID
-	live.SwarmValue = indexed.SwarmValue
-	live.SwarmValueReasons = indexed.SwarmValueReasons
+	live.TorrentValue = indexed.TorrentValue
+	live.TorrentValueReasons = indexed.TorrentValueReasons
 	live.AssociationStatus = indexed.AssociationStatus
 	live.AssociationReason = indexed.AssociationReason
 	live.MediaItems = indexed.MediaItems
