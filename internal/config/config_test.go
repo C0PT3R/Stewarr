@@ -344,26 +344,36 @@ func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
 
 func TestSetRemovalSettings(t *testing.T) {
 	var c Config
-	updated, err := SetRemovalSettings(c, RemovalAutoAuto, true, false)
+	updated, err := SetRemovalSettings(c, RemovalAutoAuto, true, false, 75)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Removal.AutoMode != RemovalAutoAuto || !updated.Removal.AutoRemoveUnassociatedTorrents || updated.Removal.DryRun {
-		t.Fatalf("expected all three fields to be set as given, got %#v", updated.Removal)
+	if updated.Removal.AutoMode != RemovalAutoAuto || !updated.Removal.AutoRemoveUnassociatedTorrents || updated.Removal.DryRun || updated.Removal.TorrentCarePercent != 75 {
+		t.Fatalf("expected all four fields to be set as given, got %#v", updated.Removal)
 	}
-	reverted, err := SetRemovalSettings(updated, RemovalAutoDisabled, false, true)
+	reverted, err := SetRemovalSettings(updated, RemovalAutoDisabled, false, true, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reverted.Removal.AutoMode != RemovalAutoDisabled || reverted.Removal.AutoRemoveUnassociatedTorrents || !reverted.Removal.DryRun {
-		t.Fatalf("expected all three fields to flip independently, got %#v", reverted.Removal)
+	if reverted.Removal.AutoMode != RemovalAutoDisabled || reverted.Removal.AutoRemoveUnassociatedTorrents || !reverted.Removal.DryRun || reverted.Removal.TorrentCarePercent != 25 {
+		t.Fatalf("expected all four fields to flip independently, got %#v", reverted.Removal)
 	}
 }
 
 func TestSetRemovalSettingsRejectsUnknownAutoMode(t *testing.T) {
 	var c Config
-	if _, err := SetRemovalSettings(c, "sometimes", false, false); err == nil {
+	if _, err := SetRemovalSettings(c, "sometimes", false, false, 50); err == nil {
 		t.Fatal("expected an unrecognized auto_mode to be rejected")
+	}
+}
+
+func TestSetRemovalSettingsRejectsTorrentCarePercentOutOfRange(t *testing.T) {
+	var c Config
+	if _, err := SetRemovalSettings(c, RemovalAutoDisabled, false, false, -1); err == nil {
+		t.Fatal("expected a negative torrent_care_percent to be rejected")
+	}
+	if _, err := SetRemovalSettings(c, RemovalAutoDisabled, false, false, 101); err == nil {
+		t.Fatal("expected a torrent_care_percent above 100 to be rejected")
 	}
 }
 

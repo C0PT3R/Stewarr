@@ -44,10 +44,16 @@ type Action struct {
 	Season *model.Season `json:"season,omitempty"`
 	// Torrents has length 1 for StandaloneTorrent, one or more for
 	// HardlinkedBundle, and is nil for StandaloneMedia/StandaloneSeason.
-	Torrents         []model.Torrent `json:"torrents,omitempty"`
-	Value            float64         `json:"value"`
-	ReclaimableBytes int64           `json:"reclaimableBytes"`
-	Reasons          []model.Reason  `json:"reasons,omitempty"`
+	Torrents []model.Torrent `json:"torrents,omitempty"`
+	Value    float64         `json:"value"`
+	// ComparableValue is Value after cross-domain scaling (see rank) — the
+	// number actually used to order this action against actions from the
+	// other domain. Equal to Value for every action except a
+	// StandaloneTorrent. Not itself a value judgment a UI should display
+	// as "the" value; Value is what a media/torrent detail page shows.
+	ComparableValue  float64        `json:"-"`
+	ReclaimableBytes int64          `json:"reclaimableBytes"`
+	Reasons          []model.Reason `json:"reasons,omitempty"`
 }
 
 type Plan struct {
@@ -67,15 +73,17 @@ type Plan struct {
 	Error                string   `json:"error,omitempty"`
 }
 
-// rank classifies media and torrents into cleanup Actions and orders them:
-// every Torrent-domain action (Superseded, Orphaned, Unassociated, or a
-// proven non-hardlinked Current copy) sorted ascending by Swarm Value, followed by
-// every Media-domain action (standalone media, or a media bundled with its
-// hardlinked Current torrents) sorted ascending by Retention Value. Media
-// Retention Value and Torrent Swarm Value are deliberately unrelated scores,
-// so domains are never compared numerically against each other — only the
-// tier order itself decides which domain is tried first.
-func rank(media []model.Media, torrents []model.Torrent) []Action {
+// rank classifies media and torrents into cleanup Actions and orders them
+// as one unified, ascending-value list: a StandaloneTorrent's Torrent Value
+// is scaled by torrentCarePercent/50 onto Media Retention Value's scale
+// before comparison (50, the default, compares them directly; above 50
+// makes torrents relatively more worth keeping, below 50 less) — this is
+// the only place the two domains are ever compared numerically, and it's
+// deliberately a single dial rather than exposing how each domain's own
+// value is computed. A HardlinkedBundle already blends both (Retention
+// Value plus its hardlinked torrents' Torrent Value) and is left
+// unscaled, same as before.
+func rank(media []model.Media, torrents []model.Torrent, torrentCarePercent float64) []Action {
 	var torrentTier, mediaTier []Action
 	bundledHashes := map[string]bool{}
 
@@ -177,10 +185,17 @@ func rank(media []model.Media, torrents []model.Torrent) []Action {
 		torrentTier = append(torrentTier, Action{Kind: StandaloneTorrent, Torrents: []model.Torrent{t}, Value: t.TorrentValue, ReclaimableBytes: t.ReclaimableBytes, Reasons: t.TorrentValueReasons})
 	}
 
-	sort.SliceStable(torrentTier, func(i, j int) bool { return torrentTier[i].Value < torrentTier[j].Value })
-	sort.SliceStable(mediaTier, func(i, j int) bool { return mediaTier[i].Value < mediaTier[j].Value })
-	enforceSeasonOrder(mediaTier)
-	return append(torrentTier, mediaTier...)
+	careScale := torrentCarePercent / 50
+	for i := range torrentTier {
+		torrentTier[i].ComparableValue = torrentTier[i].Value * careScale
+	}
+	for i := range mediaTier {
+		mediaTier[i].ComparableValue = mediaTier[i].Value
+	}
+	merged := append(torrentTier, mediaTier...)
+	sort.SliceStable(merged, func(i, j int) bool { return merged[i].ComparableValue < merged[j].ComparableValue })
+	enforceSeasonOrder(merged)
+	return merged
 }
 
 // enforceSeasonOrder is a safety net on top of season Retention Value
@@ -223,7 +238,7 @@ func enforceSeasonOrder(actions []Action) {
 // Build uses Target as the sole storage-reclamation threshold. Critical is
 // carried in the response for configuration compatibility, but belongs to a
 // future emergency/alarm policy and never gates cleanup planning.
-func Build(path string, targetUsage, criticalUsage float64, media []model.Media, torrents []model.Torrent, reliable bool) (Plan, error) {
+func Build(path string, targetUsage, criticalUsage, torrentCarePercent float64, media []model.Media, torrents []model.Torrent, reliable bool) (Plan, error) {
 	plan := Plan{Path: path, TargetUsagePercent: targetUsage, CriticalUsagePercent: criticalUsage, Reliable: reliable}
 	var filesystemStats syscall.Statfs_t
 	if err := syscall.Statfs(path, &filesystemStats); err != nil {
@@ -262,7 +277,7 @@ func Build(path string, targetUsage, criticalUsage float64, media []model.Media,
 		plan.Message = fmt.Sprintf("No cleanup: %.2f%% used (target %.1f%%)", usagePercent, targetUsage)
 		return plan, nil
 	}
-	for _, action := range rank(media, torrents) {
+	for _, action := range rank(media, torrents, torrentCarePercent) {
 		plan.Actions = append(plan.Actions, action)
 		plan.SelectedBytes += uint64(action.ReclaimableBytes)
 		if plan.SelectedBytes >= plan.NeedBytes {

@@ -71,6 +71,7 @@
   },
   "removal": {
     "dry_run": true,
-    "auto_mode": "disabled"
+    "auto_mode": "disabled",
+    "torrent_care_percent": 50
   }
 }

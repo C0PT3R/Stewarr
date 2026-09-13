@@ -272,7 +272,7 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
-		p, planErr := cleanup.Build(device.RepresentativePath, target, critical, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
+		p, planErr := cleanup.Build(device.RepresentativePath, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
 		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr, Name: cfg.DeviceName(device.RepresentativePath)})
 	}
 	return views
