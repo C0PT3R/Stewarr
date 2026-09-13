@@ -1095,6 +1095,13 @@ and removed manually regardless of the automatic-removal setting.
 
 - Capability discovery for the service manager (auto-detecting what an
   added service supports, beyond the connection test already in place).
+  Where an adapter has a known, permanent limitation (not just "untested
+  yet"), the add-service overlay should surface it up front as a plain
+  warning before the service is added, e.g. "Known limitations: rTorrent
+  cannot reliably detect tracker activity. Dead-torrent detection will be
+  disabled for this service." This is disclosure, not configuration —
+  the user isn't asked to work around it, just told what won't work and
+  why, the same moment they're choosing which adapter to add.
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
   service adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly
