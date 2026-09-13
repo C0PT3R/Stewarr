@@ -71,6 +71,28 @@ There's no single configured storage path. Stewarr derives storage devices from 
 
 The Compose example above is the minimal setup. `PUID`/`PGID` should match the user that owns your media/config paths on the host.
 
+**Every container that touches your media — Radarr, Sonarr, your torrent client, and Stewarr — must mount the same host directory at the same internal path.** Hardlink detection, file reconciliation, and Unmanaged discovery all depend on Stewarr being able to `stat()` the exact paths those other services report; if Stewarr's container can't see a path another service uses, Stewarr will say so on the Storage page, but it can't guess what the right mount is. The common convention (used below) is one shared `/data` mount across every container:
+
+```yaml
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr
+    volumes:
+      - /mnt/media:/data
+  sonarr:
+    image: lscr.io/linuxserver/sonarr
+    volumes:
+      - /mnt/media:/data
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent
+    volumes:
+      - /mnt/media:/data
+  stewarr:
+    build: https://github.com/C0PT3R/stewarr.git
+    volumes:
+      - /mnt/media:/data
+```
+
 ## Development
 
 ```bash

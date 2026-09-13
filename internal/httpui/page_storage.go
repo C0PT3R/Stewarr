@@ -8,11 +8,13 @@ import (
 	"strconv"
 
 	"stewarr/internal/config"
+	"stewarr/internal/inventory"
 )
 
 type storageData struct {
-	Devices      []deviceView
-	ServiceRoots map[string][]string
+	Devices          []deviceView
+	ServiceRoots     map[string][]string
+	UnreachableRoots []inventory.UnreachableRoot
 	// AutoRemovalDisabled hides the cleanup-candidate/plan section entirely
 	// when Removal.AutoMode is Disabled — a disabled setting means
 	// automatic removal (and the whole notion of "here's what we'd
@@ -37,6 +39,7 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	data := storageData{
 		Devices:             server.deviceViews(items, ts, planningReliable),
 		ServiceRoots:        server.inv.ServiceRootPaths(),
+		UnreachableRoots:    server.inv.UnreachableServiceRoots(),
 		AutoRemovalDisabled: autoMode != config.RemovalAutoConfirm && autoMode != config.RemovalAutoAuto,
 	}
 	if err := renderTemplate(w, server.storageTpl, data); err != nil {
