@@ -27,6 +27,7 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 					Available: true, TotalBytes: 1000, FreeBytes: 400, UsedBytes: 600,
 					Claimed:        []inventory.ClaimedSegment{{Service: "Movies", Bytes: 500}},
 					UnmanagedBytes: 50, OtherBytes: 50,
+					ServiceRoots: map[string][]string{"Movies": {"/data/movies", "/data/movies-4k"}},
 				},
 				Plan: cleanup.Plan{Available: true, UsagePercent: 60, TargetUsagePercent: 90, Message: "No cleanup: 60.00% used (target 90.0%)"},
 				Name: "Media Drive",
@@ -35,7 +36,6 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/broken", Available: false, Error: "permission denied"},
 			},
 		},
-		ServiceRoots: map[string][]string{"Movies": {"/data/movies", "/data/movies-4k"}},
 	}
 	recorder := httptest.NewRecorder()
 	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
@@ -50,6 +50,53 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
 		}
+	}
+}
+
+// TestStorageTemplateScopesServiceRootsToTheirOwnDevice guards a real bug:
+// a torrent client's incomplete-downloads directory can live on a different
+// physical disk than its normal save path, so the same service claims bytes
+// on two different devices. The path list under each device card must only
+// ever show that device's own subset of the service's roots, not every
+// root the service has across every device.
+func TestStorageTemplateScopesServiceRootsToTheirOwnDevice(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := storageData{
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{
+					RepresentativePath: "/data/media", Available: true, TotalBytes: 1000, FreeBytes: 900, UsedBytes: 100,
+					Claimed:      []inventory.ClaimedSegment{{Service: "Downloader", Bytes: 100}},
+					ServiceRoots: map[string][]string{"Downloader": {"/data/downloads/complete"}},
+				},
+				Plan: cleanup.Plan{Available: true},
+				Name: "Media",
+			},
+			{
+				Storage: inventory.StorageDevice{
+					RepresentativePath: "/torrent-cache", Available: true, TotalBytes: 500, FreeBytes: 400, UsedBytes: 100,
+					Claimed:      []inventory.ClaimedSegment{{Service: "Downloader", Bytes: 100}},
+					ServiceRoots: map[string][]string{"Downloader": {"/torrent-cache"}},
+				},
+				Plan: cleanup.Plan{Available: true},
+				Name: "Torrent cache",
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	body := recorder.Body.String()
+	mediaSection := body[:strings.Index(body, "Torrent cache")]
+	if strings.Contains(mediaSection, "/torrent-cache") {
+		t.Fatalf("expected the Media device's path list to exclude the other device's path, got:\n%s", mediaSection)
+	}
+	if !strings.Contains(mediaSection, "/data/downloads/complete") {
+		t.Fatalf("expected the Media device's own path to still be shown, got:\n%s", mediaSection)
 	}
 }
 

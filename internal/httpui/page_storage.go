@@ -13,7 +13,6 @@ import (
 
 type storageData struct {
 	Devices          []deviceView
-	ServiceRoots     map[string][]string
 	UnreachableRoots []inventory.UnreachableRoot
 	// AutoRemovalDisabled hides the cleanup-candidate/plan section entirely
 	// when Removal.AutoMode is Disabled — a disabled setting means
@@ -38,7 +37,6 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	autoMode := server.inv.Config().Removal.AutoMode
 	data := storageData{
 		Devices:             server.deviceViews(items, ts, planningReliable),
-		ServiceRoots:        server.inv.ServiceRootPaths(),
 		UnreachableRoots:    server.inv.UnreachableServiceRoots(),
 		AutoRemovalDisabled: autoMode != config.RemovalAutoConfirm && autoMode != config.RemovalAutoAuto,
 	}

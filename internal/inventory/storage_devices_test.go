@@ -167,18 +167,22 @@ func TestUnreachableServiceRootsReportsOnlyPathsStewarrCannotStat(t *testing.T) 
 		{Path: "/definitely/not/mounted/movies", Service: config.Service{ID: "radarr", Name: "Movies", Type: "radarr"}},
 		{Path: "/definitely/not/mounted/downloads", Service: config.Service{ID: "deluge", Name: "Downloader", Type: "deluge"}},
 		{Path: "/definitely/not/mounted/downloads", Service: config.Service{ID: "deluge", Name: "Downloader", Type: "deluge"}}, // duplicate, must not double up
+		{Path: "/definitely/not/mounted/incomplete", Service: config.Service{ID: "deluge", Name: "Downloader", Type: "deluge"}, Purpose: "incomplete downloads"},
 	}
 	service.mu.Unlock()
 
 	unreachable := service.UnreachableServiceRoots()
-	if len(unreachable) != 2 {
-		t.Fatalf("expected exactly 2 unreachable roots (the present one excluded, the duplicate collapsed), got %#v", unreachable)
+	if len(unreachable) != 3 {
+		t.Fatalf("expected exactly 3 unreachable roots (the present one excluded, the duplicate collapsed), got %#v", unreachable)
 	}
-	if unreachable[0].Path != "/definitely/not/mounted/downloads" || unreachable[0].ServiceName != "Downloader" || unreachable[0].ServiceType != "deluge" {
+	if unreachable[0].Path != "/definitely/not/mounted/downloads" || unreachable[0].ServiceName != "Downloader" || unreachable[0].ServiceType != "deluge" || unreachable[0].Purpose != "" {
 		t.Fatalf("unexpected first unreachable root: %#v", unreachable[0])
 	}
-	if unreachable[1].Path != "/definitely/not/mounted/movies" || unreachable[1].ServiceName != "Movies" {
-		t.Fatalf("unexpected second unreachable root: %#v", unreachable[1])
+	if unreachable[1].Path != "/definitely/not/mounted/incomplete" || unreachable[1].Purpose != "incomplete downloads" {
+		t.Fatalf("expected the second unreachable root to carry its Purpose through: %#v", unreachable[1])
+	}
+	if unreachable[2].Path != "/definitely/not/mounted/movies" || unreachable[2].ServiceName != "Movies" {
+		t.Fatalf("unexpected third unreachable root: %#v", unreachable[2])
 	}
 }
 

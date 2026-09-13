@@ -129,12 +129,32 @@ type storageRoot struct {
 	Path    string
 	Service config.Service
 	Label   string
+	// Purpose distinguishes why a root exists at all, e.g.
+	// qbittorrent.RootPurposeIncompleteDownloads — empty for an ordinary
+	// root. Surfaced on UnreachableServiceRoots so the reason a path needs
+	// mounting is visible, not just the bare path.
+	Purpose string
 }
 
 func configuredOrDiscoveredRoots(i config.Service, discovered []string) []storageRoot {
 	out := make([]storageRoot, 0, len(discovered)+1)
 	for _, p := range discovered {
 		out = append(out, storageRoot{Path: p, Service: i})
+	}
+	if len(discovered) == 0 && strings.TrimSpace(i.RootPath) != "" {
+		out = append(out, storageRoot{Path: i.RootPath, Service: i})
+	}
+	return out
+}
+
+// qbittorrentDiscoveredRoots mirrors configuredOrDiscoveredRoots for
+// qBittorrent's richer qbittorrent.RootPath (path + purpose) instead of a
+// bare path string, so an incomplete-downloads root carries that label all
+// the way through to UnreachableServiceRoots.
+func qbittorrentDiscoveredRoots(i config.Service, discovered []qbittorrent.RootPath) []storageRoot {
+	out := make([]storageRoot, 0, len(discovered)+1)
+	for _, r := range discovered {
+		out = append(out, storageRoot{Path: r.Path, Service: i, Purpose: r.Purpose})
 	}
 	if len(discovered) == 0 && strings.TrimSpace(i.RootPath) != "" {
 		out = append(out, storageRoot{Path: i.RootPath, Service: i})
@@ -354,9 +374,14 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		roots []string
 		err   error
 	}
+	type qbRootsFetch struct {
+		svc   config.Service
+		roots []qbittorrent.RootPath
+		err   error
+	}
 	radRootFetches := make([]rootsFetch, len(radInstances))
 	sonRootFetches := make([]rootsFetch, len(sonInstances))
-	qbRootFetches := make([]rootsFetch, len(qbInstances))
+	qbRootFetches := make([]qbRootsFetch, len(qbInstances))
 	var wg sync.WaitGroup
 	stageStarted = time.Now()
 	wg.Add(len(radInstances) + len(sonInstances) + len(qbInstances))
@@ -378,7 +403,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		go func(i int, svc config.Service) {
 			defer wg.Done()
 			roots, err := qbClients[svc.ID].WithContext(ctx).StorageRoots(torrentsByInstance[svc.ID])
-			qbRootFetches[i] = rootsFetch{svc: svc, roots: roots, err: err}
+			qbRootFetches[i] = qbRootsFetch{svc: svc, roots: roots, err: err}
 		}(i, svc)
 	}
 	wg.Wait()
@@ -406,7 +431,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		roots = append(roots, configuredOrDiscoveredRoots(f.svc, f.roots)...)
 	}
 	for _, f := range qbRootFetches {
-		roots = append(roots, configuredOrDiscoveredRoots(f.svc, f.roots)...)
+		roots = append(roots, qbittorrentDiscoveredRoots(f.svc, f.roots)...)
 	}
 	// Zero storage-owning services configured at all is a legitimate,
 	// expected state on a fresh install — not a failure. Only treat an empty

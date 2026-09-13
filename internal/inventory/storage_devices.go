@@ -29,6 +29,14 @@ type StorageDevice struct {
 	Claimed            []ClaimedSegment
 	UnmanagedBytes     uint64
 	OtherBytes         uint64
+	// ServiceRoots is this device's own subset of each service's root
+	// paths, keyed by service name — unlike the global ServiceRootPaths
+	// (every root a service has, across every device), this only ever
+	// lists paths that actually resolved to this specific physical device,
+	// so a service split across two disks (e.g. a torrent client's normal
+	// save path here, its separate incomplete-downloads directory on
+	// another disk) doesn't show the other device's path under this one.
+	ServiceRoots map[string][]string
 }
 
 // ClaimedSegment is one service's share of a device's used bytes, sorted
@@ -42,6 +50,9 @@ type deviceGroup struct {
 	device         uint64
 	rootLabels     map[string]bool
 	representative string
+	// rootPaths is this device's own subset of each service's root paths,
+	// keyed by service name — see StorageDevice.ServiceRoots.
+	rootPaths map[string]map[string]bool
 }
 
 // knownDeviceRoots groups the storage roots discovered by the last
@@ -67,12 +78,18 @@ func (service *Service) knownDeviceRoots() (groups map[uint64]*deviceGroup, orde
 		device := uint64(stat.Dev)
 		group, exists := groups[device]
 		if !exists {
-			group = &deviceGroup{device: device, rootLabels: map[string]bool{}, representative: root.Path}
+			group = &deviceGroup{device: device, rootLabels: map[string]bool{}, representative: root.Path, rootPaths: map[string]map[string]bool{}}
 			groups[device] = group
 			order = append(order, device)
 		}
 		if root.Label != "" {
 			group.rootLabels[root.Label] = true
+		}
+		if root.Service.Name != "" {
+			if group.rootPaths[root.Service.Name] == nil {
+				group.rootPaths[root.Service.Name] = map[string]bool{}
+			}
+			group.rootPaths[root.Service.Name][root.Path] = true
 		}
 	}
 	return groups, order
@@ -188,10 +205,15 @@ func (service *Service) StorageDevices() []StorageDevice {
 	for _, device := range order {
 		group := groups[device]
 		capabilities := storagecapabilities.Inspect(group.representative)
+		serviceRoots := make(map[string][]string, len(group.rootPaths))
+		for name, paths := range group.rootPaths {
+			serviceRoots[name] = sortedKeys(paths)
+		}
 		result := StorageDevice{
 			RootLabels: sortedKeys(group.rootLabels), RepresentativePath: group.representative,
 			Available: capabilities.Visible, Error: capabilities.Error, Filesystem: capabilities.Filesystem,
 			TotalBytes: capabilities.TotalBytes, FreeBytes: capabilities.FreeBytes, UnmanagedBytes: unmanagedByDevice[device],
+			ServiceRoots: serviceRoots,
 		}
 		var claimedNames []string
 		for name := range claimedByDevice[device] {
@@ -338,6 +360,10 @@ type UnreachableRoot struct {
 	Path        string
 	ServiceName string
 	ServiceType string
+	// Purpose explains why this specific path is a root at all, e.g.
+	// qbittorrent.RootPurposeIncompleteDownloads — empty for an ordinary
+	// root, where "it's this service's save/root path" is self-explanatory.
+	Purpose string
 }
 
 // UnreachableServiceRoots reports every currently known service root
@@ -358,7 +384,7 @@ func (service *Service) UnreachableServiceRoots() []UnreachableRoot {
 		}
 		if _, err := os.Stat(root.Path); err != nil {
 			seen[root.Path] = true
-			out = append(out, UnreachableRoot{Path: root.Path, ServiceName: root.Service.Name, ServiceType: root.Service.Type})
+			out = append(out, UnreachableRoot{Path: root.Path, ServiceName: root.Service.Name, ServiceType: root.Service.Type, Purpose: root.Purpose})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
