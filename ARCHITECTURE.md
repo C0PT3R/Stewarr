@@ -27,7 +27,7 @@ File topology is generation-bound. A reconciliation result is discarded if the a
 
 Raw service data should remain attributable facts: an *arr import event, a qBittorrent hash, Jellyfin playback state, a Seerr request, a filesystem inode/link count, a storage usage reading.
 
-Stewarr then derives interpretations from combinations of facts: Current, Superseded, Unassociated, former relationships, Value, reclaimable bytes, storage pressure, safe actions, inconsistencies and health conditions.
+Stewarr then derives interpretations from combinations of facts: Current, Superseded, Orphaned, Unassociated, former relationships, Value, reclaimable bytes, storage pressure, safe actions, inconsistencies and health conditions.
 
 Do not blur those layers. A future change in interpretation should not require rebuilding the service that supplied the facts.
 
@@ -71,11 +71,13 @@ Future storage inspectors may add filesystem-specific capabilities for reflinks/
 
 - **Current** — authoritative current relationship to Library media.
 - **Superseded** — historical import replaced by a newer import for the same media/episode.
-- **Unassociated** — no current media relationship exists. A former relationship may or may not exist in provenance History.
+- **Orphaned** — provenance exists (the torrent was managed once) but no specific newer import replaced it, typically because the media it belonged to was removed from Radarr/Sonarr entirely.
+- **Unassociated** — no relationship to Library media exists at all, current or historical.
 
-The old `Orphaned` state is normalized to `Unassociated`; the former media
-identity remains in History. Current relationship state and historical
-provenance are separate axes.
+`Orphaned` and `Unassociated` are deliberately distinct: the former still
+has a known former relationship in provenance History, the latter never
+did. Current relationship state and historical provenance are separate
+axes.
 
 ## Unmanaged download data
 
@@ -146,10 +148,10 @@ Future tasks may include full reconciliation, storage capability scans, statisti
 SQLite is durable state at:
 
 ```text
-/config/state/stewarr.db
+/config/state/inventory.db
 ```
 
-The path is deliberately not configurable. Stewarr migrates the legacy Togetharr or Spartarr database filename when appropriate, preferring the newer Togetharr state if both exist.
+The path is deliberately not configurable, and deliberately generic rather than product-name-specific, since there is exactly one database and no per-product migration path.
 
 SQLite stores cached media/torrent/unmanaged state, import provenance, synchronization cursors, cleanup history/statistics and future service/task state. Logical inventory and reconciliation generations use atomic publication transactions. The shared connection is guarded for both reads and writes so a reader cannot observe a table between its DELETE and replacement INSERT phases.
 

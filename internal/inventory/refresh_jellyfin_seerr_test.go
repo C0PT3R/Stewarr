@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/jellyfin"
-	"stewarr/internal/integrations/seerr"
 	"stewarr/internal/model"
+	"stewarr/internal/services/jellyfin"
+	"stewarr/internal/services/seerr"
 )
 
 // TestRefreshJellyfinDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass

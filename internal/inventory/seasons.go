@@ -18,7 +18,7 @@ type seasonKey struct {
 
 // seasonFromParts recovers the season number and display group from a
 // MediaFileRef's Parts, using Order's seasonNumber*100000+episodeNumber
-// encoding (internal/integrations/sonarr/client.go) rather than parsing the
+// encoding (internal/services/sonarr/client.go) rather than parsing the
 // "Season %d" display label back apart.
 func seasonFromParts(parts []model.MediaFilePart) (number int, group string, ok bool) {
 	if len(parts) == 0 || parts[0].Group == "" {

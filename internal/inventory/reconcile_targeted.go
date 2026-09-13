@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/radarr"
-	"stewarr/internal/integrations/sonarr"
 	"stewarr/internal/model"
+	"stewarr/internal/services/radarr"
+	"stewarr/internal/services/sonarr"
 	"stewarr/internal/store"
 	"stewarr/internal/tasks"
 	"stewarr/internal/valuation"

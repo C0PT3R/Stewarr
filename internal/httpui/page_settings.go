@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/tmdb"
+	"stewarr/internal/services/tmdb"
 )
 
 type settingsPageData struct {

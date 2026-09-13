@@ -6,12 +6,12 @@ import (
 	"log"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/jellyfin"
-	"stewarr/internal/integrations/qbittorrent"
-	"stewarr/internal/integrations/radarr"
-	"stewarr/internal/integrations/seerr"
-	"stewarr/internal/integrations/sonarr"
-	"stewarr/internal/integrations/tmdb"
+	"stewarr/internal/services/jellyfin"
+	"stewarr/internal/services/qbittorrent"
+	"stewarr/internal/services/radarr"
+	"stewarr/internal/services/seerr"
+	"stewarr/internal/services/sonarr"
+	"stewarr/internal/services/tmdb"
 	"stewarr/internal/valuation"
 )
 

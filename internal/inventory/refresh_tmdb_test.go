@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/tmdb"
 	"stewarr/internal/model"
+	"stewarr/internal/services/tmdb"
 )
 
 // TestRefreshTMDBDoesNotDiscardResultsWhenBaseGenerationMovesOnMidPass

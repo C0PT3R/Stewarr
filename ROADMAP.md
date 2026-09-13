@@ -41,9 +41,9 @@ This file separates implemented behavior from intended direction. It is not a pr
 
 ### Torrent relationships and Retention/Swarm Value
 
-- Current torrent states are **Current**, **Superseded**, and **Unassociated**.
-  The legacy Orphaned state migrates to Unassociated while its former media
-  identity remains provenance History.
+- Current torrent states are **Current**, **Superseded**, **Orphaned**, and
+  **Unassociated** (Orphaned was reintroduced as its own distinct state in
+  0.3.3, below, after briefly collapsing into Unassociated).
 - Current and historical relationships project bidirectionally between Media
   and Torrents without fuzzy title matching.
 - Authoritative current import provenance and proven device/inode physical
@@ -551,7 +551,7 @@ This file separates implemented behavior from intended direction. It is not a pr
   season looked "most recent" could come down to unrelated noise, letting
   an early season outrank a genuinely newer one in the removal order.
   Sonarr's episode API already reports each episode's air date; Stewarr
-  just didn't fetch it. Added it (`internal/integrations/sonarr/client.go`
+  just didn't fetch it. Added it (`internal/services/sonarr/client.go`
   now reads `airDateUtc`), threaded it through as
   `model.MediaFilePart.AiredAt`, and `Season.LastAiredAt` (renamed from
   `LastAddedAt`, since it's a different fact now) is the max of that
@@ -576,7 +576,7 @@ and Radarr's own `popularity` field (TMDB's, distinct from rating/votes)
 wasn't even parsed. Since Stewarr aims to become a publicly usable app,
 not a single deployment tuned by hand, this is closed with an always-on
 enrichment source rather than a per-service quirk — fetched directly from
-TMDB itself (`internal/integrations/tmdb`), covering movies and TV under
+TMDB itself (`internal/services/tmdb`), covering movies and TV under
 one API. Considered and rejected: MDBList (an unnecessary extra hop in
 front of the same underlying sources) and IMDb (paid API for programmatic
 access; the free non-commercial dataset is a bulk TSV dump with no
@@ -1031,6 +1031,56 @@ free space would never surface under that gate, but its removal was
 never about reclaiming needed space in the first place. This needs its
 own always-on trigger, firing at the moment the health scan marks a
 torrent `Dead`, independent of the per-device target/critical cycle.
+
+This trigger still respects the existing automatic-removal gates: it
+only executes unattended when `Removal.AutoMode` is `auto` and the
+owning service has `AllowAutomaticRemoval` set — the same two switches
+that already gate every other automatic removal. Confirm mode evaluates
+and flags Dead the same way it does everything else, but does not
+submit it. With automatic removal disabled or in Confirm mode, a Dead
+torrent is only ever flagged — nothing is removed on its own — but it
+must remain individually removable through the normal manual removal
+flow at any time, the same as any other torrent.
+
+Zero bytes reclaimed is not a reason to skip it either — a torrent
+that's dead (confirmed via sustained tracker failure over its recorded
+history, the same signal that drives the new torrent value computation)
+has no reason to keep existing regardless of what removing it frees.
+Its full data set is removed through its owning torrent client the same
+way any other torrent removal is, whether or not any of its files are
+still hardlinked elsewhere.
+
+Once a torrent is flagged Dead, the health-scan task stops
+re-evaluating it on subsequent scans — the flag is sticky until the
+torrent is actually removed (manually or automatically), not something
+that gets re-derived every cycle.
+
+A Dead torrent is never proposed alone by the planner today. A
+`Current`, proven-hardlinked torrent is only ever represented inside a
+`HardlinkedBundle` with its media (`internal/cleanup/plan.go`), and the
+existing `StandaloneTorrent` path explicitly skips both
+`t.MediaHardlinked` torrents and anything with `ReclaimableBytes <= 0`
+— so a Dead torrent that's still hardlinked to kept media currently has
+no path to becoming a candidate at all, dead or not. This needs a new,
+torrent-scoped `ActionKind` that considers every `Dead` torrent
+regardless of `AssociationStatus` or hardlink state, bypasses the
+reclaimable-bytes gate entirely, and never touches the media side.
+
+Removal itself reuses the existing "remove torrent, also delete files"
+option every torrent client adapter already offers (qBittorrent today;
+the same should hold for Transmission/Deluge/rTorrent when those
+adapters exist) — no hardlink-aware special-casing is needed in the
+removal path itself. If the torrent's files are still hardlinked to
+kept media, deleting the torrent's own copy only removes that link;
+the media's hardlink survives untouched. If they aren't hardlinked, the
+bytes are actually freed. Either way, "remove all files this torrent
+manages" is the same single operation, the same option already offered
+whenever any torrent is removed.
+
+The Torrents page also needs `Dead` as its own filter dimension,
+alongside the existing provenance/reclaimable/activity filters
+(`internal/httpui/page_torrents.go`), so a Dead torrent can be spotted
+and removed manually regardless of the automatic-removal setting.
 
 ## Near-term
 

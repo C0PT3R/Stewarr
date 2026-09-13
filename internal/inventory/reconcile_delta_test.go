@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/radarr"
 	"stewarr/internal/model"
+	"stewarr/internal/services/radarr"
 	"stewarr/internal/store"
 )
 

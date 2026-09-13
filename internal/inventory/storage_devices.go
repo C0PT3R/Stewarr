@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"stewarr/internal/model"
-	"stewarr/internal/storagecap"
+	"stewarr/internal/storagecapabilities"
 )
 
 // StorageDevice reports one physical storage device known from the last file
@@ -187,7 +187,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 	out := make([]StorageDevice, 0, len(order))
 	for _, device := range order {
 		group := groups[device]
-		capabilities := storagecap.Inspect(group.representative)
+		capabilities := storagecapabilities.Inspect(group.representative)
 		result := StorageDevice{
 			RootLabels: sortedKeys(group.rootLabels), RepresentativePath: group.representative,
 			Available: capabilities.Visible, Error: capabilities.Error, Filesystem: capabilities.Filesystem,

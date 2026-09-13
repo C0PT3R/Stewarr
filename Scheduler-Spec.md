@@ -208,10 +208,14 @@ successor per task/key.
 Priority classes, highest first:
 
 1. `emergency` — alarms and protective action;
-2. `mutation` — user-confirmed or policy-confirmed state changes;
-3. `consistency` — correctness-required post-mutation work;
-4. `manual` — user-requested maintenance;
-5. `periodic` — routine maintenance.
+2. `consistency-deadline` — a consistency workflow that has reached its
+   maximum dirty deadline, promoted above ordinary mutations until its
+   required consistency boundary is restored;
+3. `mutation` — user-confirmed or policy-confirmed state changes;
+4. `consistency` — correctness-required post-mutation work, below its
+   deadline;
+5. `manual` — user-requested maintenance;
+6. `periodic` — routine maintenance.
 
 Priority selects among ready work that can acquire its resources. It never
 violates resource safety or forcibly kills a runner.
@@ -329,8 +333,8 @@ special cases.
 ### 11.3 Post-removal consistency workflow
 
 - Triggered by the durable dirty revision.
-- Its ready time is the earlier of 60 seconds after the latest removal and five
-  minutes after the first unsatisfied revision.
+- It becomes ready immediately (no debounce) and carries a five-minute
+  deadline from the first unsatisfied revision.
 - Repeated removals advance the required revision without creating parallel
   workflows.
 - Sequence: Base inventory, then File reconciliation.
@@ -399,7 +403,7 @@ The replacement is incomplete unless deterministic tests prove:
 8. retries follow policy and retain cause/coverage;
 9. periodic downtime produces only one catch-up run;
 10. workflow dependencies and equivalent-step satisfaction are correct;
-11. the 60-second debounce and five-minute maximum dirty window are exact;
+11. the five-minute maximum dirty window is exact;
 12. a newer removal revision invalidates stale workflow progress;
 13. browser cancellation cannot cancel an accepted durable mutation;
 14. restart marks interrupted executions and resumes only permitted work;

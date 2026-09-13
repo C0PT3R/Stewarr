@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.26-alpine AS build
 # nodejs/npm are build-time only, used solely to type-check the TypeScript
 # assets (tsc); esbuild does the actual bundling via its Go API and never
 # touches Node. Neither ships in the final runtime image below.

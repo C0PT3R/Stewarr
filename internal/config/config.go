@@ -519,6 +519,7 @@ const defaultConfigJSON = `{
       "low_popularity": 10,
       "old_request": 12,
       "torrent_activity": 10,
+      "popularity": 15,
       "season_recency": 8
     },
     "request_value_bonus": 100,
@@ -532,7 +533,7 @@ const defaultConfigJSON = `{
   },
   "removal": {
     "dry_run": true,
-    "auto_enabled": false
+    "auto_mode": "disabled"
   }
 }
 `

@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"stewarr/internal/config"
-	"stewarr/internal/integrations/jellyfin"
-	"stewarr/internal/integrations/seerr"
-	"stewarr/internal/integrations/tmdb"
 	"stewarr/internal/model"
+	"stewarr/internal/services/jellyfin"
+	"stewarr/internal/services/seerr"
+	"stewarr/internal/services/tmdb"
 )
 
 // TestEnrichNewMediaFetchesAllApplicableSourcesForANewItem guards the
