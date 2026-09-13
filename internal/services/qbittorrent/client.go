@@ -619,6 +619,93 @@ func (client *Client) AllFiles(torrents map[string]model.Torrent) (map[string][]
 	return out, nil
 }
 
+// trackerEntry is qBittorrent's own per-tracker shape from
+// /api/v2/torrents/trackers. Status 2 means the tracker was contacted and is
+// working; every other value (disabled, not yet contacted, updating, or
+// contacted-but-not-working) is not a confirmed-working signal.
+type trackerEntry struct {
+	Status int    `json:"status"`
+	Msg    string `json:"msg"`
+}
+
+const trackerStatusWorking = 2
+
+// TrackerHealth reports whether at least one tracker is currently confirmed
+// working, for every torrent in torrents. A torrent with no tracker entries
+// at all (e.g. DHT/PEX-only) reports Known=false: qBittorrent gave a
+// definitive empty answer, but that's not evidence of failure, so it must
+// not be conflated with a torrent whose trackers are all failing.
+func (client *Client) TrackerHealth(torrents map[string]model.Torrent) (map[string]model.TrackerHealth, error) {
+	out := make(map[string]model.TrackerHealth, len(torrents))
+	if !client.enabled() || len(torrents) == 0 {
+		return out, nil
+	}
+	if err := client.login(); err != nil {
+		return nil, err
+	}
+	type result struct {
+		hash     string
+		trackers []trackerEntry
+		err      error
+	}
+	jobs := make(chan string)
+	results := make(chan result, len(torrents))
+	workers := 12
+	if len(torrents) < workers {
+		workers = len(torrents)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for hash := range jobs {
+				var ts []trackerEntry
+				path := "/api/v2/torrents/trackers?hash=" + url.QueryEscape(strings.TrimSpace(hash))
+				err := client.get(path, &ts)
+				results <- result{hash: hash, trackers: ts, err: err}
+			}
+		}()
+	}
+	go func() {
+		for hash := range torrents {
+			jobs <- hash
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+	for r := range results {
+		if r.err != nil {
+			var notFound *NotFoundError
+			if errors.As(r.err, &notFound) {
+				// Same reasoning as AllFiles: a torrent removed between sync
+				// and this fetch has no tracker health to report, not a
+				// failure of every other torrent's fetch.
+				continue
+			}
+			return nil, fmt.Errorf("%s: %w", r.hash, r.err)
+		}
+		if len(r.trackers) == 0 {
+			out[strings.ToLower(r.hash)] = model.TrackerHealth{Known: false}
+			continue
+		}
+		health := model.TrackerHealth{Known: true}
+		for _, t := range r.trackers {
+			if t.Status == trackerStatusWorking {
+				health.Working = true
+				health.Message = ""
+				break
+			}
+			if health.Message == "" && strings.TrimSpace(t.Msg) != "" {
+				health.Message = t.Msg
+			}
+		}
+		out[strings.ToLower(r.hash)] = health
+	}
+	return out, nil
+}
+
 // Delete removes a torrent and asks qBittorrent, the owning application, to
 // remove its torrent-owned data. Hardlinked library paths remain intact.
 func (client *Client) Delete(hash string) error {
