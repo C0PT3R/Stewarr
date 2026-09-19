@@ -51,35 +51,38 @@ func TestBuildPausesWhenValuationIsUnreliable(t *testing.T) {
 // otherBytes parameter: target/critical must mean "percent of what Stewarr
 // actually has to work with" on a shared pool, not percent of the raw disk
 // — otherwise space other services hold would silently count against
-// Stewarr's own thresholds. Compares two Build calls on the same real
-// filesystem rather than asserting on absolute numbers, since actual disk
-// usage on the test machine is unknown and irrelevant here.
+// Stewarr's own thresholds. Every assertion is derived from a single Build
+// call's own internally-consistent fields rather than compared against a
+// second, separately-timed call: two independent statfs snapshots on a busy
+// machine (e.g. a CI runner) can legitimately disagree by a few bytes,
+// which would make a cross-call exact-equality assertion flaky without any
+// real bug present.
 func TestBuildScopesThresholdsToUsableSpace(t *testing.T) {
 	dir := t.TempDir()
-	baseline, err := Build(dir, 0, 0, 0, 50, nil, nil, true)
+	// otherBytes is small relative to any real mounted filesystem's actual
+	// usage (always at least several MB on a real OS), so it exercises the
+	// normal (non-clamped) subtraction path deterministically without
+	// depending on the test machine's exact disk state.
+	const otherBytes = 4096
+	p, err := Build(dir, otherBytes, 0, 0, 50, nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if baseline.UsedBytes == 0 {
-		t.Skip("test filesystem reports zero used bytes; cannot exercise otherBytes scoping")
+	if !p.Available {
+		t.Skip("test filesystem stats unavailable")
 	}
-	const otherBytes = 1
-	scoped, err := Build(dir, otherBytes, 0, 0, 50, nil, nil, true)
-	if err != nil {
-		t.Fatal(err)
+	if p.UsableBytes != p.TotalBytes-otherBytes {
+		t.Fatalf("expected UsableBytes to exclude otherBytes: %#v", p)
 	}
-	if scoped.UsableBytes != baseline.TotalBytes-otherBytes {
-		t.Fatalf("expected UsableBytes to exclude otherBytes: %#v", scoped)
+	if p.StewarrUsedBytes != p.UsedBytes-otherBytes {
+		t.Fatalf("expected StewarrUsedBytes to exclude otherBytes: %#v", p)
 	}
-	if scoped.StewarrUsedBytes != baseline.UsedBytes-otherBytes {
-		t.Fatalf("expected StewarrUsedBytes to exclude otherBytes: %#v", scoped)
-	}
-	// With target 0%, NeedBytes is exactly stewarrUsedBytes (see
+	// With target 0%, NeedBytes is exactly StewarrUsedBytes (see
 	// TestBuildUsesTargetWithoutWaitingForCritical for the same trick) — so
-	// scoping stewarrUsedBytes to exclude otherBytes must shrink NeedBytes
-	// by exactly the same amount, not leave it keyed to raw disk usage.
-	if scoped.NeedBytes != baseline.NeedBytes-otherBytes {
-		t.Fatalf("expected NeedBytes to shrink by exactly otherBytes: baseline=%d scoped=%d", baseline.NeedBytes, scoped.NeedBytes)
+	// this fails if NeedBytes were ever computed against raw UsedBytes
+	// instead of the otherBytes-scoped StewarrUsedBytes.
+	if p.NeedBytes != p.StewarrUsedBytes {
+		t.Fatalf("expected NeedBytes to equal StewarrUsedBytes at target 0%%: %#v", p)
 	}
 }
 
