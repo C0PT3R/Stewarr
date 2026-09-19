@@ -875,9 +875,6 @@ td:has(> a > strong) > a {
 .storage-bar .segment.unmanaged {
   background: var(--warn);
 }
-.storage-bar .segment.other {
-  background: var(--faint);
-}
 .storage-bar .segment.free {
   background: transparent;
 }
@@ -965,9 +962,6 @@ td:has(> a > strong) > a {
 }
 .storage-legend li.unmanaged .swatch {
   background: var(--warn);
-}
-.storage-legend li.other .swatch {
-  background: var(--faint);
 }
 .storage-legend li.free .swatch {
   background: transparent;

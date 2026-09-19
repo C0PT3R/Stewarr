@@ -63,6 +63,9 @@ type storageStatsDevice struct {
 	Claimed              []storageStatsClaim `json:"claimed"`
 	UnmanagedBytes       uint64              `json:"unmanagedBytes"`
 	OtherBytes           uint64              `json:"otherBytes"`
+	UsableBytes          uint64              `json:"usableBytes"`
+	StewarrUsedBytes     uint64              `json:"stewarrUsedBytes"`
+	UsagePercentOfUsable float64             `json:"usagePercentOfUsable"`
 }
 
 // storageStats serves the raw, cheap byte-level numbers a storage device
@@ -89,6 +92,12 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 		for _, segment := range device.Claimed {
 			claimed = append(claimed, storageStatsClaim{Service: segment.Service, Bytes: segment.Bytes})
 		}
+		usableBytes := device.UsableBytes()
+		stewarrUsedBytes := device.StewarrUsedBytes()
+		usagePercentOfUsable := 0.0
+		if usableBytes > 0 {
+			usagePercentOfUsable = float64(stewarrUsedBytes) / float64(usableBytes) * 100
+		}
 		out = append(out, storageStatsDevice{
 			RepresentativePath:   device.RepresentativePath,
 			Available:            device.Available,
@@ -102,6 +111,9 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 			Claimed:              claimed,
 			UnmanagedBytes:       device.UnmanagedBytes,
 			OtherBytes:           device.OtherBytes,
+			UsableBytes:          usableBytes,
+			StewarrUsedBytes:     stewarrUsedBytes,
+			UsagePercentOfUsable: usagePercentOfUsable,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")

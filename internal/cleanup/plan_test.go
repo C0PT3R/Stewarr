@@ -7,7 +7,7 @@ import (
 )
 
 func TestBuildUnavailableStorage(t *testing.T) {
-	p, err := Build("/definitely/not/a/stewarr/storage/path", 90, 95, 50, nil, nil, true)
+	p, err := Build("/definitely/not/a/stewarr/storage/path", 0, 90, 95, 50, nil, nil, true)
 	if err == nil {
 		t.Fatal("expected storage probe error")
 	}
@@ -28,7 +28,7 @@ func TestBuildUsesPhysicalReclaimabilityAndSkipsProtectedMedia(t *testing.T) {
 		{Title: "Shared", ReclaimableKnown: true, ReclaimableBytes: 0, SizeBytes: 2000},
 		{Title: "Physical", ReclaimableKnown: true, ReclaimableBytes: 7, SizeBytes: 3000},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, items, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, items, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestBuildUsesPhysicalReclaimabilityAndSkipsProtectedMedia(t *testing.T) {
 }
 
 func TestBuildPausesWhenValuationIsUnreliable(t *testing.T) {
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{{Title: "unsafe", SizeBytes: 1}}, nil, false)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{{Title: "unsafe", SizeBytes: 1}}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +47,45 @@ func TestBuildPausesWhenValuationIsUnreliable(t *testing.T) {
 	}
 }
 
+// TestBuildScopesThresholdsToUsableSpace guards the whole point of the
+// otherBytes parameter: target/critical must mean "percent of what Stewarr
+// actually has to work with" on a shared pool, not percent of the raw disk
+// — otherwise space other services hold would silently count against
+// Stewarr's own thresholds. Compares two Build calls on the same real
+// filesystem rather than asserting on absolute numbers, since actual disk
+// usage on the test machine is unknown and irrelevant here.
+func TestBuildScopesThresholdsToUsableSpace(t *testing.T) {
+	dir := t.TempDir()
+	baseline, err := Build(dir, 0, 0, 0, 50, nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.UsedBytes == 0 {
+		t.Skip("test filesystem reports zero used bytes; cannot exercise otherBytes scoping")
+	}
+	const otherBytes = 1
+	scoped, err := Build(dir, otherBytes, 0, 0, 50, nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped.UsableBytes != baseline.TotalBytes-otherBytes {
+		t.Fatalf("expected UsableBytes to exclude otherBytes: %#v", scoped)
+	}
+	if scoped.StewarrUsedBytes != baseline.UsedBytes-otherBytes {
+		t.Fatalf("expected StewarrUsedBytes to exclude otherBytes: %#v", scoped)
+	}
+	// With target 0%, NeedBytes is exactly stewarrUsedBytes (see
+	// TestBuildUsesTargetWithoutWaitingForCritical for the same trick) — so
+	// scoping stewarrUsedBytes to exclude otherBytes must shrink NeedBytes
+	// by exactly the same amount, not leave it keyed to raw disk usage.
+	if scoped.NeedBytes != baseline.NeedBytes-otherBytes {
+		t.Fatalf("expected NeedBytes to shrink by exactly otherBytes: baseline=%d scoped=%d", baseline.NeedBytes, scoped.NeedBytes)
+	}
+}
+
 func TestBuildUsesTargetWithoutWaitingForCritical(t *testing.T) {
 	items := []model.Media{{Title: "candidate", ReclaimableKnown: true, ReclaimableBytes: 1}}
-	p, err := Build(t.TempDir(), 0, 99.999, 50, items, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 99.999, 50, items, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +97,7 @@ func TestBuildUsesTargetWithoutWaitingForCritical(t *testing.T) {
 func TestBuildLocksHardlinkedMediaAndTorrentIntoOneBundle(t *testing.T) {
 	torrent := model.Torrent{Hash: "abc", Name: "Release", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +119,7 @@ func TestBuildLocksHardlinkedMediaAndTorrentIntoOneBundle(t *testing.T) {
 func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenMediaIsProtected(t *testing.T) {
 	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", Protected: true, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +131,7 @@ func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenMediaIsProtected(
 func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenBundleEstimateIsUnknown(t *testing.T) {
 	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: false, Torrents: []model.Torrent{torrent}}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +142,7 @@ func TestBuildNeverOffersEitherSideOfAHardlinkedBundleAloneWhenBundleEstimateIsU
 
 func TestBuildExcludesProtectedStandaloneTorrent(t *testing.T) {
 	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, Protected: true, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
-	p, err := Build(t.TempDir(), 0, 0, 50, nil, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, nil, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +154,7 @@ func TestBuildExcludesProtectedStandaloneTorrent(t *testing.T) {
 func TestBuildBlocksWholeBundleWhenAHardlinkedTorrentIsProtected(t *testing.T) {
 	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, Protected: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +173,7 @@ func TestBuildBlocksWholeBundleWhenAHardlinkedTorrentIsProtected(t *testing.T) {
 func TestBuildExcludesMediaAndTorrentsFromNonOptedInServices(t *testing.T) {
 	media := model.Media{Title: "Restricted Movie", RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100, SizeBytes: 100}
 	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +191,7 @@ func TestBuildExcludesMediaAndTorrentsFromNonOptedInServices(t *testing.T) {
 func TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted(t *testing.T) {
 	torrent := model.Torrent{Hash: "abc", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, RemovalRestricted: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	media := model.Media{Title: "Movie", RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{torrent}}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +201,7 @@ func TestBuildBlocksWholeBundleWhenEitherSideIsRemovalRestricted(t *testing.T) {
 
 	restrictedMediaTorrent := model.Torrent{Hash: "def", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 100}
 	restrictedMedia := model.Media{Title: "Movie 2", RemovalRestricted: true, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900, Torrents: []model.Torrent{restrictedMediaTorrent}}
-	p2, err := Build(t.TempDir(), 0, 0, 50, []model.Media{restrictedMedia}, []model.Torrent{restrictedMediaTorrent}, true)
+	p2, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{restrictedMedia}, []model.Torrent{restrictedMediaTorrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +218,7 @@ func TestBuildRanksSeriesPerSeasonInsteadOfWholeSeries(t *testing.T) {
 			{Number: 2, ReclaimableKnown: true, ReclaimableBytes: 100, RetentionValue: 2},
 		},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{series}, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{series}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +251,7 @@ func TestBuildEnforcesSeasonOrderEvenWhenValueInverts(t *testing.T) {
 			{Number: 2, ReclaimableKnown: true, ReclaimableBytes: 100, RetentionValue: 1},
 		},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{series}, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{series}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +273,7 @@ func TestBuildSkipsProtectedOrUnknownSeasons(t *testing.T) {
 			{Number: 4, RemovalRestricted: true, ReclaimableKnown: true, ReclaimableBytes: 100},
 		},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{series}, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{series}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +289,7 @@ func TestBuildLocksHardlinkedSeasonBundle(t *testing.T) {
 		Torrents: []model.Torrent{torrent},
 		Seasons:  []model.Season{{Number: 1, RetentionValue: 2, BundleReclaimableKnown: true, BundleReclaimableBytes: 900}},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{series}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{series}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +303,7 @@ func TestBuildLocksHardlinkedSeasonBundle(t *testing.T) {
 
 func TestBuildMoviesAreUnaffectedBySeasonLogic(t *testing.T) {
 	movie := model.Media{Type: model.Movie, Title: "Film", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{movie}, nil, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{movie}, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +315,7 @@ func TestBuildMoviesAreUnaffectedBySeasonLogic(t *testing.T) {
 func TestBuildTreatsProvenNonHardlinkedCurrentTorrentAsIndependent(t *testing.T) {
 	torrent := model.Torrent{Hash: "copy", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, TorrentValue: 3, ReclaimableKnown: true, ReclaimableBytes: 50}
 	media := model.Media{Title: "Movie", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 200}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +338,7 @@ func TestBuildTreatsSupersededAndUnassociatedTorrentsAsStandaloneRegardlessOfHar
 		{Hash: "old", AssociationStatus: model.TorrentSuperseded, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10},
 		{Hash: "orphan", AssociationStatus: model.TorrentUnassociated, TorrentValue: 2, ReclaimableKnown: true, ReclaimableBytes: 10},
 	}
-	p, err := Build(t.TempDir(), 0, 0, 50, nil, torrents, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, nil, torrents, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +349,7 @@ func TestBuildTreatsSupersededAndUnassociatedTorrentsAsStandaloneRegardlessOfHar
 
 func TestBuildExcludesCurrentTorrentWithUnknownHardlinkStatus(t *testing.T) {
 	torrent := model.Torrent{Hash: "unknown", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: false, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 100}
-	p, err := Build(t.TempDir(), 0, 0, 50, nil, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, nil, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +364,7 @@ func TestBuildComparesTorrentAndMediaValueDirectlyAtDefaultCarePercent(t *testin
 	// item ranks first regardless of which domain it's from.
 	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, TorrentValue: 50, ReclaimableKnown: true, ReclaimableBytes: 10}
 	media := model.Media{Title: "Movie", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10}
-	p, err := Build(t.TempDir(), 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 50, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +382,7 @@ func TestBuildTorrentCarePercentScalesTorrentValueRelativeToMedia(t *testing.T) 
 	// order: the torrent now ranks first despite its higher raw Value.
 	torrent := model.Torrent{Hash: "old", AssociationStatus: model.TorrentSuperseded, TorrentValue: 50, ReclaimableKnown: true, ReclaimableBytes: 10}
 	media := model.Media{Title: "Movie", RetentionValue: 1, ReclaimableKnown: true, ReclaimableBytes: 10}
-	p, err := Build(t.TempDir(), 0, 0, 1, []model.Media{media}, []model.Torrent{torrent}, true)
+	p, err := Build(t.TempDir(), 0, 0, 0, 1, []model.Media{media}, []model.Torrent{torrent}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,7 +397,7 @@ func TestBuildSortsTorrentTierAscendingByTorrentValue(t *testing.T) {
 		{Hash: "low", AssociationStatus: model.TorrentUnassociated, TorrentValue: 1, ReclaimableKnown: true, ReclaimableBytes: 1},
 		{Hash: "mid", AssociationStatus: model.TorrentUnassociated, TorrentValue: 5, ReclaimableKnown: true, ReclaimableBytes: 1},
 	}
-	p, err := Build(t.TempDir(), 0, 90, 50, nil, torrents, true)
+	p, err := Build(t.TempDir(), 0, 0, 90, 50, nil, torrents, true)
 	if err != nil {
 		t.Fatal(err)
 	}

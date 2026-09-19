@@ -39,6 +39,21 @@ type StorageDevice struct {
 	ServiceRoots map[string][]string
 }
 
+// UsableBytes is this device's capacity once space already held by things
+// outside Stewarr's own view (OtherBytes) is set aside — the ceiling
+// Stewarr's own claimed/unmanaged/free bytes always sum to exactly.
+func (d StorageDevice) UsableBytes() uint64 {
+	return d.TotalBytes - d.OtherBytes
+}
+
+// StewarrUsedBytes is UsedBytes with OtherBytes excluded — the portion of
+// real disk usage Stewarr can actually account for (Claimed + Unmanaged),
+// pairing with UsableBytes so "X used of Y usable" never counts space Stewarr
+// doesn't even attribute to itself.
+func (d StorageDevice) StewarrUsedBytes() uint64 {
+	return d.UsedBytes - d.OtherBytes
+}
+
 // ClaimedSegment is one service's share of a device's used bytes, sorted
 // by service name for deterministic rendering.
 type ClaimedSegment struct {

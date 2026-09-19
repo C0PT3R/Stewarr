@@ -3200,7 +3200,8 @@ Copyright © 2023 Basecamp, LLC
             `[data-storage-summary][data-representative-path="${CSS.escape(device.representativePath)}"]`
           );
           if (!summary) continue;
-          summary.textContent = `${humanBytes(device.usedBytes)} used of ${humanBytes(device.totalBytes)} (${device.usagePercent.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)`;
+          const elsewhere = device.otherBytes > 0 ? ` \xB7 ${humanBytes(device.otherBytes)} used elsewhere on this ${humanBytes(device.totalBytes)} disk` : "";
+          summary.textContent = `${humanBytes(device.stewarrUsedBytes)} used of ${humanBytes(device.usableBytes)} usable (${device.usagePercentOfUsable.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)${elsewhere}`;
         }
       } catch (_) {
       }

@@ -33,7 +33,7 @@ func TestHomeTemplateRendersStorageSummaryOnly(t *testing.T) {
 		t.Fatalf("render home template: %v", err)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"downloads, movies", "ext2/ext3/ext4", "600.0 B used of 1000.0 B", "/data/broken", "permission denied", "storage-bar", `href="/storage"`} {
+	for _, want := range []string{"downloads, movies", "ext2/ext3/ext4", "550.0 B used of 950.0 B usable", "/data/broken", "permission denied", "storage-bar", `href="/storage"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected home output to contain %q, got:\n%s", want, body)
 		}

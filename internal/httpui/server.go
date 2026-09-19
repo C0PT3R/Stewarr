@@ -79,7 +79,12 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			bytes = 0
 		}
 		return cleanup.Human(uint64(bytes))
-	}, "humanU": func(bytes uint64) string { return cleanup.Human(bytes) }, "duration": humanDuration, "durationGo": func(duration time.Duration) string { return humanDuration(int64(duration / time.Second)) }, "unixTime": unixTime, "pct": func(ratio float64) string { return fmt.Sprintf("%.1f%%", ratio*100) }, "fmtTime": func(timestamp *time.Time) string {
+	}, "humanU": func(bytes uint64) string { return cleanup.Human(bytes) }, "bytePercent": func(part, total uint64) float64 {
+		if total == 0 {
+			return 0
+		}
+		return float64(part) / float64(total) * 100
+	}, "duration": humanDuration, "durationGo": func(duration time.Duration) string { return humanDuration(int64(duration / time.Second)) }, "unixTime": unixTime, "pct": func(ratio float64) string { return fmt.Sprintf("%.1f%%", ratio*100) }, "fmtTime": func(timestamp *time.Time) string {
 		if timestamp == nil {
 			return "Never"
 		}
@@ -272,7 +277,7 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
-		p, planErr := cleanup.Build(device.RepresentativePath, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
+		p, planErr := cleanup.Build(device.RepresentativePath, device.OtherBytes, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
 		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr, Name: cfg.DeviceName(device.RepresentativePath)})
 	}
 	return views

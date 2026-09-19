@@ -57,20 +57,36 @@ type Action struct {
 }
 
 type Plan struct {
-	TargetUsagePercent   float64  `json:"targetUsagePercent"`
-	CriticalUsagePercent float64  `json:"criticalUsagePercent"`
-	Reliable             bool     `json:"reliable"`
-	Available            bool     `json:"available"`
-	Path                 string   `json:"path"`
-	TotalBytes           uint64   `json:"totalBytes"`
-	UsedBytes            uint64   `json:"usedBytes"`
-	FreeBytes            uint64   `json:"freeBytes"`
-	UsagePercent         float64  `json:"usagePercent"`
-	NeedBytes            uint64   `json:"needBytes"`
-	Actions              []Action `json:"actions"`
-	SelectedBytes        uint64   `json:"selectedBytes"`
-	Message              string   `json:"message"`
-	Error                string   `json:"error,omitempty"`
+	TargetUsagePercent   float64 `json:"targetUsagePercent"`
+	CriticalUsagePercent float64 `json:"criticalUsagePercent"`
+	Reliable             bool    `json:"reliable"`
+	Available            bool    `json:"available"`
+	Path                 string  `json:"path"`
+	TotalBytes           uint64  `json:"totalBytes"`
+	UsedBytes            uint64  `json:"usedBytes"`
+	FreeBytes            uint64  `json:"freeBytes"`
+	// OtherBytes is the real disk usage this plan was told to set aside as
+	// outside Stewarr's own view (see inventory.StorageDevice.OtherBytes) —
+	// carried through so a caller can see what UsableBytes/UsagePercent were
+	// actually computed against.
+	OtherBytes uint64 `json:"otherBytes"`
+	// UsableBytes is TotalBytes minus OtherBytes: the capacity
+	// TargetUsagePercent/CriticalUsagePercent are evaluated against, not the
+	// raw disk total. See UsagePercent.
+	UsableBytes uint64 `json:"usableBytes"`
+	// StewarrUsedBytes is UsedBytes minus OtherBytes.
+	StewarrUsedBytes uint64 `json:"stewarrUsedBytes"`
+	// UsagePercent is StewarrUsedBytes/UsableBytes, not UsedBytes/TotalBytes:
+	// target/critical mean "percent of what Stewarr actually has to work
+	// with," not percent of the raw disk, so space held by other services on
+	// a shared pool is never something Stewarr's own thresholds silently
+	// have to compete against.
+	UsagePercent  float64  `json:"usagePercent"`
+	NeedBytes     uint64   `json:"needBytes"`
+	Actions       []Action `json:"actions"`
+	SelectedBytes uint64   `json:"selectedBytes"`
+	Message       string   `json:"message"`
+	Error         string   `json:"error,omitempty"`
 }
 
 // rank classifies media and torrents into cleanup Actions and orders them
@@ -238,7 +254,15 @@ func enforceSeasonOrder(actions []Action) {
 // Build uses Target as the sole storage-reclamation threshold. Critical is
 // carried in the response for configuration compatibility, but belongs to a
 // future emergency/alarm policy and never gates cleanup planning.
-func Build(path string, targetUsage, criticalUsage, torrentCarePercent float64, media []model.Media, torrents []model.Torrent, reliable bool) (Plan, error) {
+//
+// otherBytes is real disk usage outside Stewarr's own view — other services
+// sharing the same pool (see inventory.StorageDevice.OtherBytes) — and is
+// set aside from both sides of the usage calculation: targetUsage/
+// criticalUsage are evaluated against UsableBytes (TotalBytes-otherBytes),
+// not the raw disk total, so a target of 90% means 90% of what Stewarr
+// actually has to work with, not 90% of a disk other services already have
+// a share of.
+func Build(path string, otherBytes uint64, targetUsage, criticalUsage, torrentCarePercent float64, media []model.Media, torrents []model.Torrent, reliable bool) (Plan, error) {
 	plan := Plan{Path: path, TargetUsagePercent: targetUsage, CriticalUsagePercent: criticalUsage, Reliable: reliable}
 	var filesystemStats syscall.Statfs_t
 	if err := syscall.Statfs(path, &filesystemStats); err != nil {
@@ -259,15 +283,34 @@ func Build(path string, targetUsage, criticalUsage, torrentCarePercent float64, 
 	usedBytes := totalBytes - freeBytes
 	plan.FreeBytes = freeBytes
 	plan.UsedBytes = usedBytes
-	usagePercent := float64(usedBytes) / float64(totalBytes) * 100
+	// otherBytes comes from a separate, independently timed stat pass
+	// (inventory.StorageDevices) — clamp rather than trust it can never
+	// exceed this call's own totalBytes/usedBytes.
+	if otherBytes > totalBytes {
+		otherBytes = totalBytes
+	}
+	usableBytes := totalBytes - otherBytes
+	stewarrUsedBytes := usedBytes
+	if otherBytes > usedBytes {
+		stewarrUsedBytes = 0
+	} else {
+		stewarrUsedBytes = usedBytes - otherBytes
+	}
+	plan.OtherBytes = otherBytes
+	plan.UsableBytes = usableBytes
+	plan.StewarrUsedBytes = stewarrUsedBytes
+	usagePercent := 0.0
+	if usableBytes > 0 {
+		usagePercent = float64(stewarrUsedBytes) / float64(usableBytes) * 100
+	}
 	plan.UsagePercent = usagePercent
 	if usagePercent <= targetUsage {
 		plan.Message = fmt.Sprintf("No cleanup: %.2f%% used (target %.1f%%)", usagePercent, targetUsage)
 		return plan, nil
 	}
-	targetUsedBytes := uint64(float64(totalBytes) * targetUsage / 100)
-	if usedBytes > targetUsedBytes {
-		plan.NeedBytes = usedBytes - targetUsedBytes
+	targetUsedBytes := uint64(float64(usableBytes) * targetUsage / 100)
+	if stewarrUsedBytes > targetUsedBytes {
+		plan.NeedBytes = stewarrUsedBytes - targetUsedBytes
 	}
 	if !reliable {
 		plan.Message = "Cleanup planning paused: valuation or File topology is incomplete or stale"

@@ -13,6 +13,10 @@ interface StorageStatsDevice {
   usagePercent: number;
   targetUsagePercent: number;
   criticalUsagePercent: number;
+  otherBytes: number;
+  usableBytes: number;
+  stewarrUsedBytes: number;
+  usagePercentOfUsable: number;
 }
 
 // Mirrors cleanup.Human's formatting exactly (internal/cleanup/plan.go) so
@@ -433,7 +437,11 @@ export class ShellController extends window.Stimulus.Controller {
           `[data-storage-summary][data-representative-path="${CSS.escape(device.representativePath)}"]`
         );
         if (!summary) continue;
-        summary.textContent = `${humanBytes(device.usedBytes)} used of ${humanBytes(device.totalBytes)} (${device.usagePercent.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)`;
+        const elsewhere =
+          device.otherBytes > 0
+            ? ` · ${humanBytes(device.otherBytes)} used elsewhere on this ${humanBytes(device.totalBytes)} disk`
+            : "";
+        summary.textContent = `${humanBytes(device.stewarrUsedBytes)} used of ${humanBytes(device.usableBytes)} usable (${device.usagePercentOfUsable.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)${elsewhere}`;
       }
     } catch (_) {
       // The next 5s tick tries again; the last-known text stays in place.

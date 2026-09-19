@@ -39,30 +39,28 @@
              reactive fragment below. A raw disk-byte tick has nothing to do
              with which items would actually be removed and must never force
              that comparatively expensive plan to be recomputed. -->
-        <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}} ({{printf "%.1f" .Plan.UsagePercent}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%)</p>
+        <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.StewarrUsedBytes}} used of {{humanU .Storage.UsableBytes}} usable ({{printf "%.1f" (bytePercent .Storage.StewarrUsedBytes .Storage.UsableBytes)}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%){{if gt .Storage.OtherBytes 0}} · {{humanU .Storage.OtherBytes}} used elsewhere on this {{humanU .Storage.TotalBytes}} disk{{end}}</p>
         {{end}}
         <div id="storage-live-{{elementID .Storage.RepresentativePath}}" data-reactive-fragment data-live-policy="immediate">
           {{if .Storage.Available}}
             <div class="storage-bar">
-              {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.TotalBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
-              {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
-              {{if gt .Storage.OtherBytes 0}}<span class="segment other" style="width:{{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%" title="Other: {{humanU .Storage.OtherBytes}}"></span>{{end}}
-              <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
+              {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.UsableBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
+              {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.UsableBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
+              <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.UsableBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
               <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
               <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
             </div>
             <ul class="storage-legend">
               {{range .Storage.Claimed}}
               <li class="claim">
-                <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.TotalBytes}}%</div>
+                <div class="claim-label"><span class="swatch"></span>{{.Service}} · {{humanU .Bytes}} · {{widthPct .Bytes $device.Storage.UsableBytes}}%</div>
                 {{with index $device.Storage.ServiceRoots .Service}}
                 <ul class="service-roots">{{range .}}<li><span class="root-icon" aria-hidden="true"></span><span class="mono">{{shortPath .}}</span></li>{{end}}</ul>
                 {{end}}
               </li>
               {{end}}
-              {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.TotalBytes}}%</li>{{end}}
-              {{if gt .Storage.OtherBytes 0}}<li class="other"><span class="swatch"></span>Other · {{humanU .Storage.OtherBytes}} · {{widthPct .Storage.OtherBytes .Storage.TotalBytes}}%</li>{{end}}
-              <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%</li>
+              {{if gt .Storage.UnmanagedBytes 0}}<li class="unmanaged"><span class="swatch"></span>Unmanaged · {{humanU .Storage.UnmanagedBytes}} · {{widthPct .Storage.UnmanagedBytes .Storage.UsableBytes}}%</li>{{end}}
+              <li class="free"><span class="swatch"></span>Free · {{humanU .Storage.FreeBytes}} · {{widthPct .Storage.FreeBytes .Storage.UsableBytes}}%</li>
             </ul>
             {{if $.AutoRemovalDisabled}}
               <p class="muted">Automatic removal is off. Enable it in <a href="/settings">Settings</a> to see suggestions.</p>

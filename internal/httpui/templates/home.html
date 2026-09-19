@@ -23,10 +23,10 @@
             <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
             {{if .Storage.Available}}
               <div class="storage-bar">
-                <span class="segment used" style="width:{{widthPct .Storage.UsedBytes .Storage.TotalBytes}}%"></span>
-                <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.TotalBytes}}%"></span>
+                <span class="segment used" style="width:{{widthPct .Storage.StewarrUsedBytes .Storage.UsableBytes}}%"></span>
+                <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.UsableBytes}}%"></span>
               </div>
-              <div class="muted">{{humanU .Storage.UsedBytes}} used of {{humanU .Storage.TotalBytes}}</div>
+              <div class="muted">{{humanU .Storage.StewarrUsedBytes}} used of {{humanU .Storage.UsableBytes}} usable</div>
             {{else}}
               <p class="bad">UNAVAILABLE{{if .Storage.Error}}: {{.Storage.Error}}{{end}}</p>
             {{end}}
