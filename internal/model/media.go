@@ -67,36 +67,12 @@ type MediaRef struct {
 	Year      int       `json:"year"`
 }
 
-// TrackerHealth is one adapter's best-effort report of whether a torrent's
-// tracker(s) are currently confirmed reachable and working. It's a
-// transient fetch result, not itself persisted — callers copy
-// Working/Known/Message onto the corresponding Torrent fields below.
-type TrackerHealth struct {
-	// Working is true only when at least one tracker was confirmed
-	// contacted and working. Meaningless when Known is false.
-	Working bool
-	// Known is false when the adapter has no confirmed tracker state to
-	// report at all (e.g. a torrent with no tracker entries, or an adapter
-	// that can't reliably tell) — distinct from Working=false, which means
-	// trackers exist and none are currently working.
-	Known bool
-	// Message is a best-effort human-readable reason when not Working.
-	// Some adapters (e.g. rTorrent) cannot provide one; empty either way.
-	Message string
-}
-
 type Torrent struct {
 	ServiceID           string   `json:"serviceId,omitempty"`
 	TorrentValue        float64  `json:"torrentValue"`
 	TorrentValueReasons []Reason `json:"torrentValueReasons,omitempty"`
-	// TrackerWorking/TrackerWorkingKnown/TrackerMessage mirror
-	// TrackerHealth once an adapter has reported it for this torrent — see
-	// TrackerHealth's field docs for what each one means.
-	TrackerWorking      bool   `json:"trackerWorking,omitempty"`
-	TrackerWorkingKnown bool   `json:"trackerWorkingKnown,omitempty"`
-	TrackerMessage      string `json:"trackerMessage,omitempty"`
-	Protected           bool   `json:"protected,omitempty"`
-	ProtectionReason    string `json:"protectionReason,omitempty"`
+	Protected           bool     `json:"protected,omitempty"`
+	ProtectionReason    string   `json:"protectionReason,omitempty"`
 	// RemovalRestricted is true when this torrent's own service has not
 	// checked "Allow automatic removal" — distinct from Protected (a
 	// KeepTag/ratio/etc. judgment the item earns on its own merits, shown
@@ -147,8 +123,6 @@ type Torrent struct {
 	UploadedBytes     int64   `json:"uploadedBytes"`
 	DownloadedSession int64   `json:"downloadedSessionBytes"`
 	UploadedSession   int64   `json:"uploadedSessionBytes"`
-	DownloadSpeed     int64   `json:"downloadSpeed"`
-	UploadSpeed       int64   `json:"uploadSpeed"`
 	DownloadLimit     int64   `json:"downloadLimit"`
 	UploadLimit       int64   `json:"uploadLimit"`
 	Ratio             float64 `json:"ratio"`

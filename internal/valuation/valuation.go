@@ -156,7 +156,6 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 		if len(mediaItem.Torrents) > 0 && configuration.Valuation.Weights.TorrentActivity != 0 {
 			leechers := 0
 			contributingTorrentCount := 0
-			var uploadBytesPerSecond int64
 			for _, torrent := range mediaItem.Torrents {
 				// Only a current relationship physically proven to be hardlinked to
 				// this media can transfer torrent health into media Retention Value.
@@ -168,20 +167,19 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 				if torrent.LeechersSwarm > 0 {
 					leechers += torrent.LeechersSwarm
 				}
-				if torrent.UploadSpeed > 0 {
-					uploadBytesPerSecond += torrent.UploadSpeed
-				}
 			}
 			if contributingTorrentCount > 0 {
-				// Swarm demand and live upload activity are intentionally logarithmic:
-				// popularity can keep adding Retention Value without one huge swarm
-				// dominating everything.
-				uploadMiBPerSecond := float64(uploadBytesPerSecond) / (1024 * 1024)
-				points := configuration.Valuation.Weights.TorrentActivity * (math.Log2(1+float64(leechers)) + math.Log2(1+uploadMiBPerSecond))
+				// Swarm demand is intentionally logarithmic: popularity can keep
+				// adding Retention Value without one huge swarm dominating
+				// everything. Live upload speed was deliberately dropped as an
+				// input here (same reasoning as Torrent Value's own formula):
+				// it depends entirely on the exact instant a calculation runs,
+				// not any lasting property of the torrent.
+				points := configuration.Valuation.Weights.TorrentActivity * math.Log2(1+float64(leechers))
 				value += points
 				mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{
 					Label:  "Associated torrent",
-					Value:  fmt.Sprintf("%d hardlinked torrent(s), %d swarm leechers, %.2f MiB/s up", contributingTorrentCount, leechers, uploadMiBPerSecond),
+					Value:  fmt.Sprintf("%d hardlinked torrent(s), %d swarm leechers", contributingTorrentCount, leechers),
 					Points: points,
 					Note:   "The torrent health contributes to the media Retention Value because their files are hardlinked.",
 				})
@@ -224,7 +222,6 @@ func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWi
 		if configuration.Valuation.Weights.TorrentActivity != 0 {
 			leechers := 0
 			contributingTorrentCount := 0
-			var uploadBytesPerSecond int64
 			for _, torrent := range mediaItem.Torrents {
 				if model.NormalizeTorrentStatus(torrent.AssociationStatus) != model.TorrentCurrent || !torrent.MediaHardlinked {
 					continue
@@ -243,17 +240,13 @@ func applySeasonValues(mediaItem *model.Media, seriesWideValue float64, seriesWi
 				if torrent.LeechersSwarm > 0 {
 					leechers += torrent.LeechersSwarm
 				}
-				if torrent.UploadSpeed > 0 {
-					uploadBytesPerSecond += torrent.UploadSpeed
-				}
 			}
 			if contributingTorrentCount > 0 {
-				uploadMiBPerSecond := float64(uploadBytesPerSecond) / (1024 * 1024)
-				points := configuration.Valuation.Weights.TorrentActivity * (math.Log2(1+float64(leechers)) + math.Log2(1+uploadMiBPerSecond))
+				points := configuration.Valuation.Weights.TorrentActivity * math.Log2(1+float64(leechers))
 				value += points
 				reasons = append(reasons, model.Reason{
 					Label:  "Associated torrent",
-					Value:  fmt.Sprintf("%d hardlinked torrent(s), %d swarm leechers, %.2f MiB/s up", contributingTorrentCount, leechers, uploadMiBPerSecond),
+					Value:  fmt.Sprintf("%d hardlinked torrent(s), %d swarm leechers", contributingTorrentCount, leechers),
 					Points: points,
 					Note:   "The torrent health contributes to this season's Retention Value because their files are hardlinked to this season specifically.",
 				})

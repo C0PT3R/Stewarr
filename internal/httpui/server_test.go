@@ -441,8 +441,8 @@ func TestFilterMedia(t *testing.T) {
 
 func TestFilterTorrents(t *testing.T) {
 	items := []model.Torrent{
-		{Hash: "abc", Name: "Old Release", AssociationStatus: "SUPERSEDED", ReclaimableKnown: true, ReclaimableBytes: 1024, UploadSpeed: 0, LeechersConnected: 0},
-		{Hash: "def", Name: "Current Release", AssociationStatus: "ASSOCIATED", UploadSpeed: 100},
+		{Hash: "abc", Name: "Old Release", AssociationStatus: "SUPERSEDED", ReclaimableKnown: true, ReclaimableBytes: 1024, LeechersConnected: 0},
+		{Hash: "def", Name: "Current Release", AssociationStatus: "ASSOCIATED", LeechersConnected: 1},
 	}
 	got := filterTorrents(items, "old", "SUPERSEDED", "positive", "inactive")
 	if len(got) != 1 || got[0].Hash != "abc" {

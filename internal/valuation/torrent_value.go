@@ -23,16 +23,25 @@ const (
 	// calculation runs.
 	torrentActivityWeight      = 12
 	torrentActivityHorizonDays = 30
-	// torrentDemandWeight/Window/MinSamples score sustained leecher demand
-	// relative to seed supply, confirmed over real history rather than a
-	// single live reading (which can be misleading during a stall or a
-	// temporary tracker error).
-	torrentDemandWeight = 10
-	// TorrentDemandWindow is exported so callers assembling the history map
-	// (e.g. inventory.Service) know how far back they need to fetch —
-	// fetching less would silently under-count sustained demand.
-	TorrentDemandWindow     = 7 * 24 * time.Hour
-	torrentDemandMinSamples = 4
+	// torrentContributionWeight/ConsistencyWeight/Window/MinSamples score how
+	// a torrent actually contributes to its swarm over time — real bytes
+	// pushed, not a live speed reading (which reflects the exact instant a
+	// calculation runs, not any lasting property of the torrent) and not a
+	// single seeds/leechers snapshot (which can be misleading during a stall
+	// or a temporary tracker error).
+	torrentContributionWeight = 10
+	torrentConsistencyWeight  = 8
+	// TorrentContributionWindow is exported so callers assembling the
+	// history map (e.g. inventory.Service) know how far back they need to
+	// fetch — fetching less would silently under-count realized
+	// contribution.
+	TorrentContributionWindow     = 7 * 24 * time.Hour
+	torrentContributionMinSamples = 4
+	// torrentSeedingTimeWeight/HorizonDays reward accumulated seeding time,
+	// hard-capped so an old torrent can't earn unbounded points just for
+	// existing a long time.
+	torrentSeedingTimeWeight      = 10
+	torrentSeedingTimeHorizonDays = 180
 	// torrentPrivateBonus reflects that losing standing on a private
 	// tracker (ratio requirements, warnings, bans) has real consequences a
 	// public-tracker torrent never faces — a static fact, not a guess.
@@ -48,7 +57,6 @@ const (
 // key shape) — a torrent with too little history simply doesn't earn
 // demand points yet, it isn't an error.
 func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, history map[string][]store.TorrentHistorySample) {
-	now := time.Now()
 	for torrentIndex := range torrents {
 		torrent := &torrents[torrentIndex]
 		torrent.TorrentValue = 0
@@ -81,10 +89,22 @@ func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, hi
 			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Recent activity", Value: fmt.Sprintf("%.0f days ago", days), Points: points})
 		}
 
-		if demand, ok := sustainedDemand(history[torrent.Client+"|"+torrent.Hash], now); ok {
-			points := math.Log2(1+demand) * torrentDemandWeight
+		if realizedBytes, consistency, ok := torrentContributionStats(history[torrent.Client+"|"+torrent.Hash]); ok {
+			mib := float64(realizedBytes) / (1024 * 1024)
+			points := math.Log2(1+mib) * torrentContributionWeight
 			torrent.TorrentValue += points
-			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Sustained demand", Value: fmt.Sprintf("%.2f leechers per seed", demand), Points: points})
+			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Uploaded (7d)", Value: fmt.Sprintf("%.0f MiB", mib), Points: points})
+
+			points = consistency * torrentConsistencyWeight
+			torrent.TorrentValue += points
+			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Consistency", Value: fmt.Sprintf("%.0f%% of samples", consistency*100), Points: points})
+		}
+
+		if torrent.SeedingTime > 0 {
+			days := float64(torrent.SeedingTime) / 86400
+			points := clamp(days/torrentSeedingTimeHorizonDays, 0, 1) * torrentSeedingTimeWeight
+			torrent.TorrentValue += points
+			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Seeding time", Value: fmt.Sprintf("%.0f days", days), Points: points})
 		}
 
 		if torrent.Private {
@@ -94,30 +114,29 @@ func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, hi
 	}
 }
 
-// sustainedDemand reports leechers-per-seed aggregated across every sample
-// in the trailing torrentDemandWindow, so a single misleading live reading
-// (a stall, a temporary tracker error) can't move the score on its own.
-// ok is false when there isn't enough recent history to trust yet.
-func sustainedDemand(samples []store.TorrentHistorySample, now time.Time) (demand float64, ok bool) {
-	cutoff := now.Add(-TorrentDemandWindow)
-	var totalSeeds, totalLeechers, count int64
-	for _, s := range samples {
-		if s.SampledAt.Before(cutoff) {
-			continue
+// torrentContributionStats derives realized upload bytes and consistency of
+// contribution from consecutive UploadedBytes samples — how a torrent
+// actually contributes to its swarm, not a single live reading. samples are
+// assumed to already be scoped to the trailing TorrentContributionWindow
+// (that's what store.TorrentHistorySince filters on) and ordered oldest
+// first. A negative delta (a client-side counter reset, e.g. after a
+// recheck) contributes nothing rather than subtracting. ok is false when
+// there isn't enough recent history to trust yet.
+func torrentContributionStats(samples []store.TorrentHistorySample) (realizedBytes int64, consistency float64, ok bool) {
+	if len(samples) < torrentContributionMinSamples {
+		return 0, 0, false
+	}
+	var positivePairs, totalPairs int
+	for i := 1; i < len(samples); i++ {
+		delta := samples[i].UploadedBytes - samples[i-1].UploadedBytes
+		totalPairs++
+		if delta > 0 {
+			realizedBytes += delta
+			positivePairs++
 		}
-		totalSeeds += int64(s.SeedsSwarm)
-		totalLeechers += int64(s.LeechersSwarm)
-		count++
 	}
-	if count < torrentDemandMinSamples {
-		return 0, false
+	if totalPairs == 0 {
+		return 0, 0, false
 	}
-	if totalSeeds == 0 && totalLeechers == 0 {
-		return 0, false
-	}
-	denominator := totalSeeds
-	if denominator < 1 {
-		denominator = 1
-	}
-	return float64(totalLeechers) / float64(denominator), true
+	return realizedBytes, float64(positivePairs) / float64(totalPairs), true
 }

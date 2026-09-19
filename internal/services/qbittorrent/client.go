@@ -144,7 +144,6 @@ type torrentInfo struct {
 	CompletionOn      int64   `json:"completion_on"`
 	ContentPath       string  `json:"content_path"`
 	DLLimit           int64   `json:"dl_limit"`
-	DLSpeed           int64   `json:"dlspeed"`
 	Downloaded        int64   `json:"downloaded"`
 	DownloadedSession int64   `json:"downloaded_session"`
 	ETA               int64   `json:"eta"`
@@ -175,7 +174,6 @@ type torrentInfo struct {
 	UPLimit           int64   `json:"up_limit"`
 	Uploaded          int64   `json:"uploaded"`
 	UploadedSession   int64   `json:"uploaded_session"`
-	UPSpeed           int64   `json:"upspeed"`
 }
 
 type syncResponse struct {
@@ -195,7 +193,6 @@ type torrentSync struct {
 	CompletionOn      *int64   `json:"completion_on"`
 	ContentPath       *string  `json:"content_path"`
 	DLLimit           *int64   `json:"dl_limit"`
-	DLSpeed           *int64   `json:"dlspeed"`
 	Downloaded        *int64   `json:"downloaded"`
 	DownloadedSession *int64   `json:"downloaded_session"`
 	ETA               *int64   `json:"eta"`
@@ -224,7 +221,6 @@ type torrentSync struct {
 	UPLimit           *int64   `json:"up_limit"`
 	Uploaded          *int64   `json:"uploaded"`
 	UploadedSession   *int64   `json:"uploaded_session"`
-	UPSpeed           *int64   `json:"upspeed"`
 }
 
 func applySync(t *model.Torrent, x torrentSync) {
@@ -254,9 +250,6 @@ func applySync(t *model.Torrent, x torrentSync) {
 	}
 	if x.DLLimit != nil {
 		t.DownloadLimit = *x.DLLimit
-	}
-	if x.DLSpeed != nil {
-		t.DownloadSpeed = *x.DLSpeed
 	}
 	if x.Downloaded != nil {
 		t.DownloadedBytes = *x.Downloaded
@@ -342,9 +335,6 @@ func applySync(t *model.Torrent, x torrentSync) {
 	if x.UploadedSession != nil {
 		t.UploadedSession = *x.UploadedSession
 	}
-	if x.UPSpeed != nil {
-		t.UploadSpeed = *x.UPSpeed
-	}
 }
 
 // Sync uses qBittorrent's incremental main-data API. rid=0 requests a full
@@ -397,7 +387,7 @@ func (client *Client) Inventory() (map[string]model.Torrent, error) {
 		h := strings.ToLower(strings.TrimSpace(x.Hash))
 		out[h] = model.Torrent{Client: client.name, Hash: x.Hash, Name: x.Name, State: x.State, Category: x.Category, Tags: x.Tags, Tracker: x.Tracker, SavePath: x.SavePath, ContentPath: x.ContentPath,
 			SizeBytes: x.Size, TotalSizeBytes: x.TotalSize, CompletedBytes: x.Completed, AmountLeftBytes: x.AmountLeft, DownloadedBytes: x.Downloaded, UploadedBytes: x.Uploaded,
-			DownloadedSession: x.DownloadedSession, UploadedSession: x.UploadedSession, DownloadSpeed: x.DLSpeed, UploadSpeed: x.UPSpeed, DownloadLimit: x.DLLimit, UploadLimit: x.UPLimit,
+			DownloadedSession: x.DownloadedSession, UploadedSession: x.UploadedSession, DownloadLimit: x.DLLimit, UploadLimit: x.UPLimit,
 			Ratio: x.Ratio, MaxRatio: x.MaxRatio, Progress: x.Progress, Availability: x.Availability, SeedsConnected: x.NumSeeds, LeechersConnected: x.NumLeechs, SeedsSwarm: x.NumComplete, LeechersSwarm: x.NumIncomplete,
 			AddedOn: x.AddedOn, CompletionOn: x.CompletionOn, LastActivity: x.LastActivity, SeenComplete: x.SeenComplete, TimeActive: x.TimeActive, SeedingTime: x.SeedingTime, ETA: x.ETA, Reannounce: x.Reannounce,
 			ForceStart: x.ForceStart, AutoTMM: x.AutoTMM, Sequential: x.Sequential, SuperSeeding: x.SuperSeeding, Private: x.Private}
@@ -424,7 +414,7 @@ func (client *Client) Detail(hash string) (model.Torrent, error) {
 		return model.Torrent{}, fmt.Errorf("torrent not found")
 	}
 	x := xs[0]
-	return model.Torrent{Client: client.name, Hash: strings.ToLower(x.Hash), Name: x.Name, State: x.State, Category: x.Category, Tags: x.Tags, Tracker: x.Tracker, SavePath: x.SavePath, ContentPath: x.ContentPath, SizeBytes: x.Size, TotalSizeBytes: x.TotalSize, CompletedBytes: x.Completed, AmountLeftBytes: x.AmountLeft, DownloadedBytes: x.Downloaded, UploadedBytes: x.Uploaded, DownloadedSession: x.DownloadedSession, UploadedSession: x.UploadedSession, DownloadSpeed: x.DLSpeed, UploadSpeed: x.UPSpeed, DownloadLimit: x.DLLimit, UploadLimit: x.UPLimit, Ratio: x.Ratio, MaxRatio: x.MaxRatio, Progress: x.Progress, Availability: x.Availability, SeedsConnected: x.NumSeeds, LeechersConnected: x.NumLeechs, SeedsSwarm: x.NumComplete, LeechersSwarm: x.NumIncomplete, AddedOn: x.AddedOn, CompletionOn: x.CompletionOn, LastActivity: x.LastActivity, SeenComplete: x.SeenComplete, TimeActive: x.TimeActive, SeedingTime: x.SeedingTime, ETA: x.ETA, Reannounce: x.Reannounce, ForceStart: x.ForceStart, AutoTMM: x.AutoTMM, Sequential: x.Sequential, SuperSeeding: x.SuperSeeding, Private: x.Private}, nil
+	return model.Torrent{Client: client.name, Hash: strings.ToLower(x.Hash), Name: x.Name, State: x.State, Category: x.Category, Tags: x.Tags, Tracker: x.Tracker, SavePath: x.SavePath, ContentPath: x.ContentPath, SizeBytes: x.Size, TotalSizeBytes: x.TotalSize, CompletedBytes: x.Completed, AmountLeftBytes: x.AmountLeft, DownloadedBytes: x.Downloaded, UploadedBytes: x.Uploaded, DownloadedSession: x.DownloadedSession, UploadedSession: x.UploadedSession, DownloadLimit: x.DLLimit, UploadLimit: x.UPLimit, Ratio: x.Ratio, MaxRatio: x.MaxRatio, Progress: x.Progress, Availability: x.Availability, SeedsConnected: x.NumSeeds, LeechersConnected: x.NumLeechs, SeedsSwarm: x.NumComplete, LeechersSwarm: x.NumIncomplete, AddedOn: x.AddedOn, CompletionOn: x.CompletionOn, LastActivity: x.LastActivity, SeenComplete: x.SeenComplete, TimeActive: x.TimeActive, SeedingTime: x.SeedingTime, ETA: x.ETA, Reannounce: x.Reannounce, ForceStart: x.ForceStart, AutoTMM: x.AutoTMM, Sequential: x.Sequential, SuperSeeding: x.SuperSeeding, Private: x.Private}, nil
 }
 
 type File struct {
@@ -615,93 +605,6 @@ func (client *Client) AllFiles(torrents map[string]model.Torrent) (map[string][]
 			return nil, fmt.Errorf("%s: %w", r.hash, r.err)
 		}
 		out[strings.ToLower(r.hash)] = r.files
-	}
-	return out, nil
-}
-
-// trackerEntry is qBittorrent's own per-tracker shape from
-// /api/v2/torrents/trackers. Status 2 means the tracker was contacted and is
-// working; every other value (disabled, not yet contacted, updating, or
-// contacted-but-not-working) is not a confirmed-working signal.
-type trackerEntry struct {
-	Status int    `json:"status"`
-	Msg    string `json:"msg"`
-}
-
-const trackerStatusWorking = 2
-
-// TrackerHealth reports whether at least one tracker is currently confirmed
-// working, for every torrent in torrents. A torrent with no tracker entries
-// at all (e.g. DHT/PEX-only) reports Known=false: qBittorrent gave a
-// definitive empty answer, but that's not evidence of failure, so it must
-// not be conflated with a torrent whose trackers are all failing.
-func (client *Client) TrackerHealth(torrents map[string]model.Torrent) (map[string]model.TrackerHealth, error) {
-	out := make(map[string]model.TrackerHealth, len(torrents))
-	if !client.enabled() || len(torrents) == 0 {
-		return out, nil
-	}
-	if err := client.login(); err != nil {
-		return nil, err
-	}
-	type result struct {
-		hash     string
-		trackers []trackerEntry
-		err      error
-	}
-	jobs := make(chan string)
-	results := make(chan result, len(torrents))
-	workers := 12
-	if len(torrents) < workers {
-		workers = len(torrents)
-	}
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for hash := range jobs {
-				var ts []trackerEntry
-				path := "/api/v2/torrents/trackers?hash=" + url.QueryEscape(strings.TrimSpace(hash))
-				err := client.get(path, &ts)
-				results <- result{hash: hash, trackers: ts, err: err}
-			}
-		}()
-	}
-	go func() {
-		for hash := range torrents {
-			jobs <- hash
-		}
-		close(jobs)
-		wg.Wait()
-		close(results)
-	}()
-	for r := range results {
-		if r.err != nil {
-			var notFound *NotFoundError
-			if errors.As(r.err, &notFound) {
-				// Same reasoning as AllFiles: a torrent removed between sync
-				// and this fetch has no tracker health to report, not a
-				// failure of every other torrent's fetch.
-				continue
-			}
-			return nil, fmt.Errorf("%s: %w", r.hash, r.err)
-		}
-		if len(r.trackers) == 0 {
-			out[strings.ToLower(r.hash)] = model.TrackerHealth{Known: false}
-			continue
-		}
-		health := model.TrackerHealth{Known: true}
-		for _, t := range r.trackers {
-			if t.Status == trackerStatusWorking {
-				health.Working = true
-				health.Message = ""
-				break
-			}
-			if health.Message == "" && strings.TrimSpace(t.Msg) != "" {
-				health.Message = t.Msg
-			}
-		}
-		out[strings.ToLower(r.hash)] = health
 	}
 	return out, nil
 }

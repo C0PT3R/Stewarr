@@ -43,7 +43,7 @@ type torrentData struct {
 
 func validTorrentSort(v string) bool {
 	switch v {
-	case "status", "value", "name", "media", "state", "size", "reclaimable", "ratio", "upload", "seeds", "leechers", "activity":
+	case "status", "value", "name", "media", "state", "size", "reclaimable", "ratio", "seeds", "leechers", "activity":
 		return true
 	}
 	return false
@@ -88,12 +88,6 @@ func sortTorrents(items []model.Torrent, key, order string) {
 			if a.Ratio < b.Ratio {
 				cmp = -1
 			} else if a.Ratio > b.Ratio {
-				cmp = 1
-			}
-		case "upload":
-			if a.UploadSpeed < b.UploadSpeed {
-				cmp = -1
-			} else if a.UploadSpeed > b.UploadSpeed {
 				cmp = 1
 			}
 		case "seeds":
@@ -145,7 +139,7 @@ func normalizeActivityFilter(v string) string {
 	}
 }
 func torrentActive(t model.Torrent) bool {
-	return t.UploadSpeed > 0 || t.DownloadSpeed > 0 || t.SeedsConnected > 0 || t.LeechersConnected > 0 || strings.Contains(strings.ToLower(t.State), "downloading") || strings.Contains(strings.ToLower(t.State), "uploading")
+	return t.SeedsConnected > 0 || t.LeechersConnected > 0 || strings.Contains(strings.ToLower(t.State), "downloading") || strings.Contains(strings.ToLower(t.State), "uploading")
 }
 func torrentMatchesSearch(t model.Torrent, q string) bool {
 	if q == "" {
@@ -280,9 +274,9 @@ func (server *Server) torrents(w http.ResponseWriter, r *http.Request) {
 		return "/torrents?" + q.Encode()
 	}
 	sortURLs := map[string]string{}
-	for _, k := range []string{"status", "value", "name", "media", "state", "size", "reclaimable", "ratio", "upload", "seeds", "leechers", "activity"} {
+	for _, k := range []string{"status", "value", "name", "media", "state", "size", "reclaimable", "ratio", "seeds", "leechers", "activity"} {
 		no := "asc"
-		if k == "size" || k == "reclaimable" || k == "ratio" || k == "upload" || k == "seeds" || k == "leechers" || k == "activity" {
+		if k == "size" || k == "reclaimable" || k == "ratio" || k == "seeds" || k == "leechers" || k == "activity" {
 			no = "desc"
 		}
 		if sortKey == k {

@@ -67,7 +67,6 @@
             <th><a href="{{index .SortURLs "size"}}">Size</a></th>
             <th><a href="{{index .SortURLs "reclaimable"}}">Reclaimable</a></th>
             <th><a href="{{index .SortURLs "ratio"}}">Ratio</a></th>
-            <th><a href="{{index .SortURLs "upload"}}">Upload</a></th>
             <th><a href="{{index .SortURLs "seeds"}}">Seeds</a></th>
             <th><a href="{{index .SortURLs "leechers"}}">Leechers</a></th>
             <th><a href="{{index .SortURLs "activity"}}">Last activity</a></th>
@@ -91,7 +90,6 @@
             <td>{{human .SizeBytes}}</td>
             <td>{{if .ReclaimableKnown}}{{human .ReclaimableBytes}}{{else}}—{{end}}</td>
             <td>{{printf "%.2f" .Ratio}}</td>
-            <td>{{rate .UploadSpeed}}</td>
             <td>{{.SeedsSwarm}}</td>
             <td>{{.LeechersSwarm}}</td>
             <td>{{unixTime .LastActivity}}</td>

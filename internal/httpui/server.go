@@ -79,7 +79,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			bytes = 0
 		}
 		return cleanup.Human(uint64(bytes))
-	}, "humanU": func(bytes uint64) string { return cleanup.Human(bytes) }, "rate": func(bytesPerSecond int64) string { return cleanup.Human(uint64(max64(bytesPerSecond, 0))) + "/s" }, "duration": humanDuration, "durationGo": func(duration time.Duration) string { return humanDuration(int64(duration / time.Second)) }, "unixTime": unixTime, "pct": func(ratio float64) string { return fmt.Sprintf("%.1f%%", ratio*100) }, "fmtTime": func(timestamp *time.Time) string {
+	}, "humanU": func(bytes uint64) string { return cleanup.Human(bytes) }, "duration": humanDuration, "durationGo": func(duration time.Duration) string { return humanDuration(int64(duration / time.Second)) }, "unixTime": unixTime, "pct": func(ratio float64) string { return fmt.Sprintf("%.1f%%", ratio*100) }, "fmtTime": func(timestamp *time.Time) string {
 		if timestamp == nil {
 			return "Never"
 		}

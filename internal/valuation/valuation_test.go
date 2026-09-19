@@ -132,7 +132,7 @@ func TestHistoricalTorrentsDoNotAddMediaValue(t *testing.T) {
 		Title: "Test",
 		Torrents: []model.Torrent{
 			{Hash: "current", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, LeechersSwarm: 1},
-			{Hash: "old", AssociationStatus: "SUPERSEDED", LeechersSwarm: 1023, UploadSpeed: 1024 * 1024 * 1024},
+			{Hash: "old", AssociationStatus: "SUPERSEDED", LeechersSwarm: 1023},
 		},
 	}}
 	ApplyMedia(items, c)

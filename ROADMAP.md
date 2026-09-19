@@ -1013,75 +1013,6 @@ step (delete samples past the window on each cycle, so it never grows
 unbounded) and an index on torrent hash + timestamp for the "recent
 history for this torrent" query pattern the derived signals need.
 
-### Dead torrents: a flag, not a category, with its own removal trigger
-
-The same health-scan task is responsible for declaring a torrent Dead
-once its accumulated history meets hardcoded conditions (e.g. sustained
-tracker failure/drop over enough consecutive scans — exact thresholds
-TBD, but not user-configurable, consistent with the hardcoded-evaluation
-principle above). `Dead` is a new orthogonal boolean on `model.Torrent`,
-the same shape as `Protected`/`RemovalRestricted` sitting alongside
-`AssociationStatus` rather than replacing it — a torrent can be
-`Current`, hardlinked, and `Dead` all at once.
-
-A dead torrent's removal is **not** gated by storage pressure at all.
-`cleanup.Build` today only ever proposes anything once a device is over
-its target usage — a dead torrent sitting on a device with plenty of
-free space would never surface under that gate, but its removal was
-never about reclaiming needed space in the first place. This needs its
-own always-on trigger, firing at the moment the health scan marks a
-torrent `Dead`, independent of the per-device target/critical cycle.
-
-This trigger still respects the existing automatic-removal gates: it
-only executes unattended when `Removal.AutoMode` is `auto` and the
-owning service has `AllowAutomaticRemoval` set — the same two switches
-that already gate every other automatic removal. Confirm mode evaluates
-and flags Dead the same way it does everything else, but does not
-submit it. With automatic removal disabled or in Confirm mode, a Dead
-torrent is only ever flagged — nothing is removed on its own — but it
-must remain individually removable through the normal manual removal
-flow at any time, the same as any other torrent.
-
-Zero bytes reclaimed is not a reason to skip it either — a torrent
-that's dead (confirmed via sustained tracker failure over its recorded
-history, the same signal that drives the new torrent value computation)
-has no reason to keep existing regardless of what removing it frees.
-Its full data set is removed through its owning torrent client the same
-way any other torrent removal is, whether or not any of its files are
-still hardlinked elsewhere.
-
-Once a torrent is flagged Dead, the health-scan task stops
-re-evaluating it on subsequent scans — the flag is sticky until the
-torrent is actually removed (manually or automatically), not something
-that gets re-derived every cycle.
-
-A Dead torrent is never proposed alone by the planner today. A
-`Current`, proven-hardlinked torrent is only ever represented inside a
-`HardlinkedBundle` with its media (`internal/cleanup/plan.go`), and the
-existing `StandaloneTorrent` path explicitly skips both
-`t.MediaHardlinked` torrents and anything with `ReclaimableBytes <= 0`
-— so a Dead torrent that's still hardlinked to kept media currently has
-no path to becoming a candidate at all, dead or not. This needs a new,
-torrent-scoped `ActionKind` that considers every `Dead` torrent
-regardless of `AssociationStatus` or hardlink state, bypasses the
-reclaimable-bytes gate entirely, and never touches the media side.
-
-Removal itself reuses the existing "remove torrent, also delete files"
-option every torrent client adapter already offers (qBittorrent today;
-the same should hold for Transmission/Deluge/rTorrent when those
-adapters exist) — no hardlink-aware special-casing is needed in the
-removal path itself. If the torrent's files are still hardlinked to
-kept media, deleting the torrent's own copy only removes that link;
-the media's hardlink survives untouched. If they aren't hardlinked, the
-bytes are actually freed. Either way, "remove all files this torrent
-manages" is the same single operation, the same option already offered
-whenever any torrent is removed.
-
-The Torrents page also needs `Dead` as its own filter dimension,
-alongside the existing provenance/reclaimable/activity filters
-(`internal/httpui/page_torrents.go`), so a Dead torrent can be spotted
-and removed manually regardless of the automatic-removal setting.
-
 ## Near-term
 
 - Make task schedules configurable through the GUI.
@@ -1097,11 +1028,10 @@ and removed manually regardless of the automatic-removal setting.
   added service supports, beyond the connection test already in place).
   Where an adapter has a known, permanent limitation (not just "untested
   yet"), the add-service overlay should surface it up front as a plain
-  warning before the service is added, e.g. "Known limitations: rTorrent
-  cannot reliably detect tracker activity. Dead-torrent detection will be
-  disabled for this service." This is disclosure, not configuration —
-  the user isn't asked to work around it, just told what won't work and
-  why, the same moment they're choosing which adapter to add.
+  warning before the service is added. This is disclosure, not
+  configuration — the user isn't asked to work around it, just told
+  what won't work and why, the same moment they're choosing which
+  adapter to add.
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
   service adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly

@@ -11,10 +11,10 @@ import (
 	"time"
 )
 
-// TorrentHistorySample is one periodic health-scan reading for one
-// torrent. Unlike the live model.Torrent snapshot, these accumulate over
-// time so sustained patterns (a stalled swarm, a dead tracker) can be
-// told apart from a single misleading instantaneous reading.
+// TorrentHistorySample is one periodic reading for one torrent. Unlike the
+// live model.Torrent snapshot, these accumulate over time so sustained
+// patterns (real contribution, consistent activity) can be told apart from
+// a single misleading instantaneous reading.
 type TorrentHistorySample struct {
 	Client          string
 	Hash            string
@@ -26,11 +26,6 @@ type TorrentHistorySample struct {
 	DownloadedBytes int64
 	State           string
 	LastActivity    int64
-	// TrackerWorking/TrackerWorkingKnown/TrackerMessage mirror
-	// model.TrackerHealth — see its field docs for what each one means.
-	TrackerWorking      bool
-	TrackerWorkingKnown bool
-	TrackerMessage      string
 }
 
 // SaveTorrentHistorySamples appends one row per sample. Existing rows are
@@ -43,7 +38,7 @@ func (s *Store) SaveTorrentHistorySamples(samples []TorrentHistorySample) error 
 	s.accessMu.Lock()
 	defer s.accessMu.Unlock()
 	return s.withWriteTx(func() error {
-		st, e := s.prepare(`INSERT INTO torrent_history(client,hash,sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity,tracker_working,tracker_working_known,tracker_message) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+		st, e := s.prepare(`INSERT INTO torrent_history(client,hash,sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity) VALUES(?,?,?,?,?,?,?,?,?,?)`)
 		if e != nil {
 			return e
 		}
@@ -61,9 +56,6 @@ func (s *Store) SaveTorrentHistorySamples(samples []TorrentHistorySample) error 
 			bindInt(st, 8, sample.DownloadedBytes)
 			bindText(st, 9, sample.State)
 			bindInt(st, 10, sample.LastActivity)
-			bindInt(st, 11, boolInt(sample.TrackerWorking))
-			bindInt(st, 12, boolInt(sample.TrackerWorkingKnown))
-			bindText(st, 13, sample.TrackerMessage)
 			if e := stepDone(s, st); e != nil {
 				return e
 			}
@@ -96,7 +88,7 @@ func (s *Store) PruneTorrentHistory(before time.Time) error {
 func (s *Store) TorrentHistorySince(since time.Time) (map[string][]TorrentHistorySample, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT client,hash,sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity,tracker_working,tracker_working_known,tracker_message FROM torrent_history WHERE sampled_at >= ? ORDER BY client,hash,sampled_at ASC`)
+	st, e := s.prepare(`SELECT client,hash,sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity FROM torrent_history WHERE sampled_at >= ? ORDER BY client,hash,sampled_at ASC`)
 	if e != nil {
 		return nil, e
 	}
@@ -116,19 +108,16 @@ func (s *Store) TorrentHistorySince(since time.Time) (map[string][]TorrentHistor
 		sampledAt, _ := time.Parse(time.RFC3339Nano, colText(st, 2))
 		key := client + "|" + hash
 		out[key] = append(out[key], TorrentHistorySample{
-			Client:              client,
-			Hash:                hash,
-			SampledAt:           sampledAt,
-			Ratio:               float64(C.sqlite3_column_double(st, 3)),
-			SeedsSwarm:          int(C.sqlite3_column_int64(st, 4)),
-			LeechersSwarm:       int(C.sqlite3_column_int64(st, 5)),
-			UploadedBytes:       int64(C.sqlite3_column_int64(st, 6)),
-			DownloadedBytes:     int64(C.sqlite3_column_int64(st, 7)),
-			State:               colText(st, 8),
-			LastActivity:        int64(C.sqlite3_column_int64(st, 9)),
-			TrackerWorking:      C.sqlite3_column_int64(st, 10) != 0,
-			TrackerWorkingKnown: C.sqlite3_column_int64(st, 11) != 0,
-			TrackerMessage:      colText(st, 12),
+			Client:          client,
+			Hash:            hash,
+			SampledAt:       sampledAt,
+			Ratio:           float64(C.sqlite3_column_double(st, 3)),
+			SeedsSwarm:      int(C.sqlite3_column_int64(st, 4)),
+			LeechersSwarm:   int(C.sqlite3_column_int64(st, 5)),
+			UploadedBytes:   int64(C.sqlite3_column_int64(st, 6)),
+			DownloadedBytes: int64(C.sqlite3_column_int64(st, 7)),
+			State:           colText(st, 8),
+			LastActivity:    int64(C.sqlite3_column_int64(st, 9)),
 		})
 	}
 	return out, nil
@@ -139,7 +128,7 @@ func (s *Store) TorrentHistorySince(since time.Time) (map[string][]TorrentHistor
 func (s *Store) TorrentHistorySamples(client, hash string) ([]TorrentHistorySample, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	st, e := s.prepare(`SELECT sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity,tracker_working,tracker_working_known,tracker_message FROM torrent_history WHERE client=? AND hash=? ORDER BY sampled_at ASC`)
+	st, e := s.prepare(`SELECT sampled_at,ratio,seeds_swarm,leechers_swarm,uploaded_bytes,downloaded_bytes,state,last_activity FROM torrent_history WHERE client=? AND hash=? ORDER BY sampled_at ASC`)
 	if e != nil {
 		return nil, e
 	}
@@ -157,19 +146,16 @@ func (s *Store) TorrentHistorySamples(client, hash string) ([]TorrentHistorySamp
 		}
 		sampledAt, _ := time.Parse(time.RFC3339Nano, colText(st, 0))
 		out = append(out, TorrentHistorySample{
-			Client:              client,
-			Hash:                hash,
-			SampledAt:           sampledAt,
-			Ratio:               float64(C.sqlite3_column_double(st, 1)),
-			SeedsSwarm:          int(C.sqlite3_column_int64(st, 2)),
-			LeechersSwarm:       int(C.sqlite3_column_int64(st, 3)),
-			UploadedBytes:       int64(C.sqlite3_column_int64(st, 4)),
-			DownloadedBytes:     int64(C.sqlite3_column_int64(st, 5)),
-			State:               colText(st, 6),
-			LastActivity:        int64(C.sqlite3_column_int64(st, 7)),
-			TrackerWorking:      C.sqlite3_column_int64(st, 8) != 0,
-			TrackerWorkingKnown: C.sqlite3_column_int64(st, 9) != 0,
-			TrackerMessage:      colText(st, 10),
+			Client:          client,
+			Hash:            hash,
+			SampledAt:       sampledAt,
+			Ratio:           float64(C.sqlite3_column_double(st, 1)),
+			SeedsSwarm:      int(C.sqlite3_column_int64(st, 2)),
+			LeechersSwarm:   int(C.sqlite3_column_int64(st, 3)),
+			UploadedBytes:   int64(C.sqlite3_column_int64(st, 4)),
+			DownloadedBytes: int64(C.sqlite3_column_int64(st, 5)),
+			State:           colText(st, 6),
+			LastActivity:    int64(C.sqlite3_column_int64(st, 7)),
 		})
 	}
 	return out, nil
