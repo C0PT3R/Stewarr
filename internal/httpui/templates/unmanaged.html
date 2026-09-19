@@ -20,7 +20,15 @@
     </div>
     <div class="toolbar">
       <form class="filters" data-auto-filter method="get" action="/unmanaged">
-        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if .Query}}<a data-filter-clear href="/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/unmanaged">Clear</a>{{end}}
+        <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><label>Status<select name="status">
+        <option value="any" {{if eq .StatusFilter "any"}}selected{{end}}>Any</option>
+        <option value="reclaimable" {{if eq .StatusFilter "reclaimable"}}selected{{end}}>Reclaimable</option>
+        <option value="shared" {{if eq .StatusFilter "shared"}}selected{{end}}>Shared (hardlinked elsewhere)</option>
+        <option value="unknown" {{if eq .StatusFilter "unknown"}}selected{{end}}>Unknown</option>
+        </select></label>{{if .RootOptions}}<label>Root<select name="root">
+        <option value="" {{if eq .RootFilter ""}}selected{{end}}>Any</option>
+        {{range .RootOptions}}<option value="{{.Key}}" {{if eq $.RootFilter .Key}}selected{{end}}>{{.Label}}</option>{{end}}
+        </select></label>{{end}}<label>Min size (MiB)<input type="number" name="min_size_mib" min="0" step="any" value="{{.MinSizeMiB}}" placeholder="0"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if or .Query (ne .StatusFilter "any") .RootFilter .MinSizeMiB}}<a data-filter-clear href="/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/unmanaged">Clear</a>{{end}}
       </form>
       <button class="scan" type="button" data-unmanaged-scan>Refresh inventory</button>
     </div>

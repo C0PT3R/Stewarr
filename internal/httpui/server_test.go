@@ -997,6 +997,109 @@ func TestUnmanagedListingDoesNotDesyncHardlinkCountWhenOnePathIsPending(t *testi
 	}
 }
 
+func TestUnmanagedStatusFilterNarrowsToReclaimableOrSharedOrUnknown(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	unmanaged := []model.UnmanagedFile{
+		{Path: "/mnt/media/reclaimable-one.mkv", SizeBytes: 100, Device: 1, Inode: 1, Links: 1, ReclaimableKnown: true},
+		// Links=2 but only one path is known to this unmanaged scan — the
+		// other hardlink is presumably still held by a managed claim
+		// elsewhere, so this group is "still shared," not fully reclaimable.
+		{Path: "/mnt/media/shared-one.mkv", SizeBytes: 100, Device: 2, Inode: 2, Links: 2, ReclaimableKnown: true},
+		{Path: "/mnt/media/unknown-one.mkv", SizeBytes: 100, Device: 3, Inode: 3, Links: 1, ReclaimableKnown: false},
+	}
+	if err := database.PublishReconciliation(1, nil, nil, nil, unmanaged, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inventory.New(config.Config{}, database), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		status   string
+		want     string
+		dontWant []string
+	}{
+		{"reclaimable", "reclaimable-one.mkv", []string{"shared-one.mkv", "unknown-one.mkv"}},
+		{"shared", "shared-one.mkv", []string{"reclaimable-one.mkv", "unknown-one.mkv"}},
+		{"unknown", "unknown-one.mkv", []string{"reclaimable-one.mkv", "shared-one.mkv"}},
+	} {
+		response := httptest.NewRecorder()
+		server.unmanagedDownloads(response, httptest.NewRequest(http.MethodGet, "/unmanaged?status="+tc.status, nil))
+		body := response.Body.String()
+		if !strings.Contains(body, tc.want) {
+			t.Fatalf("status=%s: expected %q in body, got:\n%s", tc.status, tc.want, body)
+		}
+		for _, absent := range tc.dontWant {
+			if strings.Contains(body, absent) {
+				t.Fatalf("status=%s: expected %q absent from body, got:\n%s", tc.status, absent, body)
+			}
+		}
+	}
+}
+
+func TestUnmanagedRootFilterNarrowsToSelectedRoot(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	unmanaged := []model.UnmanagedFile{
+		{Path: "/mnt/movies/leftover.mkv", SizeBytes: 100, Device: 1, Inode: 1, Links: 1, ReclaimableKnown: true,
+			StorageContexts: []model.StorageContext{{ServiceName: "Radarr", Root: "/mnt/movies", RootLabel: "movies"}}},
+		{Path: "/mnt/series/leftover.mkv", SizeBytes: 100, Device: 2, Inode: 2, Links: 1, ReclaimableKnown: true,
+			StorageContexts: []model.StorageContext{{ServiceName: "Sonarr", Root: "/mnt/series", RootLabel: "series"}}},
+	}
+	if err := database.PublishReconciliation(1, nil, nil, nil, unmanaged, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inventory.New(config.Config{}, database), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.unmanagedDownloads(response, httptest.NewRequest(http.MethodGet, "/unmanaged?root="+url.QueryEscape("Radarr|/mnt/movies"), nil))
+	body := response.Body.String()
+	if !strings.Contains(body, "leftover.mkv") || !strings.Contains(body, "movies") {
+		t.Fatalf("expected the Radarr-root file present, got:\n%s", body)
+	}
+	if strings.Contains(body, "/mnt/series/leftover.mkv") {
+		t.Fatalf("expected the Sonarr-root file excluded, got:\n%s", body)
+	}
+}
+
+func TestUnmanagedMinSizeFilterExcludesSmallerFiles(t *testing.T) {
+	database, err := store.Open(filepath.Join(t.TempDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	const mib = 1024 * 1024
+	unmanaged := []model.UnmanagedFile{
+		{Path: "/mnt/media/small.mkv", SizeBytes: 1 * mib, Device: 1, Inode: 1, Links: 1, ReclaimableKnown: true},
+		{Path: "/mnt/media/large.mkv", SizeBytes: 500 * mib, Device: 2, Inode: 2, Links: 1, ReclaimableKnown: true},
+	}
+	if err := database.PublishReconciliation(1, nil, nil, nil, unmanaged, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(inventory.New(config.Config{}, database), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	server.unmanagedDownloads(response, httptest.NewRequest(http.MethodGet, "/unmanaged?min_size_mib=100", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, "large.mkv") {
+		t.Fatalf("expected the large file present, got:\n%s", body)
+	}
+	if strings.Contains(body, "small.mkv") {
+		t.Fatalf("expected the small file excluded, got:\n%s", body)
+	}
+}
+
 func TestGroupUnmanagedFilesCollapsesHardlinks(t *testing.T) {
 	items := []model.UnmanagedFile{
 		{Path: "/a", SizeBytes: 54321, Device: 7, Inode: 99, Links: 2, ReclaimableKnown: true},

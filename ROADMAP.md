@@ -1017,7 +1017,6 @@ history for this torrent" query pattern the derived signals need.
 
 - Make task schedules configurable through the GUI.
 - Add richer task execution history and reconciliation diagnostics.
-- Add useful Unmanaged filters.
 - Improve explicit provenance-change reasons and per-object historical
   timelines.
 - Continue readability work outside the HTTP/UI files touched through 0.2.8.
