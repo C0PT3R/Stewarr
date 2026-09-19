@@ -1,7 +1,6 @@
 package httpui
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
@@ -226,37 +225,6 @@ func sortUnmanaged(items []unmanagedFileGroup, key, order string) {
 		}
 		return cmp*dir < 0
 	})
-}
-
-func (server *Server) scanUnmanagedNow(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var err error
-	if server.tasks != nil {
-		err = server.tasks.Run(r.Context(), "files")
-	} else {
-		err = server.inv.ScanUnmanaged(r.Context())
-	}
-	if r.Header.Get("X-Stewarr-Scan") == "1" {
-		w.Header().Set("Content-Type", "application/json")
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": err == nil, "error": func() string {
-			if err != nil {
-				return err.Error()
-			}
-			return ""
-		}()})
-		return
-	}
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/unmanaged", http.StatusSeeOther)
 }
 
 func (server *Server) unmanagedDownloads(w http.ResponseWriter, r *http.Request) {

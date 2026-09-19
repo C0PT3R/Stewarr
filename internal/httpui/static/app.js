@@ -2906,12 +2906,6 @@ Copyright © 2023 Basecamp, LLC
         this.navigateList(listLink.href);
         return;
       }
-      const scan = target.closest("[data-unmanaged-scan]");
-      if (scan) {
-        event.preventDefault();
-        this.scanUnmanaged(scan);
-        return;
-      }
       const all = target.closest("#unmanagedAll");
       if (all) {
         document.querySelectorAll(".unmanagedPick").forEach((input) => {
@@ -3101,23 +3095,6 @@ Copyright © 2023 Basecamp, LLC
       }
       const button = document.getElementById("unmanagedRemoveButton");
       if (button) button.disabled = selected === 0;
-    }
-    async scanUnmanaged(button) {
-      const old = button.textContent;
-      button.disabled = true;
-      button.textContent = "Scanning\u2026";
-      try {
-        const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Stewarr-Scan": "1" } });
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
-        this.refreshFragments(true, true);
-        announce("Unmanaged file scan completed.");
-      } catch (error) {
-        announce(`Unmanaged scan failed: ${error.message}`);
-      } finally {
-        button.disabled = false;
-        button.textContent = old;
-      }
     }
     formURL(form) {
       const url = new URL(form.action, location.href);

@@ -118,12 +118,6 @@ export class ShellController extends window.Stimulus.Controller {
       this.navigateList(listLink.href);
       return;
     }
-    const scan = target.closest<HTMLElement>("[data-unmanaged-scan]");
-    if (scan) {
-      event.preventDefault();
-      this.scanUnmanaged(scan);
-      return;
-    }
     const all = target.closest<HTMLInputElement>("#unmanagedAll");
     if (all) {
       document.querySelectorAll<HTMLInputElement>(".unmanagedPick").forEach(input => { input.checked = all.checked; });
@@ -321,24 +315,6 @@ export class ShellController extends window.Stimulus.Controller {
     }
     const button = document.getElementById("unmanagedRemoveButton") as HTMLButtonElement | null;
     if (button) button.disabled = selected === 0;
-  }
-
-  async scanUnmanaged(button: HTMLElement): Promise<void> {
-    const old = button.textContent;
-    (button as HTMLButtonElement).disabled = true;
-    button.textContent = "Scanning…";
-    try {
-      const response = await fetch("/unmanaged/scan", { method: "POST", headers: { "X-Stewarr-Scan": "1" } });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || `status ${response.status}`);
-      this.refreshFragments(true, true);
-      announce("Unmanaged file scan completed.");
-    } catch (error) {
-      announce(`Unmanaged scan failed: ${(error as Error).message}`);
-    } finally {
-      (button as HTMLButtonElement).disabled = false;
-      button.textContent = old;
-    }
   }
 
   formURL(form: HTMLFormElement): string {

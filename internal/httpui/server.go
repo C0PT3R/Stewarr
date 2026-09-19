@@ -233,7 +233,6 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/torrents", server.torrents)
 	mux.HandleFunc("/torrents/", server.torrentDetail)
 	mux.HandleFunc("/unmanaged", server.unmanagedDownloads)
-	mux.HandleFunc("/unmanaged/scan", server.scanUnmanagedNow)
 	mux.HandleFunc("/history", server.history)
 	mux.HandleFunc("/tasks", server.tasksPage)
 	mux.HandleFunc("/tasks/run", server.runTask)

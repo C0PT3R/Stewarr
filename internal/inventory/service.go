@@ -389,8 +389,6 @@ func (service *Service) StatusSnapshot() []ServiceStatus {
 
 func (service *Service) Store() *store.Store { return service.db }
 
-func (service *Service) ScanUnmanaged(ctx context.Context) error { return service.ReconcileFiles(ctx) }
-
 func (service *Service) fail(e error) error {
 	service.mu.Lock()
 	service.lastErr = e

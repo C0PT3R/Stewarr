@@ -18,7 +18,7 @@
     <div id="unmanaged-summary" class="summary-line" data-reactive-fragment data-live-policy="immediate">
       <b>{{.AllItems}}</b> files · <b>{{human .TotalBytes}}</b>{{if gt .ReclaimableBytes 0}} · <b>{{human .ReclaimableBytes}}</b> physically reclaimable if an authorized owner removes every link{{end}}{{if gt .SharedBytes 0}} · {{human .SharedBytes}} shared through hardlinks{{end}}
     </div>
-    <div class="toolbar">
+    <div class="card">
       <form class="filters" data-auto-filter method="get" action="/unmanaged">
         <label>Search<input type="search" name="q" value="{{.Query}}" placeholder="Path or filename…"></label><label>Status<select name="status">
         <option value="any" {{if eq .StatusFilter "any"}}selected{{end}}>Any</option>
@@ -30,7 +30,6 @@
         {{range .RootOptions}}<option value="{{.Key}}" {{if eq $.RootFilter .Key}}selected{{end}}>{{.Label}}</option>{{end}}
         </select></label>{{end}}<label>Min size (MiB)<input type="number" name="min_size_mib" min="0" step="any" value="{{.MinSizeMiB}}" placeholder="0"></label><input type="hidden" name="sort" value="{{.Sort}}"><input type="hidden" name="order" value="{{.Order}}"><input type="hidden" name="page_size" value="{{.PageSize}}">{{if or .Query (ne .StatusFilter "any") .RootFilter .MinSizeMiB}}<a data-filter-clear href="/unmanaged">Clear</a>{{else}}<a data-filter-clear hidden href="/unmanaged">Clear</a>{{end}}
       </form>
-      <button class="scan" type="button" data-unmanaged-scan>Refresh inventory</button>
     </div>
     <div id="unmanaged-results" data-reactive-fragment data-live-policy="stable-list" data-filter-results>
       <div class="result-count muted">
