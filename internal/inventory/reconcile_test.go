@@ -8,6 +8,20 @@ import (
 	"testing"
 )
 
+// realDiskSize returns a file's real physical/block-allocated size on the
+// test filesystem (see physicalSizeBytes) — used by tests that expect a
+// reclaimable/claimed byte total to match a specific real file, since a
+// tiny test file still occupies at least one full filesystem block and
+// block size is environment-dependent, not a value tests should hardcode.
+func realDiskSize(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return physicalSizeBytes(info.Size(), info.Sys())
+}
+
 func TestKnownServiceRootFallbackOnlyWhenDiscoveryIsEmpty(t *testing.T) {
 	i := config.Service{Type: "radarr", Name: "Movies", RootPath: "/fallback"}
 	got := configuredOrDiscoveredRoots(i, []string{"/authoritative"})
@@ -52,6 +66,37 @@ func TestWalkRootsCreatesOnlyExistingRegularFilesAndPreservesHardlinkIdentity(t 
 		t.Fatalf("hardlinks not recognized as same physical identity: %+v %+v", fs[0], fs[1])
 	}
 }
+// TestWalkRootsReportsPhysicalSizeNotApparentSizeForSparseFiles guards the
+// bug where reclaimable/unmanaged/library byte totals overstated real disk
+// usage: a torrent client can preallocate a download's final size well
+// before any data has actually been written, leaving a sparse file whose
+// apparent size is far larger than what it actually occupies on disk.
+func TestWalkRootsReportsPhysicalSizeNotApparentSizeForSparseFiles(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "sparse.mkv")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const apparentSize = 64 * 1024 * 1024 // 64 MiB, no data actually written
+	if err := f.Truncate(apparentSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fs, err := walkRoots([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fs) != 1 {
+		t.Fatalf("got %d files, want 1", len(fs))
+	}
+	if fs[0].SizeBytes >= apparentSize {
+		t.Fatalf("expected physical size to be far smaller than the %d-byte apparent size of an unwritten sparse file, got %d", apparentSize, fs[0].SizeBytes)
+	}
+}
+
 func TestWalkRootsFailsClosedOnMissingRoot(t *testing.T) {
 	if _, err := walkRoots([]string{filepath.Join(t.TempDir(), "missing")}); err == nil {
 		t.Fatal("expected missing root to fail reconciliation")

@@ -61,11 +61,14 @@ func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T)
 	if len(device.RootLabels) != 2 || device.RootLabels[0] != "downloads" || device.RootLabels[1] != "movies" {
 		t.Fatalf("expected both root labels sorted, got %#v", device.RootLabels)
 	}
-	if len(device.Claimed) != 1 || device.Claimed[0].Service != "Movies" || device.Claimed[0].Bytes != uint64(len("managed content")) {
+	// Expected byte counts are the real physical/block-allocated size on
+	// this filesystem (see physicalSizeBytes), not the literal content
+	// length — a tiny test file still occupies at least one full block.
+	if want := uint64(realDiskSize(t, managed)); len(device.Claimed) != 1 || device.Claimed[0].Service != "Movies" || device.Claimed[0].Bytes != want {
 		t.Fatalf("expected the hardlinked file counted once under its media owner, got %#v", device.Claimed)
 	}
-	if device.UnmanagedBytes != uint64(len("leftover data!!")) {
-		t.Fatalf("unmanaged=%d, want %d", device.UnmanagedBytes, len("leftover data!!"))
+	if want := uint64(realDiskSize(t, leftover)); device.UnmanagedBytes != want {
+		t.Fatalf("unmanaged=%d, want %d", device.UnmanagedBytes, want)
 	}
 
 	byDevice := service.MediaByDevice([]model.Media{{Type: model.Movie, SourceID: 1}, {Type: model.Movie, SourceID: 2}})

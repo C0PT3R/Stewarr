@@ -397,7 +397,7 @@ func refreshTargetedPaths(files []model.File, requested []string) (map[string]bo
 		if old.IdentityKnown && (!known || old.Device != uint64(stat.Dev) || old.Inode != uint64(stat.Ino)) {
 			return nil, nil, fmt.Errorf("identity changed for scoped path %s", path)
 		}
-		file := model.File{Path: path, SizeBytes: info.Size(), Exists: true, ModifiedAt: info.ModTime(), StorageContexts: append([]model.StorageContext(nil), old.StorageContexts...)}
+		file := model.File{Path: path, SizeBytes: physicalSizeBytes(info.Size(), info.Sys()), Exists: true, ModifiedAt: info.ModTime(), StorageContexts: append([]model.StorageContext(nil), old.StorageContexts...)}
 		if known {
 			file.IdentityKnown, file.Device, file.Inode, file.Links = true, uint64(stat.Dev), uint64(stat.Ino), uint64(stat.Nlink)
 		}

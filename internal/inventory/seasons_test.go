@@ -104,10 +104,13 @@ func TestSeasonScopedHardlinkAttributionAgainstRealFiles(t *testing.T) {
 	if season1.ReclaimableBytes != 0 {
 		t.Fatalf("expected season 1 alone to report zero reclaimable bytes while the torrent still holds a hardlink: %#v", season1)
 	}
-	if season1.BundleReclaimableBytes != int64(len("season one episode")) {
+	// Expected sizes are the real physical/block-allocated size on this
+	// filesystem (see physicalSizeBytes), not the literal byte count written
+	// — a tiny test file still occupies at least one full filesystem block.
+	if season1.BundleReclaimableBytes != realDiskSize(t, season1Episode) {
 		t.Fatalf("expected season 1's bundle estimate to report the full shared size: %#v", season1)
 	}
-	if season2.ReclaimableBytes != int64(len("season two episode!")) {
+	if season2.ReclaimableBytes != realDiskSize(t, season2Episode) {
 		t.Fatalf("expected season 2 (no hardlink) to report its own full size as reclaimable: %#v", season2)
 	}
 	if season2.BundleReclaimableBytes != season2.ReclaimableBytes {

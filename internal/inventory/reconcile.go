@@ -222,6 +222,20 @@ func collapseStorageRoots(in []storageRoot) []storageRoot {
 	return out
 }
 
+// physicalSizeBytes returns how many bytes a file actually occupies on
+// disk — its allocated blocks — rather than its apparent/logical size. The
+// two diverge for sparse or preallocated files (e.g. a torrent client
+// preallocating a download's final size before any data has actually been
+// written), which would otherwise overstate real usage/reclaimable bytes
+// across the app. Falls back to logicalSize when block-count info isn't
+// available (sys didn't yield a *syscall.Stat_t).
+func physicalSizeBytes(logicalSize int64, sys any) int64 {
+	if st, ok := sys.(*syscall.Stat_t); ok {
+		return st.Blocks * 512
+	}
+	return logicalSize
+}
+
 func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 	contextRoots := collapseStorageRoots(roots)
 	physicalCandidates := make([]string, 0, len(contextRoots))
@@ -264,7 +278,7 @@ func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 					contexts = append(contexts, model.StorageContext{ServiceID: contextRoot.Service.ID, ServiceName: contextRoot.Service.Name, ServiceType: contextRoot.Service.Type, Root: contextRoot.Path, RootLabel: contextRoot.Label})
 				}
 			}
-			f := model.File{Path: p, SizeBytes: i.Size(), Exists: true, ModifiedAt: i.ModTime(), StorageContexts: contexts}
+			f := model.File{Path: p, SizeBytes: physicalSizeBytes(i.Size(), i.Sys()), Exists: true, ModifiedAt: i.ModTime(), StorageContexts: contexts}
 			if st, ok := i.Sys().(*syscall.Stat_t); ok {
 				f.IdentityKnown = true
 				f.Device = uint64(st.Dev)
