@@ -47,8 +47,10 @@
               {{range .Storage.Claimed}}<span class="segment claim" style="width:{{widthPct .Bytes $device.Storage.UsableBytes}}%" title="{{.Service}}: {{humanU .Bytes}}"></span>{{end}}
               {{if gt .Storage.UnmanagedBytes 0}}<span class="segment unmanaged" style="width:{{widthPct .Storage.UnmanagedBytes .Storage.UsableBytes}}%" title="Unmanaged: {{humanU .Storage.UnmanagedBytes}}"></span>{{end}}
               <span class="segment free" style="width:{{widthPct .Storage.FreeBytes .Storage.UsableBytes}}%" title="Free: {{humanU .Storage.FreeBytes}}"></span>
+              {{if .Enabled}}
               <span class="threshold target" style="left:{{printf "%.3f" .Plan.TargetUsagePercent}}%" title="Target: {{printf "%.1f" .Plan.TargetUsagePercent}}%"></span>
               <span class="threshold critical" style="left:{{printf "%.3f" .Plan.CriticalUsagePercent}}%" title="Critical: {{printf "%.1f" .Plan.CriticalUsagePercent}}%"></span>
+              {{end}}
             </div>
             <ul class="storage-legend">
               {{range .Storage.Claimed}}
@@ -64,6 +66,8 @@
             </ul>
             {{if $.AutoRemovalDisabled}}
               <p class="muted">Automatic removal is off. Enable it in <a href="/settings">Settings</a> to see suggestions.</p>
+            {{else if not .Enabled}}
+              <p class="muted">Automatic removal is off for this device. Enable it in Device settings (🔧) to see suggestions.</p>
             {{else if gt .Plan.NeedBytes 0}}
               <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
               {{if .Plan.Actions}}

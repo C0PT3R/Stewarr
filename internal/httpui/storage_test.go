@@ -30,7 +30,7 @@ func TestStorageTemplateRendersPerServiceDetailAndRootPaths(t *testing.T) {
 					ServiceRoots: map[string][]string{"Movies": {"/data/movies", "/data/movies-4k"}},
 				},
 				Plan: cleanup.Plan{Available: true, UsagePercent: 60, TargetUsagePercent: 90, Message: "No cleanup: 60.00% used (target 90.0%)"},
-				Name: "Media Drive",
+				Name: "Media Drive", Enabled: true,
 			},
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/broken", Available: false, Error: "permission denied"},
@@ -73,7 +73,7 @@ func TestStorageTemplateScopesServiceRootsToTheirOwnDevice(t *testing.T) {
 					ServiceRoots: map[string][]string{"Downloader": {"/data/downloads/complete"}},
 				},
 				Plan: cleanup.Plan{Available: true},
-				Name: "Media",
+				Name: "Media", Enabled: true,
 			},
 			{
 				Storage: inventory.StorageDevice{
@@ -82,7 +82,7 @@ func TestStorageTemplateScopesServiceRootsToTheirOwnDevice(t *testing.T) {
 					ServiceRoots: map[string][]string{"Downloader": {"/torrent-cache"}},
 				},
 				Plan: cleanup.Plan{Available: true},
-				Name: "Torrent cache",
+				Name: "Torrent cache", Enabled: true,
 			},
 		},
 	}
@@ -109,6 +109,7 @@ func TestStorageTemplateRendersCleanupActions(t *testing.T) {
 		Devices: []deviceView{
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Enabled: true,
 				Plan: cleanup.Plan{
 					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
 					Actions: []cleanup.Action{
@@ -154,6 +155,7 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 		Devices: []deviceView{
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Enabled: true,
 				Plan: cleanup.Plan{
 					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 20,
 					Actions: []cleanup.Action{
@@ -218,6 +220,46 @@ func TestDeviceSettingsTemplateShowsWholeDeviceIdentityNotJustOnePath(t *testing
 	}
 }
 
+// TestDeviceSettingsTemplateHidesThresholdsWhenAutomaticRemovalDisabled
+// guards the actual point of the "Enable on this device" checkbox: the
+// Target/Critical fields are meaningless once nothing evaluates them for
+// this device, so they must start hidden (not just hide after a JS change
+// event) when the saved state is already disabled, and visible again when
+// enabled — the checkbox itself must reflect the saved state either way.
+func TestDeviceSettingsTemplateHidesThresholdsWhenAutomaticRemovalDisabled(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+	}{
+		{"enabled", true},
+		{"disabled", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := deviceSettingsData{RepresentativePath: "/data/movies", TargetUsagePercent: 80, CriticalUsagePercent: 95, AutomaticRemovalEnabled: tc.enabled}
+			recorder := httptest.NewRecorder()
+			if err := renderTemplate(recorder, server.deviceSettingsTpl, data); err != nil {
+				t.Fatalf("render device-settings template: %v", err)
+			}
+			body := recorder.Body.String()
+			if !strings.Contains(body, "Enable on this device") {
+				t.Fatalf("expected an Enable checkbox, got:\n%s", body)
+			}
+			checked := strings.Contains(body, "data-automatic-removal-toggle checked")
+			if checked != tc.enabled {
+				t.Fatalf("expected checkbox checked=%v, got body:\n%s", tc.enabled, body)
+			}
+			fieldRowHidden := strings.Contains(body, `data-threshold-field hidden`)
+			if fieldRowHidden == tc.enabled {
+				t.Fatalf("expected the threshold field row hidden=%v when enabled=%v, got body:\n%s", !tc.enabled, tc.enabled, body)
+			}
+		})
+	}
+}
+
 // TestStorageTemplateHidesCleanupPlanWhenAutoRemovalDisabled guards the
 // real fix: Removal.AutoMode Disabled must mean the whole notion of "here's
 // what we'd suggest removing" doesn't exist on the Storage page, not just
@@ -235,6 +277,7 @@ func TestStorageTemplateHidesCleanupPlanWhenAutoRemovalDisabled(t *testing.T) {
 		Devices: []deviceView{
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Enabled: true,
 				Plan: cleanup.Plan{
 					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
 					Actions: []cleanup.Action{
@@ -256,6 +299,41 @@ func TestStorageTemplateHidesCleanupPlanWhenAutoRemovalDisabled(t *testing.T) {
 		t.Fatalf("expected an explanatory note when automatic removal is disabled, got:\n%s", body)
 	}
 	// The bar/usage numbers are a different concern and must still render.
+	if !strings.Contains(body, "storage-bar") || !strings.Contains(body, "900.0 B used") {
+		t.Fatalf("expected the usage bar/summary to still render regardless, got:\n%s", body)
+	}
+}
+
+// TestStorageTemplateHidesThresholdMarkersAndPlanWhenDeviceDisabled guards
+// the per-device counterpart to the global AutoMode gate above: opting one
+// specific device out must drop its own threshold markers/cleanup section,
+// without needing the global switch off and without touching any other
+// device's bar.
+func TestStorageTemplateHidesThresholdMarkersAndPlanWhenDeviceDisabled(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := storageData{
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
+				Enabled: false,
+				Plan:    cleanup.Plan{TargetUsagePercent: 80, CriticalUsagePercent: 95},
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	body := recorder.Body.String()
+	if strings.Contains(body, "threshold target") || strings.Contains(body, "threshold critical") {
+		t.Fatalf("expected no threshold markers for a disabled device, got:\n%s", body)
+	}
+	if !strings.Contains(body, "Automatic removal is off for this device") {
+		t.Fatalf("expected the per-device off message, got:\n%s", body)
+	}
 	if !strings.Contains(body, "storage-bar") || !strings.Contains(body, "900.0 B used") {
 		t.Fatalf("expected the usage bar/summary to still render regardless, got:\n%s", body)
 	}

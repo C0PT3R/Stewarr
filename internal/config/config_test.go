@@ -114,7 +114,7 @@ func TestThresholdsForIgnoresOutOfRangeEntry(t *testing.T) {
 
 func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	var c Config
-	updated, err := SetDeviceThreshold(c, "/data", "", 80, 90)
+	updated, err := SetDeviceThreshold(c, "/data", "", 80, 90, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	if target != 80 || critical != 90 {
 		t.Fatalf("thresholds after set = %v/%v", target, critical)
 	}
-	updatedAgain, err := SetDeviceThreshold(updated, "/data", "", 70, 85)
+	updatedAgain, err := SetDeviceThreshold(updated, "/data", "", 70, 85, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,14 +133,44 @@ func TestSetDeviceThresholdIsIdempotentAndValidated(t *testing.T) {
 	if target != 70 || critical != 85 {
 		t.Fatalf("thresholds after re-set = %v/%v", target, critical)
 	}
-	if _, err := SetDeviceThreshold(c, "/data", "", 0, 90); err == nil {
+	if _, err := SetDeviceThreshold(c, "/data", "", 0, 90, true); err == nil {
 		t.Fatal("expected an error for a non-positive target percent")
 	}
-	if _, err := SetDeviceThreshold(c, "/data", "", 80, 100); err == nil {
+	if _, err := SetDeviceThreshold(c, "/data", "", 80, 100, true); err == nil {
 		t.Fatal("expected an error for a critical percent >= 100")
 	}
-	if _, err := SetDeviceThreshold(c, "", "", 80, 90); err == nil {
+	if _, err := SetDeviceThreshold(c, "", "", 80, 90, true); err == nil {
 		t.Fatal("expected an error for an empty representativePath")
+	}
+}
+
+// TestAutomaticRemovalEnabledForDefaultsTrue guards the whole point of
+// storing this inverted (AutomaticRemovalDisabled, not "enabled"): a
+// device with no explicit entry at all — true for most devices — must
+// still be eligible for automatic removal, not silently opted out the
+// moment this field was introduced.
+func TestAutomaticRemovalEnabledForDefaultsTrue(t *testing.T) {
+	var c Config
+	if !c.AutomaticRemovalEnabledFor("/data") {
+		t.Fatal("expected a device with no explicit entry to default to enabled")
+	}
+}
+
+func TestSetDeviceThresholdPersistsAutomaticRemovalEnablement(t *testing.T) {
+	var c Config
+	disabled, err := SetDeviceThreshold(c, "/data", "", 80, 90, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.AutomaticRemovalEnabledFor("/data") {
+		t.Fatal("expected the device to be disabled after saving enabled=false")
+	}
+	reenabled, err := SetDeviceThreshold(disabled, "/data", "", 80, 90, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reenabled.AutomaticRemovalEnabledFor("/data") {
+		t.Fatal("expected the device to be re-enabled after saving enabled=true")
 	}
 }
 
@@ -153,14 +183,14 @@ func TestSetDeviceThresholdPersistsAndTrimsName(t *testing.T) {
 	if got := c.DeviceName("/data"); got != "" {
 		t.Fatalf("expected no name before anything is set, got %q", got)
 	}
-	updated, err := SetDeviceThreshold(c, "/data", "  Media Drive  ", 80, 90)
+	updated, err := SetDeviceThreshold(c, "/data", "  Media Drive  ", 80, 90, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := updated.DeviceName("/data"); got != "Media Drive" {
 		t.Fatalf("expected the trimmed name to be persisted, got %q", got)
 	}
-	cleared, err := SetDeviceThreshold(updated, "/data", "", 80, 90)
+	cleared, err := SetDeviceThreshold(updated, "/data", "", 80, 90, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +208,7 @@ func TestSetDeviceThresholdPreservesAssignedID(t *testing.T) {
 	if !changed || registered.Storage.DeviceThresholds["/data"].ID == 0 {
 		t.Fatalf("setup: expected an id to be assigned, got %#v", registered.Storage.DeviceThresholds)
 	}
-	saved, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85)
+	saved, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,14 +225,14 @@ func TestSetDeviceThresholdPreservesAssignedID(t *testing.T) {
 // of reverting.
 func TestSetDeviceThresholdClearingNameRevertsToDefault(t *testing.T) {
 	registered, _ := SyncDeviceRegistry(Config{}, []string{"/data"})
-	renamed, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85)
+	renamed, err := SetDeviceThreshold(registered, "/data", "Media Drive", 70, 85, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := renamed.DeviceName("/data"); got != "Media Drive" {
 		t.Fatalf("setup: expected the custom name to be saved, got %q", got)
 	}
-	reverted, err := SetDeviceThreshold(renamed, "/data", "", 70, 85)
+	reverted, err := SetDeviceThreshold(renamed, "/data", "", 70, 85, true)
 	if err != nil {
 		t.Fatal(err)
 	}

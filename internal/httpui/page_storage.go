@@ -121,12 +121,13 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 }
 
 type deviceSettingsData struct {
-	RepresentativePath   string
-	RootLabels           []string
-	Filesystem           string
-	Name                 string
-	TargetUsagePercent   float64
-	CriticalUsagePercent float64
+	RepresentativePath      string
+	RootLabels              []string
+	Filesystem              string
+	Name                    string
+	TargetUsagePercent      float64
+	CriticalUsagePercent    float64
+	AutomaticRemovalEnabled bool
 }
 
 // deviceSettingsForm returns the per-device settings overlay fragment
@@ -151,7 +152,7 @@ func (server *Server) deviceSettingsForm(w http.ResponseWriter, r *http.Request)
 	path := r.URL.Query().Get("path")
 	cfg := server.inv.Config()
 	target, critical := cfg.ThresholdsFor(path)
-	data := deviceSettingsData{RepresentativePath: path, Name: cfg.DeviceName(path), TargetUsagePercent: target, CriticalUsagePercent: critical}
+	data := deviceSettingsData{RepresentativePath: path, Name: cfg.DeviceName(path), TargetUsagePercent: target, CriticalUsagePercent: critical, AutomaticRemovalEnabled: cfg.AutomaticRemovalEnabledFor(path)}
 	for _, device := range server.inv.StorageDevices() {
 		if device.RepresentativePath == path {
 			data.RootLabels = device.RootLabels
@@ -194,7 +195,8 @@ func (server *Server) setDeviceThreshold(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "critical_usage_percent must be a number", http.StatusBadRequest)
 		return
 	}
-	if err := server.inv.SetDeviceThreshold(path, r.FormValue("name"), target, critical); err != nil {
+	enabled := r.FormValue("enable_automatic_removal") == "on"
+	if err := server.inv.SetDeviceThreshold(path, r.FormValue("name"), target, critical, enabled); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}

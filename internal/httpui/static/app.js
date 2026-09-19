@@ -2945,6 +2945,10 @@ Copyright © 2023 Basecamp, LLC
         this.syncTMDBFields(target);
         return;
       }
+      if (target.matches("[data-automatic-removal-toggle]")) {
+        this.syncThresholdFields(target);
+        return;
+      }
       const form = target.closest("form[data-auto-filter]");
       if (form) this.navigateList(this.formURL(form));
     }
@@ -2974,6 +2978,15 @@ Copyright © 2023 Basecamp, LLC
         const key = form.querySelector("#settings-tmdb-key");
         if (key) key.value = "";
       }
+    }
+    // Hides the Target/Critical fields when automatic removal is disabled for
+    // this device — they have no effect once nothing evaluates them, so
+    // showing them would suggest a threshold is in force when none is.
+    syncThresholdFields(toggle) {
+      const form = toggle.closest("form");
+      if (!form) return;
+      const enabled = toggle.checked;
+      for (const field of form.querySelectorAll("[data-threshold-field]")) field.hidden = !enabled;
     }
     async testTMDBConnection(button) {
       const form = button.closest("form");

@@ -276,8 +276,19 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 	views := make([]deviceView, 0, len(devices))
 	for _, device := range devices {
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
-		p, planErr := cleanup.Build(device.RepresentativePath, device.OtherBytes, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
-		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr, Name: cfg.DeviceName(device.RepresentativePath)})
+		enabled := cfg.AutomaticRemovalEnabledFor(device.RepresentativePath)
+		var p cleanup.Plan
+		var planErr error
+		if enabled {
+			p, planErr = cleanup.Build(device.RepresentativePath, device.OtherBytes, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
+		} else {
+			// No point building a plan nothing will ever act on — an explicit
+			// per-device opt-out, same reasoning as the global AutoMode
+			// disabled check already skipping evaluation entirely rather than
+			// just withholding submission.
+			p = cleanup.Plan{Path: device.RepresentativePath, TargetUsagePercent: target, CriticalUsagePercent: critical}
+		}
+		views = append(views, deviceView{Storage: device, Plan: p, PlanErr: planErr, Name: cfg.DeviceName(device.RepresentativePath), Enabled: enabled})
 	}
 	return views
 }
@@ -292,6 +303,11 @@ type deviceView struct {
 	// Name is the device's user-chosen label (config.DeviceThreshold.Name),
 	// empty until someone sets one via the Device settings overlay.
 	Name string
+	// Enabled is false when the user has explicitly opted this specific
+	// device out of automatic removal (config.DeviceThreshold.
+	// AutomaticRemovalDisabled) — Plan is a bare, never-built zero plan in
+	// that case, not a real evaluation.
+	Enabled bool
 }
 
 func renderTemplate(w http.ResponseWriter, tpl *template.Template, data any) error {

@@ -64,6 +64,9 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 	torrentsByDevice := server.inv.TorrentsByDevice(torrents)
 	tmdbConfigured := cfg.TMDB.APIKey != ""
 	for _, device := range server.inv.StorageDevices() {
+		if !cfg.AutomaticRemovalEnabledFor(device.RepresentativePath) {
+			continue
+		}
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
 		plan, err := cleanup.Build(device.RepresentativePath, device.OtherBytes, target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable)
 		if err != nil || !plan.Available {

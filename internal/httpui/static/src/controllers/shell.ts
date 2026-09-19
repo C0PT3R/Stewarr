@@ -157,6 +157,10 @@ export class ShellController extends window.Stimulus.Controller {
       this.syncTMDBFields(target as HTMLInputElement);
       return;
     }
+    if (target.matches("[data-automatic-removal-toggle]")) {
+      this.syncThresholdFields(target as HTMLInputElement);
+      return;
+    }
     const form = target.closest<HTMLFormElement>("form[data-auto-filter]");
     if (form) this.navigateList(this.formURL(form));
   }
@@ -188,6 +192,16 @@ export class ShellController extends window.Stimulus.Controller {
       const key = form.querySelector<HTMLInputElement>("#settings-tmdb-key");
       if (key) key.value = "";
     }
+  }
+
+  // Hides the Target/Critical fields when automatic removal is disabled for
+  // this device — they have no effect once nothing evaluates them, so
+  // showing them would suggest a threshold is in force when none is.
+  syncThresholdFields(toggle: HTMLInputElement): void {
+    const form = toggle.closest("form");
+    if (!form) return;
+    const enabled = toggle.checked;
+    for (const field of form.querySelectorAll<HTMLElement>("[data-threshold-field]")) field.hidden = !enabled;
   }
 
   async testTMDBConnection(button: HTMLElement): Promise<void> {

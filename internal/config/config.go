@@ -361,6 +361,14 @@ type DeviceThreshold struct {
 	// from 1 — see SyncDeviceRegistry. It's what a default "Device #<ID>"
 	// name is built from; 0 means no id has been assigned yet.
 	ID int `json:"id,omitempty"`
+	// AutomaticRemovalDisabled opts one physical device out of automatic
+	// removal entirely, alongside the existing per-service
+	// Service.AllowAutomaticRemoval gate. Stored inverted (disabled, not
+	// enabled) so its zero value means enabled — a device with no explicit
+	// entry here yet, which is most devices, is unaffected; the Storage
+	// page presents this as a checked-by-default "Enable on this device"
+	// checkbox.
+	AutomaticRemovalDisabled bool `json:"automatic_removal_disabled,omitempty"`
 }
 
 // defaultTargetUsagePercent and defaultCriticalUsagePercent are used for any
@@ -393,12 +401,19 @@ func (configuration Config) DeviceName(representativePath string) string {
 	return configuration.Storage.DeviceThresholds[representativePath].Name
 }
 
+// AutomaticRemovalEnabledFor reports whether representativePath's device is
+// eligible for automatic removal — true unless the user explicitly disabled
+// it for this specific device (see DeviceThreshold.AutomaticRemovalDisabled).
+func (configuration Config) AutomaticRemovalEnabledFor(representativePath string) bool {
+	return !configuration.Storage.DeviceThresholds[representativePath].AutomaticRemovalDisabled
+}
+
 // SetDeviceThreshold idempotently upserts one storage device's reclamation
-// thresholds and name together, keyed by its RepresentativePath — the
-// Device settings overlay saves all three as one form. Editing the same
-// device from any service overlay that happens to share it converges to
-// this one entry.
-func SetDeviceThreshold(configuration Config, representativePath, name string, target, critical float64) (Config, error) {
+// thresholds, name, and automatic-removal enablement together, keyed by its
+// RepresentativePath — the Device settings overlay saves all as one form.
+// Editing the same device from any service overlay that happens to share it
+// converges to this one entry.
+func SetDeviceThreshold(configuration Config, representativePath, name string, target, critical float64, automaticRemovalEnabled bool) (Config, error) {
 	if strings.TrimSpace(representativePath) == "" {
 		return configuration, fmt.Errorf("representativePath must not be empty")
 	}
@@ -414,7 +429,7 @@ func SetDeviceThreshold(configuration Config, representativePath, name string, t
 		updated.Storage.DeviceThresholds[path] = threshold
 	}
 	// Preserve whatever id SyncDeviceRegistry already assigned — this call
-	// only ever touches thresholds/name, never identity.
+	// only ever touches thresholds/name/enablement, never identity.
 	existingID := configuration.Storage.DeviceThresholds[representativePath].ID
 	trimmedName := strings.TrimSpace(name)
 	// Clearing the name is how a user reverts to the default, not how they
@@ -424,7 +439,7 @@ func SetDeviceThreshold(configuration Config, representativePath, name string, t
 	if trimmedName == "" && existingID > 0 {
 		trimmedName = fmt.Sprintf("Device #%d", existingID)
 	}
-	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: trimmedName, ID: existingID}
+	updated.Storage.DeviceThresholds[representativePath] = DeviceThreshold{TargetUsagePercent: target, CriticalUsagePercent: critical, Name: trimmedName, ID: existingID, AutomaticRemovalDisabled: !automaticRemovalEnabled}
 	return updated, nil
 }
 
