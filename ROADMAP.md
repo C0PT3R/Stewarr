@@ -1027,14 +1027,13 @@ filesystem facts alongside unreachable ones' self-reported contents.)
 
 ## Later
 
-- Capability discovery for the service manager (auto-detecting what an
-  added service supports, beyond the connection test already in place).
-  Where an adapter has a known, permanent limitation (not just "untested
-  yet"), the add-service overlay should surface it up front as a plain
-  warning before the service is added. This is disclosure, not
-  configuration — the user isn't asked to work around it, just told
-  what won't work and why, the same moment they're choosing which
-  adapter to add.
+- Capability discovery for the service manager: *auto-detecting* what an
+  added service actually supports (API version/feature probing), beyond
+  the connection test already in place. The static half of this — the
+  add-service overlay disclosing a known, permanent adapter limitation
+  (Jellyfin/Seerr never own removable storage) up front, the moment
+  that type is selected — has shipped; this item is now scoped to the
+  dynamic probing, which nothing currently does.
 - Lidarr, Readarr, Bazarr, Transmission, Deluge, rTorrent, Plex, and other
   service adapters.
 - Per-storage-device alarms, acquisition inhibition, and explicitly
