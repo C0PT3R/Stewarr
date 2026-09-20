@@ -323,8 +323,9 @@ func (service *Service) reconcileInventoryDelta(ctx context.Context, delta inven
 			if !ok {
 				continue
 			}
+			root := qbittorrent.TorrentFileRoot(t, xs)
 			for _, x := range xs {
-				p := filepath.Clean(filepath.Join(qbittorrent.TorrentFileRoot(t), filepath.FromSlash(x.Name)))
+				p := filepath.Clean(filepath.Join(root, filepath.FromSlash(x.Name)))
 				replacementTorrentRefs = append(replacementTorrentRefs, model.TorrentFileRef{
 					ServiceID: svc.ID, ServiceName: svc.Name,
 					Client: t.Client, Hash: hash, FileIndex: x.Index, Path: p,

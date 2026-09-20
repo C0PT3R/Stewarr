@@ -30,20 +30,41 @@ func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {
 func TestTorrentFileRoot(t *testing.T) {
 	// Still downloading with a separate incomplete-downloads path
 	// configured: the real files sit under ContentPath's parent, not
-	// SavePath (the eventual final destination once complete).
+	// SavePath (the eventual final destination once complete). Multi-file,
+	// so ContentPath is the shared folder itself.
 	incomplete := model.Torrent{SavePath: "/data/complete", ContentPath: "/data/incomplete/Movie"}
-	if got := TorrentFileRoot(incomplete); got != "/data/incomplete" {
+	incompleteFiles := []File{{Name: "Movie/file1.mkv"}, {Name: "Movie/file2.nfo"}}
+	if got := TorrentFileRoot(incomplete, incompleteFiles); got != "/data/incomplete" {
 		t.Fatalf("expected ContentPath's parent for an incomplete download, got %q", got)
 	}
-	// Complete, or single-file torrent where ContentPath already agrees
-	// with SavePath: either source gives the same answer.
+	// Complete, multi-file torrent where ContentPath already agrees with
+	// SavePath: either source gives the same answer.
 	complete := model.Torrent{SavePath: "/data/complete", ContentPath: "/data/complete/Movie"}
-	if got := TorrentFileRoot(complete); got != "/data/complete" {
+	completeFiles := []File{{Name: "Movie/file1.mkv"}, {Name: "Movie/file2.nfo"}}
+	if got := TorrentFileRoot(complete, completeFiles); got != "/data/complete" {
 		t.Fatalf("expected SavePath-equivalent when ContentPath agrees, got %q", got)
+	}
+	// Single file wrapped in an auto-created root folder: qBittorrent
+	// reports ContentPath as the path to the one file itself, not the
+	// folder, so Dir(ContentPath) alone would land one level too deep.
+	// /torrents/files still reports the file's Name relative to the true
+	// root (root-folder-prefixed), so it should be used to recover the
+	// correct root instead.
+	singleFileRootFolder := model.Torrent{SavePath: "/data/downloads/complete", ContentPath: "/data/downloads/complete/Movie/Movie.mkv"}
+	singleFileRootFolderFiles := []File{{Name: "Movie/Movie.mkv"}}
+	if got := TorrentFileRoot(singleFileRootFolder, singleFileRootFolderFiles); got != "/data/downloads/complete" {
+		t.Fatalf("expected save-path-equivalent root recovered from ContentPath+Name, got %q", got)
+	}
+	// Single file with no root folder at all: ContentPath is the file
+	// directly under SavePath, Name has no subfolder prefix.
+	singleFileNoFolder := model.Torrent{SavePath: "/data/complete", ContentPath: "/data/complete/Movie.mkv"}
+	singleFileNoFolderFiles := []File{{Name: "Movie.mkv"}}
+	if got := TorrentFileRoot(singleFileNoFolder, singleFileNoFolderFiles); got != "/data/complete" {
+		t.Fatalf("expected SavePath-equivalent for a single file with no root folder, got %q", got)
 	}
 	// No ContentPath at all (stale/partial metadata) falls back to SavePath.
 	noContentPath := model.Torrent{SavePath: "/data/complete"}
-	if got := TorrentFileRoot(noContentPath); got != "/data/complete" {
+	if got := TorrentFileRoot(noContentPath, nil); got != "/data/complete" {
 		t.Fatalf("expected SavePath fallback when ContentPath is empty, got %q", got)
 	}
 }
@@ -78,6 +99,51 @@ func TestClaimedFilesUsesContentPathForIncompleteDownloads(t *testing.T) {
 	}
 	if len(roots) != 1 || roots[0] != "/data/incomplete" {
 		t.Fatalf("expected the incomplete-downloads directory reported as the root, got %#v", roots)
+	}
+}
+
+// TestClaimedFilesUsesRootFolderForSingleFileTorrents guards a second real
+// bug in the same area: a completed, single-file torrent wrapped in an
+// auto-created root folder (qBittorrent's default "content layout")
+// reports ContentPath as the path to that one file, not the folder around
+// it. filepath.Dir(ContentPath) alone would land inside the root folder,
+// and since /torrents/files still reports the file's Name prefixed with
+// that same root folder, a naive join doubled the folder segment and
+// never matched the real on-disk path — silently misclassifying a
+// perfectly normal, fully-downloaded torrent's file as Unmanaged.
+func TestClaimedFilesUsesRootFolderForSingleFileTorrents(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/torrents/files" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]any{map[string]any{
+			"index": 0,
+			"name":  "Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG.mkv",
+			"size":  3538958044,
+		}})
+	}))
+	defer srv.Close()
+	client := New("qBittorrent", srv.URL, "", "", "token")
+	claimed, roots, err := client.ClaimedFiles(map[string]model.Torrent{
+		"abc": {
+			Hash:        "abc",
+			SavePath:    "/data/downloads/complete",
+			ContentPath: "/data/downloads/complete/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG.mkv",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/data/downloads/complete/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG.mkv"
+	if !claimed[want] {
+		t.Fatalf("expected the real on-disk path to be claimed, got %#v", claimed)
+	}
+	doubled := "/data/downloads/complete/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG/Swiped.2025.MULTI.VFF.1080p.WEB.EAC3.5.1.H265-NOTAG.mkv"
+	if claimed[doubled] {
+		t.Fatalf("root folder segment was doubled: %#v", claimed)
+	}
+	if len(roots) != 1 || roots[0] != "/data/downloads/complete" {
+		t.Fatalf("expected the save path recovered as the root, got %#v", roots)
 	}
 }
 

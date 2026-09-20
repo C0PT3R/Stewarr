@@ -424,24 +424,51 @@ type File struct {
 	Progress float64 `json:"progress"`
 }
 
-// torrentFileRoot returns the base directory a torrent's file names (as
-// reported by /torrents/files) should be joined against. ContentPath's
-// parent, not SavePath, since ContentPath reflects where the content
-// actually currently lives — the incomplete-downloads temp path while a
-// torrent is still downloading (when that's configured separately from
-// SavePath), SavePath itself once complete — while SavePath alone is
-// always the torrent's final destination regardless of its current state.
-// Using SavePath unconditionally meant a still-downloading torrent's real
-// files, sitting under the temp path, never matched the reconstructed
-// path — silently misclassifying live, in-progress download data as
-// Unmanaged (and, worse, letting VerifyUnmanaged's ownership check miss
-// it too). Falls back to SavePath when ContentPath hasn't been populated
-// yet (e.g. stale/partial torrent metadata).
-func TorrentFileRoot(t model.Torrent) string {
-	if cp := strings.TrimSpace(t.ContentPath); cp != "" {
-		return filepath.Dir(cp)
+// TorrentFileRoot returns the base directory a torrent's file names (as
+// reported by /torrents/files) should be joined against. ContentPath is
+// preferred over SavePath since it reflects where the content actually
+// currently lives — the incomplete-downloads temp path while a torrent is
+// still downloading (when that's configured separately from SavePath),
+// SavePath itself once complete — while SavePath alone is always the
+// torrent's final destination regardless of its current state. Using
+// SavePath unconditionally meant a still-downloading torrent's real files,
+// sitting under the temp path, never matched the reconstructed path —
+// silently misclassifying live, in-progress download data as Unmanaged
+// (and, worse, letting VerifyUnmanaged's ownership check miss it too).
+//
+// ContentPath is not reliably "the containing folder", though: for a
+// torrent with a single file wrapped in an auto-created root folder,
+// qBittorrent reports ContentPath as the path to that one file, not the
+// folder — so naively taking filepath.Dir(ContentPath) lands one level too
+// deep (inside the root folder), and since /torrents/files still reports
+// that file's Name relative to the true root (root-folder-prefixed), a
+// blind Dir()+Join() doubles the root folder segment and never matches the
+// real path on disk. When one of the torrent's own reported file names is
+// a suffix of ContentPath, stripping that suffix off recovers the true
+// root directly and sidesteps the ambiguity; otherwise (typically
+// multi-file torrents, where ContentPath is genuinely the shared folder)
+// Dir(ContentPath) remains correct. Falls back to SavePath when
+// ContentPath hasn't been populated yet (e.g. stale/partial torrent
+// metadata).
+func TorrentFileRoot(t model.Torrent, files []File) string {
+	cp := strings.TrimSpace(t.ContentPath)
+	if cp == "" {
+		return strings.TrimSpace(t.SavePath)
 	}
-	return strings.TrimSpace(t.SavePath)
+	cp = filepath.Clean(cp)
+	for _, f := range files {
+		name := filepath.FromSlash(strings.TrimSpace(f.Name))
+		if name == "" {
+			continue
+		}
+		if root := strings.TrimSuffix(cp, name); root != cp {
+			root = strings.TrimRight(root, string(filepath.Separator))
+			if root != "" {
+				return root
+			}
+		}
+	}
+	return filepath.Dir(cp)
 }
 
 // ClaimedFiles returns the exact filesystem paths claimed by all current
@@ -487,7 +514,7 @@ func (client *Client) ClaimedFiles(torrents map[string]model.Torrent) (map[strin
 					results <- result{err: fmt.Errorf("%s: %w", j.hash, err)}
 					continue
 				}
-				root := TorrentFileRoot(j.t)
+				root := TorrentFileRoot(j.t, fs)
 				ps := make([]string, 0, len(fs))
 				for _, f := range fs {
 					if strings.TrimSpace(f.Name) != "" {
