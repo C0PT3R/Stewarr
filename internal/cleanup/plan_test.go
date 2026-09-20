@@ -410,7 +410,7 @@ func TestBuildSortsTorrentTierAscendingByTorrentValue(t *testing.T) {
 	wantOrder := []string{"low", "mid", "high"}
 	for i, hash := range wantOrder {
 		if p.Actions[i].Torrents[0].Hash != hash {
-			t.Fatalf("expected ascending Swarm Value order %v, got %#v", wantOrder, p.Actions)
+			t.Fatalf("expected ascending Torrent Value order %v, got %#v", wantOrder, p.Actions)
 		}
 	}
 }

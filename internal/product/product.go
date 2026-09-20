@@ -5,5 +5,5 @@ package product
 const (
 	Name    = "Stewarr"
 	Slug    = "stewarr"
-	Version = "0.4.8"
+	Version = "0.5.0"
 )

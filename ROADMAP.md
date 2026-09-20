@@ -1,8 +1,8 @@
 # Stewarr Roadmap
 
-This file separates implemented behavior from intended direction. It is not a promise of release dates.
+This file separates implemented behavior from intended direction. It is not a promise of release dates. See `CHANGELOG.md` for a curated, version-by-version release history — the section below predates that file and was never fully kept in sync with it version-by-version as new releases shipped; entries here describe design intent and the state of the product at the time they were written, not necessarily the current terminology (e.g. "Swarm Value" below was Torrent Value's name at the time).
 
-## Implemented through 0.2.12
+## Implemented through 0.4.8
 
 ### Reactive UI state
 

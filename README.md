@@ -48,7 +48,9 @@ services:
 
 ### Retention Value
 
-A retention score for library media — higher means more valuable to keep when storage becomes scarce. It factors in rating, watch activity, library age, request state, popularity, favorites/keep tags, and torrent health (only when a torrent is proven to still back that media via a hardlink). It's deliberately separate from file size: how much space something *takes* and how much it's *worth keeping* are different questions.
+A retention score for library media — higher means more valuable to keep when storage becomes scarce. It factors in rating, watch activity, library age, request state, popularity, favorites/keep tags, and torrent activity (only when a torrent is proven to still back that media via a hardlink). It's deliberately separate from file size: how much space something *takes* and how much it's *worth keeping* are different questions.
+
+Torrents have their own independent **Torrent Value** — ratio, realized contribution over time, consistency, seeding time, and private-tracker status, all derivable from any torrent-client adapter, not just qBittorrent. It's never compared directly against Retention Value; a single `torrent_care_percent` setting scales one onto the other's scale when both are candidates for the same device's cleanup.
 
 ### Torrent provenance
 
@@ -65,7 +67,9 @@ Every removal — media, torrent, or unmanaged file — is first turned into a p
 
 ### Storage and devices
 
-There's no single configured storage path. Stewarr derives storage devices from the roots each service already reports (Radarr/Sonarr root folders, qBittorrent save paths), grouping roots that resolve to the same physical device. Each device gets independent Target/Critical usage thresholds (defaulting to 90%/95%) — see [`config.example.json`](config.example.json).
+There's no single configured storage path. Stewarr derives storage devices from the roots each service already reports (Radarr/Sonarr root folders, qBittorrent save paths), grouping roots that resolve to the same physical device. Each device gets an independent Target usage threshold (defaulting to 90%) and can be opted out of automatic removal entirely, regardless of what's on it — see [`config.example.json`](config.example.json).
+
+Usage is measured against a device's *usable* capacity, not its raw size: space held by something outside Stewarr's own view (another service sharing the disk, or the filesystem's own reserved-for-root blocks) is shown as its own line item and set aside, so a target of 90% means 90% of what Stewarr actually has to work with.
 
 ## Docker
 

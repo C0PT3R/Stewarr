@@ -72,6 +72,10 @@
   "removal": {
     "dry_run": true,
     "auto_mode": "disabled",
-    "torrent_care_percent": 50
+    "auto_remove_unassociated_torrents": false,
+    "torrent_care_percent": 50,
+    "auto_unmonitor": false,
+    "auto_exclude_from_import_lists": false,
+    "auto_remove_incomplete_torrents": false
   }
 }

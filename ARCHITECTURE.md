@@ -42,10 +42,10 @@ A Library-media retention score. Higher means a stronger claim to remain. Retent
 Protection is an eligibility fact, not a very large Retention Value. Keep tags, configured Jellyfin favorites and recent Seerr requests are absolute protection states and are excluded from automatic candidates regardless of storage pressure.
 
 ### Torrent
-A download/share representation managed by a torrent client. Torrent Swarm Value is conceptually separate from media Retention Value.
+A download/share representation managed by a torrent client. Torrent Value is conceptually separate from media Retention Value.
 
-### Swarm Value
-An independent, explainable retention score derived from current swarm facts. It is not inherited from media Retention Value and does not include storage cost.
+### Torrent Value
+An independent, explainable retention score derived from a torrent's own history — ratio, realized contribution over time, consistency, seeding time, and private-tracker status. Entirely client-agnostic: every signal is derivable from any torrent-client adapter, not just qBittorrent. It is not inherited from media Retention Value and does not include storage cost.
 
 ### Provenance
 Historical relationships between downloads/torrents and managed media. Preserve history even after a release is replaced or its media disappears; former association is historical context, not a current torrent state.
@@ -180,11 +180,24 @@ usage <= target  → no reclamation required
 usage > target   → reclaim only enough to return <= target
 ```
 
+Target is per storage device, not global. "Usage" is evaluated against a
+device's *usable* capacity — total capacity minus whatever real disk usage
+Stewarr cannot attribute to itself (`OtherBytes`: other services on a shared
+pool, plus the filesystem's own reserved-for-root blocks, shown as a
+distinct, honest line item rather than folded into one ambiguous bucket) —
+not the raw disk total. A target of 90% means 90% of what Stewarr actually
+has to work with, not 90% of a disk another service already holds a share
+of.
+
+A device can also be opted out of automatic removal entirely (independent of
+the per-service `AllowAutomaticRemoval` opt-in), for a device that should
+never be touched regardless of what's on it.
+
 Critical is independent of reclamation Target. It is reserved for a future
 emergency state such as alerting, stopping new downloads or temporarily
-inhibiting acquisition. It never gates ordinary reclamation planning.
-
-Targets should eventually be per storage device.
+inhibiting acquisition. It never gates ordinary reclamation planning, and is
+not currently shown anywhere in the UI — the underlying config value still
+exists (unused) for when that future state is built.
 
 ## Planner direction
 
@@ -195,11 +208,13 @@ Possible reclamation sources include:
 - redundant/duplicated storage;
 - superseded torrent data;
 - unassociated torrent data with former provenance;
-- low-Swarm-Value torrents;
+- low-Torrent-Value torrents;
 - lower-cost media representations/quality changes (future);
 - low-Retention-Value Library media.
 
-Every Torrent-domain source above is tried before any Library-media source on the same device: Retention Value and Swarm Value are deliberately unrelated scores and are never compared numerically, so domain order is a hard rule rather than something a formula decides. Within a domain, ranking by ascending Value is not necessarily a rigid priority list forever — a valuable active superseded torrent may be worth retaining when capacity permits — but which domain is tried first is fixed.
+Torrent Value and Retention Value are never compared directly — a single `torrent_care_percent` dial (50 by default) scales Torrent Value onto Retention Value's scale before the two are ranked together as one unified, ascending-value list per device. Below 50 makes torrents relatively less worth keeping than media at the same dial position; above 50, more. This is the only place the two domains are ever compared numerically, and it's deliberately one dial rather than exposing how either domain's own value is computed.
+
+Within the media side of that ranking, a device's overage is not simply satisfied by whichever media items score lowest overall: it's first measured in aggregate via the unified ranking above (deciding how much comes from torrents vs. media in total, unchanged), then redistributed across each media action's owning service proportional to that service's current footprint on the device. Series consistently outscoring movies in Retention Value — real differential engagement, not a scoring defect — would otherwise mean a device shared between a Movies and a Series library structurally sheds movies first regardless of each library's actual size on that device. The mechanism generalizes past just movies vs. series: any two media services sharing a device (two Radarr instances, a "Movies" and "Movies 4K" root) get the same proportional treatment.
 
 The long-term optimization question is:
 
