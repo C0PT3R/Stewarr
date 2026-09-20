@@ -77,6 +77,18 @@ type RemovalConfig struct {
 	// user-facing dial in torrent valuation — how the torrent's own value
 	// is computed is entirely hardcoded, not user-configurable.
 	TorrentCarePercent float64 `json:"torrent_care_percent"`
+	// AutoUnmonitor and AutoExcludeFromImportLists control the same two
+	// post-removal follow-ups the manual removal overlay already offers as
+	// checkboxes (unmonitor_movies/unmonitor_episodes, exclude_movies/
+	// exclude_series) — but for automatic removal specifically, which had
+	// no way to opt into either at all: submitAutoRemoval built its form
+	// without ever setting these fields, so an automatic removal always
+	// silently skipped both regardless of what a human would have chosen
+	// manually. Both default to false — an automatic removal doing more
+	// than deleting the file it already decided on is a bigger action than
+	// the auto-removal gate alone should imply.
+	AutoUnmonitor              bool `json:"auto_unmonitor"`
+	AutoExcludeFromImportLists bool `json:"auto_exclude_from_import_lists"`
 }
 
 type Service struct {
@@ -329,7 +341,7 @@ func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 // autoRemoveUnassociated are meaningless for an item whose own service
 // hasn't checked "Allow automatic removal" (see Media.RemovalRestricted);
 // dryRun applies to every removal, manual or automatic, not just this one.
-func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64) (Config, error) {
+func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64, autoUnmonitor, autoExcludeFromImportLists bool) (Config, error) {
 	switch autoMode {
 	case RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto:
 	default:
@@ -343,6 +355,8 @@ func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassoc
 	updated.Removal.AutoRemoveUnassociatedTorrents = autoRemoveUnassociated
 	updated.Removal.DryRun = dryRun
 	updated.Removal.TorrentCarePercent = torrentCarePercent
+	updated.Removal.AutoUnmonitor = autoUnmonitor
+	updated.Removal.AutoExcludeFromImportLists = autoExcludeFromImportLists
 	return updated, nil
 }
 

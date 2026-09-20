@@ -23,6 +23,8 @@ type settingsPageData struct {
 	AutoRemoveUnassociatedTorrents bool
 	DryRun                         bool
 	TorrentCarePercent             float64
+	AutoUnmonitor                  bool
+	AutoExcludeFromImportLists     bool
 }
 
 func (server *Server) settingsData() settingsPageData {
@@ -38,6 +40,8 @@ func (server *Server) settingsData() settingsPageData {
 		AutoRemoveUnassociatedTorrents: cfg.Removal.AutoRemoveUnassociatedTorrents,
 		DryRun:                         cfg.Removal.DryRun,
 		TorrentCarePercent:             cfg.Removal.TorrentCarePercent,
+		AutoUnmonitor:                  cfg.Removal.AutoUnmonitor,
+		AutoExcludeFromImportLists:     cfg.Removal.AutoExcludeFromImportLists,
 	}
 }
 
@@ -130,6 +134,8 @@ func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request)
 	autoMode := r.FormValue("auto_mode")
 	autoRemoveUnassociated := r.FormValue("auto_remove_unassociated_torrents") == "on"
 	dryRun := r.FormValue("dry_run") == "on"
+	autoUnmonitor := r.FormValue("auto_unmonitor") == "on"
+	autoExcludeFromImportLists := r.FormValue("auto_exclude_from_import_lists") == "on"
 	data := server.settingsData()
 	// Unlike the checkboxes above (an absent field unambiguously means
 	// off), an absent or empty torrent_care_percent has no such natural
@@ -146,7 +152,7 @@ func (server *Server) setRemovalSettings(w http.ResponseWriter, r *http.Request)
 		}
 		torrentCarePercent = parsed
 	}
-	if err := server.inv.SetRemovalSettings(autoMode, autoRemoveUnassociated, dryRun, torrentCarePercent); err != nil {
+	if err := server.inv.SetRemovalSettings(autoMode, autoRemoveUnassociated, dryRun, torrentCarePercent, autoUnmonitor, autoExcludeFromImportLists); err != nil {
 		data.RemovalError = err.Error()
 		_ = renderTemplate(w, server.settingsTpl, data)
 		return
