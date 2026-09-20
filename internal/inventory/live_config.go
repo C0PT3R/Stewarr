@@ -294,7 +294,7 @@ func (service *Service) SetTMDBAPIKey(apiKey string) error {
 // check or an in-memory side effect beyond swapping the config: unlike
 // TMDB, these flags only change what the next scheduled evaluation or
 // removal submission does, never anything already published.
-func (service *Service) SetRemovalSettings(autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64, autoUnmonitor, autoExcludeFromImportLists bool) error {
+func (service *Service) SetRemovalSettings(autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64, autoUnmonitor, autoExcludeFromImportLists, autoRemoveIncomplete bool) error {
 	service.configMu.Lock()
 	defer service.configMu.Unlock()
 
@@ -306,7 +306,7 @@ func (service *Service) SetRemovalSettings(autoMode string, autoRemoveUnassociat
 	currentCfg := service.cfg
 	service.mu.RUnlock()
 
-	updatedCfg, err := config.SetRemovalSettings(currentCfg, autoMode, autoRemoveUnassociated, dryRun, torrentCarePercent, autoUnmonitor, autoExcludeFromImportLists)
+	updatedCfg, err := config.SetRemovalSettings(currentCfg, autoMode, autoRemoveUnassociated, dryRun, torrentCarePercent, autoUnmonitor, autoExcludeFromImportLists, autoRemoveIncomplete)
 	if err != nil {
 		return err
 	}

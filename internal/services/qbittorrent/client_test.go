@@ -27,6 +27,60 @@ func TestVerifyPathsUnmanagedUsesFreshContentPath(t *testing.T) {
 	}
 }
 
+func TestTorrentFileRoot(t *testing.T) {
+	// Still downloading with a separate incomplete-downloads path
+	// configured: the real files sit under ContentPath's parent, not
+	// SavePath (the eventual final destination once complete).
+	incomplete := model.Torrent{SavePath: "/data/complete", ContentPath: "/data/incomplete/Movie"}
+	if got := TorrentFileRoot(incomplete); got != "/data/incomplete" {
+		t.Fatalf("expected ContentPath's parent for an incomplete download, got %q", got)
+	}
+	// Complete, or single-file torrent where ContentPath already agrees
+	// with SavePath: either source gives the same answer.
+	complete := model.Torrent{SavePath: "/data/complete", ContentPath: "/data/complete/Movie"}
+	if got := TorrentFileRoot(complete); got != "/data/complete" {
+		t.Fatalf("expected SavePath-equivalent when ContentPath agrees, got %q", got)
+	}
+	// No ContentPath at all (stale/partial metadata) falls back to SavePath.
+	noContentPath := model.Torrent{SavePath: "/data/complete"}
+	if got := TorrentFileRoot(noContentPath); got != "/data/complete" {
+		t.Fatalf("expected SavePath fallback when ContentPath is empty, got %q", got)
+	}
+}
+
+// TestClaimedFilesUsesContentPathForIncompleteDownloads guards the actual
+// bug: a torrent still downloading into a separate incomplete-downloads
+// directory has its real files there, not under SavePath — using SavePath
+// unconditionally meant those real, in-progress files never matched the
+// reconstructed claim path, so Stewarr silently treated live download data
+// as Unmanaged (and VerifyPathsUnmanaged's ownership safety check missed
+// it too).
+func TestClaimedFilesUsesContentPathForIncompleteDownloads(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/torrents/files" {
+			t.Fatalf("unexpected request: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode([]any{map[string]any{"index": 0, "name": "Movie/file.mkv", "size": 123}})
+	}))
+	defer srv.Close()
+	client := New("qBittorrent", srv.URL, "", "", "token")
+	claimed, roots, err := client.ClaimedFiles(map[string]model.Torrent{
+		"abc": {Hash: "abc", SavePath: "/data/complete", ContentPath: "/data/incomplete/Movie"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claimed["/data/incomplete/Movie/file.mkv"] {
+		t.Fatalf("expected the file's real (incomplete-download) path to be claimed, got %#v", claimed)
+	}
+	if claimed["/data/complete/Movie/file.mkv"] {
+		t.Fatalf("expected the never-reached final SavePath not to be claimed, got %#v", claimed)
+	}
+	if len(roots) != 1 || roots[0] != "/data/incomplete" {
+		t.Fatalf("expected the incomplete-downloads directory reported as the root, got %#v", roots)
+	}
+}
+
 // TestValidateAcceptsA204LoginResponseWithSIDCookie guards a real
 // production failure: some qBittorrent deployments respond to a successful
 // /api/v2/auth/login with 204 and an empty body instead of the documented

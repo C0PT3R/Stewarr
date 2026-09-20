@@ -424,6 +424,26 @@ type File struct {
 	Progress float64 `json:"progress"`
 }
 
+// torrentFileRoot returns the base directory a torrent's file names (as
+// reported by /torrents/files) should be joined against. ContentPath's
+// parent, not SavePath, since ContentPath reflects where the content
+// actually currently lives — the incomplete-downloads temp path while a
+// torrent is still downloading (when that's configured separately from
+// SavePath), SavePath itself once complete — while SavePath alone is
+// always the torrent's final destination regardless of its current state.
+// Using SavePath unconditionally meant a still-downloading torrent's real
+// files, sitting under the temp path, never matched the reconstructed
+// path — silently misclassifying live, in-progress download data as
+// Unmanaged (and, worse, letting VerifyUnmanaged's ownership check miss
+// it too). Falls back to SavePath when ContentPath hasn't been populated
+// yet (e.g. stale/partial torrent metadata).
+func TorrentFileRoot(t model.Torrent) string {
+	if cp := strings.TrimSpace(t.ContentPath); cp != "" {
+		return filepath.Dir(cp)
+	}
+	return strings.TrimSpace(t.SavePath)
+}
+
 // ClaimedFiles returns the exact filesystem paths claimed by all current
 // torrents plus the distinct save roots that should be checked for leftovers.
 // It fails closed: if any torrent file list cannot be retrieved, no result is
@@ -467,7 +487,7 @@ func (client *Client) ClaimedFiles(torrents map[string]model.Torrent) (map[strin
 					results <- result{err: fmt.Errorf("%s: %w", j.hash, err)}
 					continue
 				}
-				root := strings.TrimSpace(j.t.SavePath)
+				root := TorrentFileRoot(j.t)
 				ps := make([]string, 0, len(fs))
 				for _, f := range fs {
 					if strings.TrimSpace(f.Name) != "" {

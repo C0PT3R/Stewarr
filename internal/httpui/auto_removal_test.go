@@ -90,6 +90,35 @@ func TestActionIsUnassociatedTorrentTreatsFormerRelationshipAsKnown(t *testing.T
 	}
 }
 
+func TestActionIsIncompleteTorrent(t *testing.T) {
+	cases := []struct {
+		name   string
+		action cleanup.Action
+		want   bool
+	}{
+		{
+			name:   "incomplete, bytes still left to download",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AmountLeftBytes: 100}}},
+			want:   true,
+		},
+		{
+			name:   "complete, nothing left to download",
+			action: cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{AmountLeftBytes: 0}}},
+			want:   false,
+		},
+		{
+			name:   "not a torrent action at all",
+			action: cleanup.Action{Kind: cleanup.StandaloneMedia, Media: model.Media{}},
+			want:   false,
+		},
+	}
+	for _, tc := range cases {
+		if got := actionIsIncompleteTorrent(tc.action); got != tc.want {
+			t.Errorf("%s: actionIsIncompleteTorrent = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestRunAutoRemovalEvaluationNoOpsWhenGloballyDisabled(t *testing.T) {
 	for _, mode := range []string{config.RemovalAutoDisabled, "", "bogus-value"} {
 		server := &Server{inv: inventory.New(config.Config{Removal: config.RemovalConfig{AutoMode: mode}}, nil)}

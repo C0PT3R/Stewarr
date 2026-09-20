@@ -76,6 +76,9 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 			if actionIsUnassociatedTorrent(action) && !cfg.Removal.AutoRemoveUnassociatedTorrents {
 				continue
 			}
+			if actionIsIncompleteTorrent(action) && !cfg.Removal.AutoRemoveIncompleteTorrents {
+				continue
+			}
 			if mediaTMDBDataStale(action, tmdbConfigured) {
 				continue
 			}
@@ -124,6 +127,19 @@ func actionIsUnassociatedTorrent(action cleanup.Action) bool {
 		return false
 	}
 	return model.NormalizeTorrentStatus(action.Torrents[0].AssociationStatus) == model.TorrentUnassociated
+}
+
+// actionIsIncompleteTorrent reports whether action is a StandaloneTorrent
+// candidate that hasn't finished downloading yet. This only controls
+// whether such a torrent can be an automatic-removal candidate at all —
+// whether it's actually selected still depends on it scoring low on
+// Torrent Value, which an actively downloading torrent won't, since its
+// Recent activity already reflects that.
+func actionIsIncompleteTorrent(action cleanup.Action) bool {
+	if action.Kind != cleanup.StandaloneTorrent || len(action.Torrents) == 0 {
+		return false
+	}
+	return action.Torrents[0].AmountLeftBytes > 0
 }
 
 // mediaTMDBDataStale reports whether action's media has gone too long

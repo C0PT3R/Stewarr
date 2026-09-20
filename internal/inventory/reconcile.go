@@ -573,7 +573,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 				continue
 			}
 			for _, x := range xs {
-				p := filepath.Clean(filepath.Join(t.SavePath, filepath.FromSlash(x.Name)))
+				p := filepath.Clean(filepath.Join(qbittorrent.TorrentFileRoot(t), filepath.FromSlash(x.Name)))
 				torrentRefs = append(torrentRefs, model.TorrentFileRef{ServiceID: qf.svc.ID, ServiceName: qf.svc.Name, Client: t.Client, Hash: h, FileIndex: x.Index, Path: p})
 				if byPath[p] {
 					claimed[p] = true

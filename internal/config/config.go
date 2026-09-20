@@ -89,6 +89,15 @@ type RemovalConfig struct {
 	// the auto-removal gate alone should imply.
 	AutoUnmonitor              bool `json:"auto_unmonitor"`
 	AutoExcludeFromImportLists bool `json:"auto_exclude_from_import_lists"`
+	// AutoRemoveIncompleteTorrents gates automatic removal of a torrent that
+	// hasn't finished downloading (AmountLeftBytes > 0). Defaults to false:
+	// this only controls whether an incomplete torrent can be a candidate
+	// at all — whether it's actually picked still depends on it scoring
+	// low on Torrent Value, which an active download won't, since Recent
+	// activity already reflects it. Manual removal is never gated by this;
+	// a human looking at the Torrents page can already decide for
+	// themselves. Same shape as AutoRemoveUnassociatedTorrents.
+	AutoRemoveIncompleteTorrents bool `json:"auto_remove_incomplete_torrents"`
 }
 
 type Service struct {
@@ -341,7 +350,7 @@ func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 // autoRemoveUnassociated are meaningless for an item whose own service
 // hasn't checked "Allow automatic removal" (see Media.RemovalRestricted);
 // dryRun applies to every removal, manual or automatic, not just this one.
-func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64, autoUnmonitor, autoExcludeFromImportLists bool) (Config, error) {
+func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassociated, dryRun bool, torrentCarePercent float64, autoUnmonitor, autoExcludeFromImportLists, autoRemoveIncomplete bool) (Config, error) {
 	switch autoMode {
 	case RemovalAutoDisabled, RemovalAutoConfirm, RemovalAutoAuto:
 	default:
@@ -357,6 +366,7 @@ func SetRemovalSettings(configuration Config, autoMode string, autoRemoveUnassoc
 	updated.Removal.TorrentCarePercent = torrentCarePercent
 	updated.Removal.AutoUnmonitor = autoUnmonitor
 	updated.Removal.AutoExcludeFromImportLists = autoExcludeFromImportLists
+	updated.Removal.AutoRemoveIncompleteTorrents = autoRemoveIncomplete
 	return updated, nil
 }
 
