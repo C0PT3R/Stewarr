@@ -201,12 +201,11 @@ func TestDeviceSettingsTemplateShowsWholeDeviceIdentityNotJustOnePath(t *testing
 		t.Fatal(err)
 	}
 	data := deviceSettingsData{
-		RepresentativePath:   "/data/movies",
-		RootLabels:           []string{"downloads", "movies"},
-		Filesystem:           "ext4",
-		Name:                 "Media Drive",
-		TargetUsagePercent:   80,
-		CriticalUsagePercent: 95,
+		RepresentativePath: "/data/movies",
+		RootLabels:         []string{"downloads", "movies"},
+		Filesystem:         "ext4",
+		Name:               "Media Drive",
+		TargetUsagePercent: 80,
 	}
 	recorder := httptest.NewRecorder()
 	if err := renderTemplate(recorder, server.deviceSettingsTpl, data); err != nil {
@@ -222,10 +221,10 @@ func TestDeviceSettingsTemplateShowsWholeDeviceIdentityNotJustOnePath(t *testing
 
 // TestDeviceSettingsTemplateHidesThresholdsWhenAutomaticRemovalDisabled
 // guards the actual point of the "Enable on this device" checkbox: the
-// Target/Critical fields are meaningless once nothing evaluates them for
-// this device, so they must start hidden (not just hide after a JS change
-// event) when the saved state is already disabled, and visible again when
-// enabled — the checkbox itself must reflect the saved state either way.
+// Target field is meaningless once nothing evaluates it for this device,
+// so it must start hidden (not just hide after a JS change event) when the
+// saved state is already disabled, and visible again when enabled — the
+// checkbox itself must reflect the saved state either way.
 func TestDeviceSettingsTemplateHidesThresholdsWhenAutomaticRemovalDisabled(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
@@ -239,7 +238,7 @@ func TestDeviceSettingsTemplateHidesThresholdsWhenAutomaticRemovalDisabled(t *te
 		{"disabled", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			data := deviceSettingsData{RepresentativePath: "/data/movies", TargetUsagePercent: 80, CriticalUsagePercent: 95, AutomaticRemovalEnabled: tc.enabled}
+			data := deviceSettingsData{RepresentativePath: "/data/movies", TargetUsagePercent: 80, AutomaticRemovalEnabled: tc.enabled}
 			recorder := httptest.NewRecorder()
 			if err := renderTemplate(recorder, server.deviceSettingsTpl, data); err != nil {
 				t.Fatalf("render device-settings template: %v", err)
@@ -416,10 +415,16 @@ func TestDeviceSettingsFormRendersCurrentThresholds(t *testing.T) {
 		t.Fatalf("expected 200, got status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"/data/movies", `value="70"`, `value="85"`, `value="Media Drive"`} {
+	for _, want := range []string{"/data/movies", `value="70"`, `value="Media Drive"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("expected device-settings overlay to contain %q, got:\n%s", want, body)
 		}
+	}
+	// Critical isn't shown in the UI at all anymore (see
+	// TestSetDeviceThresholdPersistsFromStoragePage for the config-layer
+	// value it still preserves under the hood).
+	if strings.Contains(body, "85") {
+		t.Fatalf("expected no trace of the critical threshold in the rendered overlay, got:\n%s", body)
 	}
 }
 
@@ -452,7 +457,7 @@ func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
 	// field came back empty and every save failed with "target_usage_percent
 	// must be a number" even though the form was filled in correctly.
 	devicePath := "/data/movies"
-	body, contentType := multipartServiceForm(t, map[string]string{"representative_path": devicePath, "name": "Media Drive", "target_usage_percent": "80", "critical_usage_percent": "88"})
+	body, contentType := multipartServiceForm(t, map[string]string{"representative_path": devicePath, "name": "Media Drive", "target_usage_percent": "80"})
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/storage/device-threshold", body)
 	request.Header.Set("Content-Type", contentType)
@@ -465,9 +470,15 @@ func TestSetDeviceThresholdPersistsFromStoragePage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Critical isn't on this form anymore — the handler must preserve
+	// whatever was already configured (the default, since this config
+	// started with no device_thresholds entry at all) rather than reset it.
 	target, critical := reloaded.ThresholdsFor(devicePath)
-	if target != 80 || critical != 88 {
-		t.Fatalf("expected the submitted thresholds to be persisted for %s, got %v/%v", devicePath, target, critical)
+	if target != 80 {
+		t.Fatalf("expected the submitted target threshold to be persisted for %s, got %v", devicePath, target)
+	}
+	if critical != 95 {
+		t.Fatalf("expected the untouched critical threshold to keep its default for %s, got %v", devicePath, critical)
 	}
 	if got := reloaded.DeviceName(devicePath); got != "Media Drive" {
 		t.Fatalf("expected the submitted name to be persisted for %s, got %q", devicePath, got)

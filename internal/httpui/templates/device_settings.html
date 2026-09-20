@@ -15,7 +15,6 @@
           <label class="toggle"><input id="device-settings-enable" type="checkbox" name="enable_automatic_removal" data-automatic-removal-toggle {{if .AutomaticRemovalEnabled}}checked{{end}}> Enable on this device</label>
           <div class="field-row" data-threshold-field {{if not .AutomaticRemovalEnabled}}hidden{{end}}>
             <label for="device-settings-target">Target %<input id="device-settings-target" name="target_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .TargetUsagePercent}}"></label>
-            <label for="device-settings-critical">Critical %<input id="device-settings-critical" name="critical_usage_percent" type="number" min="1" max="99" step="1" value="{{printf "%.0f" .CriticalUsagePercent}}"></label>
           </div>
         </div>
         <p data-modal-error hidden class="bad"></p>

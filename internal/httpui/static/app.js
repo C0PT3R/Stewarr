@@ -3193,7 +3193,7 @@ Copyright © 2023 Basecamp, LLC
           const unexplainedOther = device.otherBytes > device.reservedBytes ? device.otherBytes - device.reservedBytes : 0;
           const reserved = device.reservedBytes > 0 ? ` \xB7 ${humanBytes(device.reservedBytes)} reserved by the filesystem` : "";
           const elsewhere = unexplainedOther > 0 ? ` \xB7 ${humanBytes(unexplainedOther)} used elsewhere on this ${humanBytes(device.totalBytes)} disk` : "";
-          summary.textContent = `${humanBytes(device.stewarrUsedBytes)} used of ${humanBytes(device.usableBytes)} usable (${device.usagePercentOfUsable.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%, critical ${device.criticalUsagePercent.toFixed(1)}%)${reserved}${elsewhere}`;
+          summary.textContent = `${humanBytes(device.stewarrUsedBytes)} used of ${humanBytes(device.usableBytes)} usable (${device.usagePercentOfUsable.toFixed(1)}%, target ${device.targetUsagePercent.toFixed(1)}%)${reserved}${elsewhere}`;
         }
       } catch (_) {
       }

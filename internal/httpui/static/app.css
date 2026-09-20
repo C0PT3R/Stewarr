@@ -887,9 +887,6 @@ td:has(> a > strong) > a {
 .storage-bar .threshold.target {
   background: rgba(255, 255, 255, 0.55);
 }
-.storage-bar .threshold.critical {
-  background: var(--bad);
-}
 .storage-legend {
   display: flex;
   flex-wrap: wrap;
