@@ -1015,25 +1015,15 @@ history for this torrent" query pattern the derived signals need.
 
 ## Near-term
 
-- **Priority: run without full filesystem access instead of failing closed
-  entirely.** Today, `walkStorageRoots` ([reconcile.go](internal/inventory/reconcile.go))
-  returns a hard error the moment a single configured root can't be stat'd,
-  and `reconcileFiles` aborts the *entire* reconciliation cycle on that
-  error — not just the filesystem-dependent parts. Since cleanup planning
-  requires the file model to be "reliable," that one failure currently
-  pauses Media/Torrent valuation and cleanup too, even though neither
-  actually depends on the filesystem. Needs: (1) decoupling the
-  filesystem-dependent stage (hardlink-bundle detection, Unmanaged
-  scanning, real disk usage) from the filesystem-independent one
-  (per-service valuation, standalone cleanup using each service's own
-  self-reported file sizes) so either can run without the other; (2) a
-  capabilities page — building on the existing `UnreachableServiceRoots`
-  ([storage_devices.go](internal/inventory/storage_devices.go)) groundwork
-  and `storagecapabilities.Inspect` — listing every discovered path, what
-  it currently unlocks, and what mounting it would add, so a reduced
-  configuration is discoverable and well-documented rather than a silent
-  gap. This is the top of Near-term, not a someday item — see Product
-  direction above.
+Nothing currently queued here — see Later below for candidates. (The item
+formerly here, running without full filesystem access instead of failing
+closed entirely, has shipped: `walkStorageRoots`
+([reconcile.go](internal/inventory/reconcile.go)) now skips an individual
+unreachable/unwalkable root instead of aborting the whole reconciliation
+cycle, and `StorageCapabilities`
+([storage_devices.go](internal/inventory/storage_devices.go)), surfaced on
+the Storage page, lists every reported root — reachable roots' real
+filesystem facts alongside unreachable ones' self-reported contents.)
 
 ## Later
 
