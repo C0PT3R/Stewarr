@@ -1069,33 +1069,25 @@ history for this torrent" query pattern the derived signals need.
   not be treated as an error case.
 - Cross-stack diagnostics, repair workflows, global search, and per-item
   timelines.
-- Movies and series must be separated, not just cross-normalized: series
-  consistently score higher in Retention Value than movies, and the cause
-  isn't a scoring defect — it's real differential engagement. A series is
-  built to hold attention over many episodes and a long run, so the
-  underlying signals (recency, completion, attachment) genuinely run
-  higher for series than for a single movie watched once. There is
-  nothing to fix in the formula itself; left uncorrected, that real bias
-  structurally favors series over movies on any device holding both. A
-  shared-scale normalization was considered but ruled out in favor of
-  real separation between the two.
-- Per-service-claim storage budgets are the likely mechanism for that
-  separation, and generalize past just movies vs. series: a device's
-  `Claimed` segments are already tracked per service (`ServiceRoots`
-  already knows which root paths belong to which service on that device),
-  so giving each service's own claim its own share of the device's
-  target/critical thresholds falls out of data Stewarr already has.
-  Movies-vs-series separation is then just the common case, since Radarr
-  and Sonarr are already distinct services — but the same mechanism also
-  walls off two Radarr instances (or a "Movies" and "Movies 4K" root) from
-  each other, which a type-only split would miss. `cleanup.Build` (or its
-  successor) would run once per (device, service) pair instead of once
-  per device, each evaluated only against its own share — nothing outside
-  a service's own claim could ever be selected to satisfy another
-  service's overage. Needs a concrete design — how each service's share of
-  a device's threshold gets sized (proportional to current footprint? an
-  explicit per-service setting?), and what happens when a service's own
-  usage already exceeds a newly-lowered share.
+- ~~Movies and series must be separated~~ — **done.** `cleanup.rank`/`Build`
+  now split media's share of a device's overage across each media action's
+  owning service (`Action.Media.ServiceName`) proportional to that
+  service's current claimed-bytes footprint on the device
+  (`fairMediaShare`), not by whichever items score lowest overall — series
+  consistently scoring higher in Retention Value than movies (real
+  differential engagement, not a scoring defect) no longer means movies
+  structurally absorb nearly all of a shared device's overage. This
+  generalizes past just movies vs. series for free, since it keys off
+  `ServiceName` — two Radarr instances (or a "Movies" and "Movies 4K" root)
+  sharing a device get the same fair split, which a type-only rule would
+  have missed. Torrents are explicitly excluded from this split — the
+  existing `torrentCarePercent` cross-domain comparison against media as a
+  whole is unchanged; a per-service fallback (no footprint data at all)
+  behaves exactly like the old unconstrained order, so nothing regresses
+  for a caller that hasn't wired `claimedByService` through. Still open:
+  this is footprint-proportional only — an explicit per-service override
+  (rather than always proportional) isn't built, and hasn't come up as
+  needed yet.
 - Quality-versus-storage-cost reasoning and upgrade/downgrade recommendations.
 - Webhook/event adapters where services expose useful reliable events.
 - A real Confirm-mode review surface: Confirm (0.4.1) currently just
