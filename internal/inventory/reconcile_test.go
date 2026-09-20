@@ -2,6 +2,9 @@ package inventory
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"stewarr/internal/config"
@@ -97,9 +100,44 @@ func TestWalkRootsReportsPhysicalSizeNotApparentSizeForSparseFiles(t *testing.T)
 	}
 }
 
-func TestWalkRootsFailsClosedOnMissingRoot(t *testing.T) {
-	if _, err := walkRoots([]string{filepath.Join(t.TempDir(), "missing")}); err == nil {
-		t.Fatal("expected missing root to fail reconciliation")
+// TestWalkRootsSkipsMissingRootAndContinues guards the "graceful
+// degradation" fix: a single unreachable root (a missing/mismatched Docker
+// volume mount, almost always) must not abort the whole walk — every other
+// configured root's files should still come back normally, so cleanup
+// planning for unaffected devices isn't held hostage by one bad path.
+func TestWalkRootsSkipsMissingRootAndContinues(t *testing.T) {
+	present := t.TempDir()
+	if err := os.WriteFile(filepath.Join(present, "movie.mkv"), []byte("media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(t.TempDir(), "missing")
+	files, err := walkRoots([]string{present, missing})
+	if err != nil {
+		t.Fatalf("expected the missing root to be skipped rather than failing, got %v", err)
+	}
+	if len(files) != 1 || files[0].Path != filepath.Join(present, "movie.mkv") {
+		t.Fatalf("expected the present root's file despite the missing one, got %#v", files)
+	}
+}
+
+// TestWalkRootsSkipsNonDirectoryRoot covers a root that exists but is a
+// regular file, not a directory — the same "skip, don't abort" treatment
+// as a genuinely missing path.
+func TestWalkRootsSkipsNonDirectoryRoot(t *testing.T) {
+	present := t.TempDir()
+	if err := os.WriteFile(filepath.Join(present, "movie.mkv"), []byte("media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	notADir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(notADir, []byte("oops"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := walkRoots([]string{present, notADir})
+	if err != nil {
+		t.Fatalf("expected the non-directory root to be skipped rather than failing, got %v", err)
+	}
+	if len(files) != 1 || files[0].Path != filepath.Join(present, "movie.mkv") {
+		t.Fatalf("expected the present root's file despite the non-directory one, got %#v", files)
 	}
 }
 
@@ -128,6 +166,65 @@ func TestWalkStorageRootsMergesOverlappingServiceContexts(t *testing.T) {
 // it used to hard-fail with "no service storage roots are available"
 // purely because no services existed yet, well before the user had any
 // chance to add one.
+// TestReconcileFilesToleratesOneUnreachableRoot guards the end-to-end
+// behavior the walkStorageRoots skip-and-continue change exists for: a
+// service reporting one root Stewarr can't see (alongside one it can) must
+// not stop the whole reconciliation cycle from completing — FileModel
+// should still reach "reliable" (unblocking cleanup planning for every
+// unaffected device) and the reachable root's files should still be
+// published.
+func TestReconcileFilesToleratesOneUnreachableRoot(t *testing.T) {
+	reachable := t.TempDir()
+	if err := os.WriteFile(filepath.Join(reachable, "movie.mkv"), []byte("media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unreachable := filepath.Join(t.TempDir(), "missing")
+
+	radarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/system/status":
+			_, _ = w.Write([]byte(`{}`))
+		case "/api/v3/rootfolder":
+			_ = json.NewEncoder(w).Encode([]map[string]any{
+				{"path": reachable},
+				{"path": unreachable},
+			})
+		default:
+			t.Fatalf("unexpected radarr request: %s", r.URL.Path)
+		}
+	}))
+	defer radarrSrv.Close()
+
+	cfg := config.Config{Services: []config.Service{
+		{ID: "r1", Type: "radarr", Name: "Movies", URL: radarrSrv.URL},
+	}}
+	service := New(cfg, nil)
+	if err := service.ReconcileFiles(context.Background()); err != nil {
+		t.Fatalf("expected reconciliation to tolerate the unreachable root, got %v", err)
+	}
+	if got := service.ReliabilitySnapshot().FileModel; got != "reliable" {
+		t.Fatalf("FileModel=%q, want reliable", got)
+	}
+	files, _, _, _, ferr := service.FileSnapshot()
+	if ferr != nil {
+		t.Fatalf("unexpected file snapshot error: %v", ferr)
+	}
+	want := filepath.Join(reachable, "movie.mkv")
+	found := false
+	for _, f := range files {
+		if f.Path == want {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the reachable root's file to be published, got %#v", files)
+	}
+	unreachableRoots := service.UnreachableServiceRoots()
+	if len(unreachableRoots) != 1 || unreachableRoots[0].Path != unreachable {
+		t.Fatalf("expected the unreachable root to be reported, got %#v", unreachableRoots)
+	}
+}
+
 func TestReconcileFilesSucceedsWithNoServicesConfigured(t *testing.T) {
 	service := New(config.Config{}, nil)
 	if err := service.ReconcileFiles(context.Background()); err != nil {

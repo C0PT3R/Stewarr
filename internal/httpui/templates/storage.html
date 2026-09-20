@@ -18,7 +18,7 @@
         <li><code>{{.Path}}</code> — {{.ServiceName}} ({{.ServiceType}}){{if .Purpose}} · {{.Purpose}}{{end}}</li>
         {{end}}
       </ul>
-      <p class="muted">Add a matching volume mount to Stewarr's own container for each — the host-side path is whatever directory you already mounted into that service's own container; Stewarr can't see or guess that part.</p>
+      <p class="muted">Add a matching volume mount to Stewarr's own container for each — the host-side path is whatever directory you already mounted into that service's own container; Stewarr can't see or guess that part. Reconciliation keeps running for everything else in the meantime: media and torrents under these paths are simply excluded from automatic removal until the mount is fixed.</p>
     </section>
     {{end}}
     {{if not .Devices}}

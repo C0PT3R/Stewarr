@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -236,16 +237,27 @@ func physicalSizeBytes(logicalSize int64, sys any) int64 {
 	return logicalSize
 }
 
+// walkStorageRoots is deliberately tolerant of an individual root being
+// unreachable (a missing/mismatched Docker volume mount, most often) or
+// erroring out partway through its walk (e.g. a permission problem):
+// skipping just that root and continuing with the rest is what lets
+// reconciliation — and therefore cleanup planning for every unaffected
+// device — keep running instead of pausing entirely over one bad path.
+// UnreachableServiceRoots does its own independent live stat check for
+// surfacing the gap in the UI, so this function doesn't need to report
+// anything back about what it skipped.
 func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 	contextRoots := collapseStorageRoots(roots)
 	physicalCandidates := make([]string, 0, len(contextRoots))
 	for _, contextRoot := range contextRoots {
 		info, err := os.Stat(contextRoot.Path)
 		if err != nil {
-			return nil, fmt.Errorf("storage root %s (%s): %w", contextRoot.Path, contextRoot.Service.Name, err)
+			log.Printf("[inventory] storage root unreachable, skipping: %s (%s): %v", contextRoot.Path, contextRoot.Service.Name, err)
+			continue
 		}
 		if !info.IsDir() {
-			return nil, fmt.Errorf("storage root %s (%s) is not a directory", contextRoot.Path, contextRoot.Service.Name)
+			log.Printf("[inventory] storage root is not a directory, skipping: %s (%s)", contextRoot.Path, contextRoot.Service.Name)
+			continue
 		}
 		physicalCandidates = append(physicalCandidates, contextRoot.Path)
 	}
@@ -289,7 +301,7 @@ func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
 			return nil
 		})
 		if e != nil {
-			return nil, fmt.Errorf("scan storage root %s: %w", root, e)
+			log.Printf("[inventory] error scanning storage root, skipping rest of it: %s: %v", root, e)
 		}
 	}
 	out := make([]model.File, 0, len(byPath))
@@ -455,6 +467,14 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 	if len(roots) == 0 && len(radInstances)+len(sonInstances)+len(qbInstances) > 0 {
 		return service.setFilesError(fmt.Errorf("no service storage roots are available"))
 	}
+	// Published here, before the walk, rather than only after a fully
+	// successful cycle: UnreachableServiceRoots does its own live stat
+	// check against this field, so keeping it current every cycle (not
+	// just the last fully-successful one) is what keeps that check
+	// accurate even when walkStorageRoots below has to skip a root.
+	service.mu.Lock()
+	service.storageRoots = collapseStorageRoots(roots)
+	service.mu.Unlock()
 	stageStarted = time.Now()
 	files, err := walkStorageRoots(roots)
 	if err != nil {

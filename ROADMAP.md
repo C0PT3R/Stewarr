@@ -1034,11 +1034,6 @@ history for this torrent" query pattern the derived signals need.
   configuration is discoverable and well-documented rather than a silent
   gap. This is the top of Near-term, not a someday item — see Product
   direction above.
-- Make task schedules configurable through the GUI.
-- Add richer task execution history and reconciliation diagnostics.
-- Improve explicit provenance-change reasons and per-object historical
-  timelines.
-- Continue readability work outside the HTTP/UI files touched through 0.2.8.
 
 ## Later
 
