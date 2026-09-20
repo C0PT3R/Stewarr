@@ -30,6 +30,12 @@ type HistoryEvent struct {
 	Payload    json.RawMessage `json:"payload,omitempty"`
 	Error      string          `json:"error,omitempty"`
 	CreatedAt  time.Time       `json:"createdAt"`
+	// ServiceName is the owning service's configured name (empty for an
+	// Unmanaged event, which has no single owner) — set once at creation
+	// and never touched by UpdateHistoryEvent, so a past run's per-service
+	// breakdown stays inspectable regardless of how its status changed
+	// afterward.
+	ServiceName string `json:"serviceName,omitempty"`
 }
 
 func (s *Store) SaveHistoryEvent(e HistoryEvent) (int64, error) {
@@ -41,7 +47,7 @@ func (s *Store) SaveHistoryEvent(e HistoryEvent) (int64, error) {
 	if len(e.Payload) == 0 {
 		e.Payload = json.RawMessage(`{}`)
 	}
-	st, err := s.prepare(`INSERT INTO history_events(event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes) VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+	st, err := s.prepare(`INSERT INTO history_events(event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes,service_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return 0, err
 	}
@@ -57,6 +63,7 @@ func (s *Store) SaveHistoryEvent(e HistoryEvent) (int64, error) {
 	bindText(st, 9, e.Error)
 	bindText(st, 10, e.CreatedAt.UTC().Format(time.RFC3339Nano))
 	bindInt(st, 11, e.MediaBytes)
+	bindText(st, 12, e.ServiceName)
 	if err := stepDone(s, st); err != nil {
 		return 0, err
 	}
@@ -111,7 +118,7 @@ func (s *Store) InterruptStartedHistoryEvents() error {
 func (s *Store) InFlightRemovalHistoryEvents() ([]HistoryEvent, error) {
 	s.accessMu.RLock()
 	defer s.accessMu.RUnlock()
-	statement, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes FROM history_events WHERE event_type='removal' AND status IN ('queued','started') ORDER BY id`)
+	statement, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes,service_name FROM history_events WHERE event_type='removal' AND status IN ('queued','started') ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +133,7 @@ func (s *Store) InFlightRemovalHistoryEvents() ([]HistoryEvent, error) {
 			return nil, s.err(result)
 		}
 		createdAt, _ := time.Parse(time.RFC3339Nano, colText(statement, 10))
-		events = append(events, HistoryEvent{ID: int64(C.sqlite3_column_int64(statement, 0)), EventType: colText(statement, 1), Status: colText(statement, 2), DryRun: C.sqlite3_column_int64(statement, 3) != 0, RequestedKind: colText(statement, 4), RequestedKey: colText(statement, 5), RequestedLabel: colText(statement, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(statement, 7)), Payload: json.RawMessage(colText(statement, 8)), Error: colText(statement, 9), CreatedAt: createdAt, MediaBytes: int64(C.sqlite3_column_int64(statement, 11))})
+		events = append(events, HistoryEvent{ID: int64(C.sqlite3_column_int64(statement, 0)), EventType: colText(statement, 1), Status: colText(statement, 2), DryRun: C.sqlite3_column_int64(statement, 3) != 0, RequestedKind: colText(statement, 4), RequestedKey: colText(statement, 5), RequestedLabel: colText(statement, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(statement, 7)), Payload: json.RawMessage(colText(statement, 8)), Error: colText(statement, 9), CreatedAt: createdAt, MediaBytes: int64(C.sqlite3_column_int64(statement, 11)), ServiceName: colText(statement, 12)})
 	}
 	return events, nil
 }
@@ -137,7 +144,7 @@ func (s *Store) HistoryEvents(limit int) ([]HistoryEvent, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	st, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes FROM history_events ORDER BY created_at DESC LIMIT ?`)
+	st, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes,service_name FROM history_events ORDER BY created_at DESC LIMIT ?`)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +160,7 @@ func (s *Store) HistoryEvents(limit int) ([]HistoryEvent, error) {
 			return nil, s.err(rc)
 		}
 		t, _ := time.Parse(time.RFC3339Nano, colText(st, 10))
-		out = append(out, HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: t, MediaBytes: int64(C.sqlite3_column_int64(st, 11))})
+		out = append(out, HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: t, MediaBytes: int64(C.sqlite3_column_int64(st, 11)), ServiceName: colText(st, 12)})
 	}
 	return out, nil
 }
@@ -164,7 +171,7 @@ func (s *Store) HistoryEventByID(id int64) (HistoryEvent, error) {
 	if id <= 0 {
 		return HistoryEvent{}, fmt.Errorf("history event id is required")
 	}
-	st, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes FROM history_events WHERE id=?`)
+	st, err := s.prepare(`SELECT id,event_type,status,dry_run,requested_kind,requested_key,requested_label,reclaimable_bytes,payload,error,created_at,media_bytes,service_name FROM history_events WHERE id=?`)
 	if err != nil {
 		return HistoryEvent{}, err
 	}
@@ -178,5 +185,5 @@ func (s *Store) HistoryEventByID(id int64) (HistoryEvent, error) {
 		return HistoryEvent{}, s.err(rc)
 	}
 	createdAt, _ := time.Parse(time.RFC3339Nano, colText(st, 10))
-	return HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: createdAt, MediaBytes: int64(C.sqlite3_column_int64(st, 11))}, nil
+	return HistoryEvent{ID: int64(C.sqlite3_column_int64(st, 0)), EventType: colText(st, 1), Status: colText(st, 2), DryRun: C.sqlite3_column_int64(st, 3) != 0, RequestedKind: colText(st, 4), RequestedKey: colText(st, 5), RequestedLabel: colText(st, 6), ReclaimableBytes: int64(C.sqlite3_column_int64(st, 7)), Payload: json.RawMessage(colText(st, 8)), Error: colText(st, 9), CreatedAt: createdAt, MediaBytes: int64(C.sqlite3_column_int64(st, 11)), ServiceName: colText(st, 12)}, nil
 }

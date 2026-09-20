@@ -8,7 +8,7 @@
   </head>
   <body data-controller="shell revisions">
     {{chrome "history"}}
-    <main id="history-content" data-reactive-fragment data-live-policy="immediate">
+    <main id="history-content" data-reactive-fragment data-live-policy="stable-list">
       <h1 class=page-title>History</h1>
       <h2>Removal events</h2>
       {{if .Events}}
@@ -27,7 +27,7 @@
           {{range .Events}}
           <tr id="operation-{{.ID}}">
             <td>{{fmtUpdated .CreatedAt}}</td>
-            <td><b>{{.RequestedLabel}}</b> <br><span class=muted>{{.RequestedKind}}</span></td>
+            <td><b>{{.RequestedLabel}}</b> <br><span class=muted>{{.RequestedKind}}{{if .ServiceName}} · {{.ServiceName}}{{end}}</span></td>
             <td>{{if .DryRun}}<span class=dry>dry run</span>{{else}}live{{end}}</td>
             <td>{{.Status}}</td>
             <td>{{human .ReclaimableBytes}}</td>

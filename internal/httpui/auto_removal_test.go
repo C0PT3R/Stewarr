@@ -113,10 +113,10 @@ func newTestInventoryWithReconciledState(t *testing.T) *inventory.Service {
 	mediaRefs := []model.MediaFileRef{
 		{ServiceID: "radarr-1", ServiceName: "Movies", MediaType: model.Movie, MediaID: 1, Source: "radarr", SourceFileID: 10, Path: "/movies/a.mkv"},
 	}
-	media := []model.Media{{Type: model.Movie, SourceID: 1, Title: "Test Movie", ServiceID: "radarr-1"}}
+	media := []model.Media{{Type: model.Movie, SourceID: 1, Title: "Test Movie", ServiceID: "radarr-1", ServiceName: "Movies"}}
 	torrents := []model.Torrent{
-		{Hash: "bundlehash", Name: "Bundled Release", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, ServiceID: "qbittorrent-1"},
-		{Hash: "oldhash", Name: "Old Release", AssociationStatus: model.TorrentSuperseded, ServiceID: "qbittorrent-1"},
+		{Hash: "bundlehash", Name: "Bundled Release", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: true, ServiceID: "qbittorrent-1", Client: "Downloader"},
+		{Hash: "oldhash", Name: "Old Release", AssociationStatus: model.TorrentSuperseded, ServiceID: "qbittorrent-1", Client: "Downloader"},
 	}
 	if err := database.PublishReconciliation(1, files, mediaRefs, nil, nil, torrents, media); err != nil {
 		t.Fatal(err)
@@ -140,6 +140,9 @@ func TestFormForActionStandaloneMediaRoundTripsThroughAdmitRemoval(t *testing.T)
 	}
 	if admission.Kind != removal.MediaObject || admission.Key != "movie:1:radarr-1" || admission.Label != "Test Movie" {
 		t.Fatalf("unexpected admission: %#v", admission)
+	}
+	if admission.ServiceName != "Movies" {
+		t.Fatalf("expected ServiceName to carry through to admission, got %q", admission.ServiceName)
 	}
 }
 
@@ -175,6 +178,9 @@ func TestFormForActionStandaloneTorrentRoundTripsThroughAdmitRemoval(t *testing.
 	}
 	if admission.Kind != removal.TorrentObject || admission.Key != "oldhash" {
 		t.Fatalf("unexpected admission: %#v", admission)
+	}
+	if admission.ServiceName != "Downloader" {
+		t.Fatalf("expected the torrent's Client to carry through as ServiceName, got %q", admission.ServiceName)
 	}
 }
 

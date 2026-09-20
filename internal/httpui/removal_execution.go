@@ -185,7 +185,7 @@ func (server *Server) executeRemoval(w http.ResponseWriter, r *http.Request) {
 	}
 	command := scheduledRemovalCommand{Form: cloneForm(r.Form)}
 	queuedPayload, _ := json.Marshal(queuedRemovalPayload{Command: command})
-	historyID, err := database.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "queued", DryRun: descriptor.DryRun, RequestedKind: string(descriptor.Kind), RequestedKey: descriptor.Key, RequestedLabel: descriptor.Label, Payload: queuedPayload})
+	historyID, err := database.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "queued", DryRun: descriptor.DryRun, RequestedKind: string(descriptor.Kind), RequestedKey: descriptor.Key, RequestedLabel: descriptor.Label, ServiceName: descriptor.ServiceName, Payload: queuedPayload})
 	if err != nil {
 		auditRemovalRejected(0, r.Form, fmt.Errorf("record operation before scheduling: %w", err))
 		http.Error(w, "Removal could not be recorded before scheduling: "+err.Error(), http.StatusServiceUnavailable)
@@ -210,6 +210,12 @@ type removalAdmission struct {
 	Key    string
 	Label  string
 	DryRun bool
+	// ServiceName is the owning service's configured name (a media item's
+	// Radarr/Sonarr instance, or a torrent's Client) — empty for
+	// UnmanagedObject, which has no single owner. Recorded on the History
+	// event so a past run's per-service balance is actually inspectable
+	// after the fact, not just inferable from the moment it ran.
+	ServiceName string
 }
 
 // admitRemoval validates only identifiers against Stewarr's published state.
@@ -248,7 +254,7 @@ func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
 		if !ok {
 			return removalAdmission{}, fmt.Errorf("media not found")
 		}
-		return removalAdmission{Kind: removal.MediaObject, Key: mediaOperationKey(kind, id, mr.ServiceID), Label: mr.Title, DryRun: dryRun}, nil
+		return removalAdmission{Kind: removal.MediaObject, Key: mediaOperationKey(kind, id, mr.ServiceID), Label: mr.Title, DryRun: dryRun, ServiceName: mr.ServiceName}, nil
 	case "torrent":
 		hash := strings.ToLower(strings.TrimSpace(form.Get("hash")))
 		serviceID := strings.TrimSpace(form.Get("service_id"))
@@ -277,7 +283,7 @@ func (server *Server) admitRemoval(form url.Values) (removalAdmission, error) {
 		if found == nil {
 			return removalAdmission{}, fmt.Errorf("torrent not found")
 		}
-		return removalAdmission{Kind: removal.TorrentObject, Key: hash, Label: found.Name, DryRun: dryRun}, nil
+		return removalAdmission{Kind: removal.TorrentObject, Key: hash, Label: found.Name, DryRun: dryRun, ServiceName: found.Client}, nil
 	case "unmanaged":
 		paths := form["path"]
 		if len(paths) == 0 {

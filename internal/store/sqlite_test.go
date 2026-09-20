@@ -351,7 +351,7 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, MediaBytes: 5678, Payload: []byte(`{"x":1}`)})
+	id, err := db.SaveHistoryEvent(HistoryEvent{EventType: "removal", Status: "dry_run", DryRun: true, RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1234, MediaBytes: 5678, ServiceName: "Movies", Payload: []byte(`{"x":1}`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,16 +359,19 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(xs) != 1 || xs[0].RequestedKey != "movie:42" || !xs[0].DryRun || xs[0].ReclaimableBytes != 1234 || xs[0].MediaBytes != 5678 {
+	if len(xs) != 1 || xs[0].RequestedKey != "movie:42" || !xs[0].DryRun || xs[0].ReclaimableBytes != 1234 || xs[0].MediaBytes != 5678 || xs[0].ServiceName != "Movies" {
 		t.Fatalf("unexpected history: %#v", xs)
 	}
 	byID, err := db.HistoryEventByID(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if byID.ID != id || byID.RequestedKey != "movie:42" || string(byID.Payload) != `{"x":1}` || byID.MediaBytes != 5678 {
+	if byID.ID != id || byID.RequestedKey != "movie:42" || string(byID.Payload) != `{"x":1}` || byID.MediaBytes != 5678 || byID.ServiceName != "Movies" {
 		t.Fatalf("unexpected history lookup: %#v", byID)
 	}
+	// UpdateHistoryEvent deliberately never touches service_name — it's an
+	// immutable fact about what's being removed, decided once at creation,
+	// not something that should reset just because status/bytes changed.
 	if err := db.UpdateHistoryEvent(HistoryEvent{ID: id, EventType: "removal", Status: "success", RequestedKind: "media", RequestedKey: "movie:42", RequestedLabel: "Movie", ReclaimableBytes: 1000, MediaBytes: 2000}); err != nil {
 		t.Fatal(err)
 	}
@@ -378,6 +381,9 @@ func TestRemovalHistoryRoundTrip(t *testing.T) {
 	}
 	if byID.MediaBytes != 2000 || byID.ReclaimableBytes != 1000 {
 		t.Fatalf("unexpected history after update: %#v", byID)
+	}
+	if byID.ServiceName != "Movies" {
+		t.Fatalf("expected ServiceName to survive an update untouched, got %q", byID.ServiceName)
 	}
 }
 

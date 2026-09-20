@@ -197,7 +197,7 @@ func (server *Server) submitAutoRemoval(form url.Values, action cleanup.Action) 
 	if err != nil {
 		return err
 	}
-	historyID, err := database.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "queued", DryRun: descriptor.DryRun, RequestedKind: string(descriptor.Kind), RequestedKey: descriptor.Key, RequestedLabel: descriptor.Label, Payload: queuedPayload})
+	historyID, err := database.SaveHistoryEvent(store.HistoryEvent{EventType: "removal", Status: "queued", DryRun: descriptor.DryRun, RequestedKind: string(descriptor.Kind), RequestedKey: descriptor.Key, RequestedLabel: descriptor.Label, ServiceName: descriptor.ServiceName, Payload: queuedPayload})
 	if err != nil {
 		return fmt.Errorf("record operation before scheduling: %w", err)
 	}

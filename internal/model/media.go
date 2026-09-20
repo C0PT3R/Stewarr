@@ -60,11 +60,12 @@ type MediaRef struct {
 	// instances of the same service type — Radarr's own movie IDs (like
 	// Sonarr's series IDs) are unique only within one instance, never
 	// globally, so identifying "this media item" always requires both.
-	ServiceID string    `json:"serviceId,omitempty"`
-	Type      MediaType `json:"type"`
-	SourceID  int       `json:"sourceId"`
-	Title     string    `json:"title"`
-	Year      int       `json:"year"`
+	ServiceID   string    `json:"serviceId,omitempty"`
+	ServiceName string    `json:"serviceName,omitempty"`
+	Type        MediaType `json:"type"`
+	SourceID    int       `json:"sourceId"`
+	Title       string    `json:"title"`
+	Year        int       `json:"year"`
 }
 
 type Torrent struct {

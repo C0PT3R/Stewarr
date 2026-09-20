@@ -83,6 +83,7 @@ func Open(path string) (*Store, error) {
 		{"torrent_files", "service_id", "TEXT NOT NULL DEFAULT ''"},
 		{"torrent_files", "service_name", "TEXT NOT NULL DEFAULT ''"},
 		{"history_events", "media_bytes", "INTEGER NOT NULL DEFAULT 0"},
+		{"history_events", "service_name", "TEXT NOT NULL DEFAULT ''"},
 		{"arr_imports", "service_id", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := s.ensureColumn(migration.table, migration.column, migration.definition); err != nil {

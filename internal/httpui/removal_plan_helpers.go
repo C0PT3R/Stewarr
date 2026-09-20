@@ -420,7 +420,7 @@ func mediaRefFor(items []model.Media, kind model.MediaType, id int, serviceID st
 		}
 		if serviceID != "" {
 			if m.ServiceID == serviceID {
-				return model.MediaRef{ServiceID: m.ServiceID, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}, true
+				return model.MediaRef{ServiceID: m.ServiceID, ServiceName: m.ServiceName, Type: m.Type, SourceID: m.SourceID, Title: m.Title, Year: m.Year}, true
 			}
 			continue
 		}
@@ -432,7 +432,7 @@ func mediaRefFor(items []model.Media, kind model.MediaType, id int, serviceID st
 	if found == nil {
 		return model.MediaRef{}, false
 	}
-	return model.MediaRef{ServiceID: found.ServiceID, Type: found.Type, SourceID: found.SourceID, Title: found.Title, Year: found.Year}, true
+	return model.MediaRef{ServiceID: found.ServiceID, ServiceName: found.ServiceName, Type: found.Type, SourceID: found.SourceID, Title: found.Title, Year: found.Year}, true
 }
 
 func groupManagedFiles(refs []model.MediaFileRef, files map[string]model.File, selected map[string]bool) []managedRemovalGroup {
