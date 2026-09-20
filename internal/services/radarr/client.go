@@ -182,6 +182,59 @@ func (client *Client) DeleteFile(id int) error {
 	return nil
 }
 
+type queueRecord struct {
+	ID         int    `json:"id"`
+	DownloadID string `json:"downloadId"`
+}
+type queueResponse struct {
+	PageSize     int           `json:"pageSize"`
+	TotalRecords int           `json:"totalRecords"`
+	Records      []queueRecord `json:"records"`
+}
+
+// FindQueueItem returns the queue entry id for the download with the given
+// info hash, if Radarr currently has one — e.g. an incomplete torrent it's
+// still waiting to import. Comparison is case-insensitive since Radarr's
+// downloadId casing isn't guaranteed to match the torrent client's.
+func (client *Client) FindQueueItem(hash string) (int, bool, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return 0, false, fmt.Errorf("hash is required")
+	}
+	for page := 1; ; page++ {
+		var resp queueResponse
+		if err := client.get(fmt.Sprintf("/api/v3/queue?page=%d&pageSize=250", page), &resp); err != nil {
+			return 0, false, err
+		}
+		for _, rec := range resp.Records {
+			if strings.EqualFold(rec.DownloadID, hash) {
+				return rec.ID, true, nil
+			}
+		}
+		if len(resp.Records) == 0 || page*resp.PageSize >= resp.TotalRecords {
+			return 0, false, nil
+		}
+	}
+}
+
+// RemoveQueueItem removes a queue entry and asks Radarr to instruct the
+// download client to remove the underlying download too, rather than
+// leaving an orphaned client-side download behind once the queue entry
+// Radarr was tracking it under is gone.
+func (client *Client) RemoveQueueItem(id int) error {
+	req, _ := http.NewRequestWithContext(client.requestContext(), http.MethodDelete, fmt.Sprintf("%s/api/v3/queue/%d?removeFromClient=true&blocklist=false", client.base, id), nil)
+	req.Header.Set("X-Api-Key", client.key)
+	r, err := client.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		return fmt.Errorf("radarr queue delete: %s", r.Status)
+	}
+	return nil
+}
+
 func (client *Client) SetMonitored(id int, monitored bool) error {
 	var movie map[string]any
 	if err := client.get(fmt.Sprintf("/api/v3/movie/%d", id), &movie); err != nil {

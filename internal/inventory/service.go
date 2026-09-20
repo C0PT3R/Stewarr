@@ -543,12 +543,81 @@ func (service *Service) RemoveManagedFile(ctx context.Context, ref model.MediaFi
 // RemoveTorrent delegates torrent and torrent-owned data removal to the
 // specific qBittorrent instance identified by svcID — the same
 // infohash can legitimately exist in more than one configured instance.
+//
+// An incomplete torrent still linked to the media item it was grabbed for
+// is removed through that owning Radarr/Sonarr instance's queue instead,
+// when a matching queue entry still exists: one call there both drops the
+// stale queue entry and tells qBittorrent to delete the download, instead
+// of leaving Radarr/Sonarr still waiting on a download Stewarr just deleted
+// out from under it. Falls back to removing directly from qBittorrent when
+// there's no matching queue entry — already imported, already dropped from
+// the queue, or no current owning media item at all.
 func (service *Service) RemoveTorrent(ctx context.Context, hash, svcID string) error {
+	removedViaQueue, err := service.removeIncompleteTorrentViaQueue(ctx, hash, svcID)
+	if err != nil {
+		return err
+	}
+	if removedViaQueue {
+		return nil
+	}
 	client, err := service.qbittorrentClient(svcID)
 	if err != nil {
 		return err
 	}
 	return client.WithContext(ctx).Delete(hash)
+}
+
+// removeIncompleteTorrentViaQueue attempts the Radarr/Sonarr queue removal
+// path described on RemoveTorrent. The bool return reports whether it
+// actually removed the torrent; a nil error with false means there was no
+// applicable queue entry to use, so the caller should fall back to
+// qBittorrent directly rather than treat this as a failure.
+func (service *Service) removeIncompleteTorrentViaQueue(ctx context.Context, hash, svcID string) (bool, error) {
+	var indexed model.Torrent
+	found := false
+	for _, t := range service.TorrentSnapshot() {
+		if strings.EqualFold(t.Hash, hash) && t.ServiceID == svcID {
+			indexed, found = t, true
+			break
+		}
+	}
+	if !found || indexed.AmountLeftBytes <= 0 || len(indexed.MediaItems) == 0 {
+		return false, nil
+	}
+	owner := indexed.MediaItems[0]
+	var id int
+	var ok bool
+	var err error
+	switch owner.Type {
+	case model.Movie:
+		client, clientErr := service.radarrClient(owner.ServiceID)
+		if clientErr != nil {
+			return false, nil
+		}
+		id, ok, err = client.WithContext(ctx).FindQueueItem(hash)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+		return true, client.WithContext(ctx).RemoveQueueItem(id)
+	case model.Series:
+		client, clientErr := service.sonarrClient(owner.ServiceID)
+		if clientErr != nil {
+			return false, nil
+		}
+		id, ok, err = client.WithContext(ctx).FindQueueItem(hash)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+		return true, client.WithContext(ctx).RemoveQueueItem(id)
+	default:
+		return false, nil
+	}
 }
 
 func (service *Service) SetMovieMonitored(ctx context.Context, svcID string, id int, monitored bool) error {
