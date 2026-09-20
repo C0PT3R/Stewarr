@@ -338,6 +338,33 @@ func TestStorageTemplateHidesThresholdMarkersAndPlanWhenDeviceDisabled(t *testin
 	}
 }
 
+func TestStorageTemplateRendersCapabilities(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := storageData{
+		Capabilities: []inventory.RootCapability{
+			{Path: "/data/movies", ServiceName: "Movies", ServiceType: "radarr", Reachable: true, Filesystem: "ext4", FreeBytes: 400, ReservedBytes: 20},
+			{Path: "/data/missing", ServiceName: "Downloader", ServiceType: "qbittorrent", Purpose: "incomplete downloads", Reachable: false, SelfReportedCount: 3, SelfReportedSizeBytes: 12345},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "/data/movies") || !strings.Contains(body, "ext4") {
+		t.Fatalf("expected reachable root's filesystem facts, got:\n%s", body)
+	}
+	if !strings.Contains(body, "/data/missing") || !strings.Contains(body, "not reachable") || !strings.Contains(body, "incomplete downloads") {
+		t.Fatalf("expected unreachable root's warning and purpose, got:\n%s", body)
+	}
+	if !strings.Contains(body, "3 item(s)") {
+		t.Fatalf("expected the unreachable root's self-reported item count, got:\n%s", body)
+	}
+}
+
 func TestStorageTemplateRendersNoKnownDevices(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {

@@ -132,7 +132,7 @@ type storageRoot struct {
 	Label   string
 	// Purpose distinguishes why a root exists at all, e.g.
 	// qbittorrent.RootPurposeIncompleteDownloads — empty for an ordinary
-	// root. Surfaced on UnreachableServiceRoots so the reason a path needs
+	// root. Surfaced on StorageCapabilities so the reason a path needs
 	// mounting is visible, not just the bare path.
 	Purpose string
 }
@@ -151,7 +151,7 @@ func configuredOrDiscoveredRoots(i config.Service, discovered []string) []storag
 // qbittorrentDiscoveredRoots mirrors configuredOrDiscoveredRoots for
 // qBittorrent's richer qbittorrent.RootPath (path + purpose) instead of a
 // bare path string, so an incomplete-downloads root carries that label all
-// the way through to UnreachableServiceRoots.
+// the way through to StorageCapabilities.
 func qbittorrentDiscoveredRoots(i config.Service, discovered []qbittorrent.RootPath) []storageRoot {
 	out := make([]storageRoot, 0, len(discovered)+1)
 	for _, r := range discovered {
@@ -243,7 +243,7 @@ func physicalSizeBytes(logicalSize int64, sys any) int64 {
 // skipping just that root and continuing with the rest is what lets
 // reconciliation — and therefore cleanup planning for every unaffected
 // device — keep running instead of pausing entirely over one bad path.
-// UnreachableServiceRoots does its own independent live stat check for
+// StorageCapabilities does its own independent live stat check for
 // surfacing the gap in the UI, so this function doesn't need to report
 // anything back about what it skipped.
 func walkStorageRoots(roots []storageRoot) ([]model.File, error) {
@@ -468,7 +468,7 @@ func (service *Service) reconcileFiles(ctx context.Context) error {
 		return service.setFilesError(fmt.Errorf("no service storage roots are available"))
 	}
 	// Published here, before the walk, rather than only after a fully
-	// successful cycle: UnreachableServiceRoots does its own live stat
+	// successful cycle: StorageCapabilities does its own live stat
 	// check against this field, so keeping it current every cycle (not
 	// just the last fully-successful one) is what keeps that check
 	// accurate even when walkStorageRoots below has to skip a root.

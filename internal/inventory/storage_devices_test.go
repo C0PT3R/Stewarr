@@ -185,7 +185,7 @@ func TestServiceRootPathsGroupsByServiceNameAndDedupes(t *testing.T) {
 	}
 }
 
-func TestUnreachableServiceRootsReportsOnlyPathsStewarrCannotStat(t *testing.T) {
+func TestStorageCapabilitiesReportsReachableAndUnreachableRoots(t *testing.T) {
 	present := t.TempDir()
 	service := New(config.Config{}, nil)
 	service.mu.Lock()
@@ -198,11 +198,24 @@ func TestUnreachableServiceRootsReportsOnlyPathsStewarrCannotStat(t *testing.T) 
 	}
 	service.mu.Unlock()
 
-	unreachable := service.UnreachableServiceRoots()
-	if len(unreachable) != 3 {
-		t.Fatalf("expected exactly 3 unreachable roots (the present one excluded, the duplicate collapsed), got %#v", unreachable)
+	capabilities := service.StorageCapabilities()
+	if len(capabilities) != 4 {
+		t.Fatalf("expected exactly 4 roots (the duplicate collapsed), got %#v", capabilities)
 	}
-	if unreachable[0].Path != "/definitely/not/mounted/downloads" || unreachable[0].ServiceName != "Downloader" || unreachable[0].ServiceType != "deluge" || unreachable[0].Purpose != "" {
+	unreachable := make([]RootCapability, 0, 3)
+	for _, c := range capabilities {
+		if c.Path == present {
+			if !c.Reachable {
+				t.Fatalf("expected the present root to be reported reachable: %#v", c)
+			}
+			continue
+		}
+		unreachable = append(unreachable, c)
+	}
+	if len(unreachable) != 3 {
+		t.Fatalf("expected exactly 3 unreachable roots, got %#v", unreachable)
+	}
+	if unreachable[0].Path != "/definitely/not/mounted/downloads" || unreachable[0].ServiceName != "Downloader" || unreachable[0].ServiceType != "deluge" || unreachable[0].Purpose != "" || unreachable[0].Reachable {
 		t.Fatalf("unexpected first unreachable root: %#v", unreachable[0])
 	}
 	if unreachable[1].Path != "/definitely/not/mounted/incomplete" || unreachable[1].Purpose != "incomplete downloads" {
@@ -210,6 +223,37 @@ func TestUnreachableServiceRootsReportsOnlyPathsStewarrCannotStat(t *testing.T) 
 	}
 	if unreachable[2].Path != "/definitely/not/mounted/movies" || unreachable[2].ServiceName != "Movies" {
 		t.Fatalf("unexpected third unreachable root: %#v", unreachable[2])
+	}
+}
+
+// TestStorageCapabilitiesSelfReportsUnreachableRootContents guards the
+// point of the unreachable branch: even sight-unseen, Stewarr already
+// knows (from each service's own API) roughly what mounting an unreachable
+// root would add, since Media/Torrent Path and SavePath are self-reported
+// independent of Stewarr's own filesystem walk.
+func TestStorageCapabilitiesSelfReportsUnreachableRootContents(t *testing.T) {
+	service := New(config.Config{}, nil)
+	service.mu.Lock()
+	service.storageRoots = []storageRoot{
+		{Path: "/missing/movies", Service: config.Service{ID: "radarr", Name: "Movies", Type: "radarr"}},
+	}
+	service.items = []model.Media{
+		{ServiceID: "radarr", Path: "/missing/movies/Movie (2026)", SizeBytes: 1000},
+		{ServiceID: "radarr", Path: "/missing/movies/Other (2026)", SizeBytes: 2000},
+		{ServiceID: "radarr", Path: "/elsewhere/Not Under Root (2026)", SizeBytes: 5000},
+	}
+	service.mu.Unlock()
+
+	capabilities := service.StorageCapabilities()
+	if len(capabilities) != 1 {
+		t.Fatalf("expected exactly 1 root, got %#v", capabilities)
+	}
+	got := capabilities[0]
+	if got.Reachable {
+		t.Fatalf("expected the root to be unreachable: %#v", got)
+	}
+	if got.SelfReportedCount != 2 || got.SelfReportedSizeBytes != 3000 {
+		t.Fatalf("expected self-reported facts scoped to media under this root only, got %#v", got)
 	}
 }
 

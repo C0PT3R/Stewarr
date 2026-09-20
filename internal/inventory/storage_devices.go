@@ -386,41 +386,74 @@ func (service *Service) ServiceRootPaths() map[string][]string {
 	return out
 }
 
-// UnreachableRoot is one service-reported storage root that Stewarr's own
-// container cannot stat — almost always a missing or mismatched Docker
-// volume mount, since the same host directory must be mounted into every
-// container (Stewarr included) for file identity, hardlink proof, and
-// Unmanaged discovery to work at all.
-type UnreachableRoot struct {
+// RootCapability describes one service-reported storage root and what
+// Stewarr can currently do with it. A reachable root gets real filesystem
+// facts (storagecapabilities.Inspect). An unreachable one instead gets
+// whatever its owning service has already told Stewarr lives there —
+// self-reported from data already in memory, independent of Stewarr's own
+// filesystem view — so what mounting the path would add is still visible
+// even sight-unseen.
+type RootCapability struct {
 	Path        string
 	ServiceName string
 	ServiceType string
-	// Purpose explains why this specific path is a root at all, e.g.
-	// qbittorrent.RootPurposeIncompleteDownloads — empty for an ordinary
-	// root, where "it's this service's save/root path" is self-explanatory.
-	Purpose string
+	Purpose     string
+	Reachable   bool
+
+	// Populated only when Reachable.
+	Filesystem    string
+	FreeBytes     uint64
+	ReservedBytes uint64
+
+	// Populated only when !Reachable.
+	SelfReportedCount     int
+	SelfReportedSizeBytes int64
 }
 
-// UnreachableServiceRoots reports every currently known service root
-// Stewarr cannot see from inside its own container. Each service's own API
-// reports paths in that service's own container namespace, so this only
-// ever names Stewarr's side of the mismatch — it cannot know or guess the
-// real host directory behind a path it can't reach.
-func (service *Service) UnreachableServiceRoots() []UnreachableRoot {
+// StorageCapabilities reports every currently known service root —
+// reachable and unreachable alike — superseding UnreachableServiceRoots'
+// unreachable-only view with what each root currently unlocks, or would
+// unlock once mounted.
+func (service *Service) StorageCapabilities() []RootCapability {
 	service.mu.RLock()
 	roots := append([]storageRoot(nil), service.storageRoots...)
+	items := cloneMedia(service.items)
+	torrents := append([]model.Torrent(nil), service.torrents...)
 	service.mu.RUnlock()
 
 	seen := map[string]bool{}
-	var out []UnreachableRoot
+	var out []RootCapability
 	for _, root := range roots {
 		if root.Service.Name == "" || seen[root.Path] {
 			continue
 		}
-		if _, err := os.Stat(root.Path); err != nil {
-			seen[root.Path] = true
-			out = append(out, UnreachableRoot{Path: root.Path, ServiceName: root.Service.Name, ServiceType: root.Service.Type, Purpose: root.Purpose})
+		seen[root.Path] = true
+		entry := RootCapability{Path: root.Path, ServiceName: root.Service.Name, ServiceType: root.Service.Type, Purpose: root.Purpose}
+		if info, err := os.Stat(root.Path); err == nil && info.IsDir() {
+			entry.Reachable = true
+			inspected := storagecapabilities.Inspect(root.Path)
+			entry.Filesystem = inspected.Filesystem
+			entry.FreeBytes = inspected.FreeBytes
+			entry.ReservedBytes = inspected.ReservedBytes
+		} else {
+			switch root.Service.Type {
+			case "radarr", "sonarr":
+				for _, m := range items {
+					if m.ServiceID == root.Service.ID && under(root.Path, m.Path) {
+						entry.SelfReportedCount++
+						entry.SelfReportedSizeBytes += m.SizeBytes
+					}
+				}
+			case "qbittorrent":
+				for _, t := range torrents {
+					if t.ServiceID == root.Service.ID && under(root.Path, t.SavePath) {
+						entry.SelfReportedCount++
+						entry.SelfReportedSizeBytes += t.SizeBytes
+					}
+				}
+			}
 		}
+		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out

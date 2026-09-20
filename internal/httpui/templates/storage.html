@@ -10,15 +10,26 @@
   {{chrome "storage"}}
   <main id="storage-content">
     <h1 class="page-title">Storage</h1>
-    {{if .UnreachableRoots}}
+    {{if .Capabilities}}
     <section class="card">
-      <p class="warn">Some paths reported by your services aren't reachable from Stewarr's own container:</p>
-      <ul>
-        {{range .UnreachableRoots}}
-        <li><code>{{.Path}}</code> — {{.ServiceName}} ({{.ServiceType}}){{if .Purpose}} · {{.Purpose}}{{end}}</li>
+      <h2>Storage capabilities</h2>
+      <p class="muted">Every path your services have reported, and what Stewarr currently knows about it.</p>
+      <ul class="capability-list">
+        {{range .Capabilities}}
+        <li>
+          <code>{{.Path}}</code> — {{.ServiceName}} ({{.ServiceType}}){{if .Purpose}} · {{.Purpose}}{{end}}
+          {{if .Reachable}}
+          <span class="muted">· {{.Filesystem}}, {{humanU .FreeBytes}} free{{if gt .ReservedBytes 0}}, {{humanU .ReservedBytes}} reserved{{end}}</span>
+          {{else}}
+          <span class="warn">· not reachable from Stewarr's own container</span>
+          {{if gt .SelfReportedCount 0}}
+          <span class="muted">— {{.ServiceName}} reports {{.SelfReportedCount}} item(s), {{human .SelfReportedSizeBytes}}, that would become visible once mounted</span>
+          {{end}}
+          {{end}}
+        </li>
         {{end}}
       </ul>
-      <p class="muted">Add a matching volume mount to Stewarr's own container for each — the host-side path is whatever directory you already mounted into that service's own container; Stewarr can't see or guess that part. Reconciliation keeps running for everything else in the meantime: media and torrents under these paths are simply excluded from automatic removal until the mount is fixed.</p>
+      <p class="muted">Add a matching volume mount to Stewarr's own container for any path marked not reachable — the host-side path is whatever directory you already mounted into that service's own container; Stewarr can't see or guess that part. Reconciliation keeps running for everything else in the meantime: media and torrents under these paths are simply excluded from automatic removal until the mount is fixed.</p>
     </section>
     {{end}}
     {{if not .Devices}}

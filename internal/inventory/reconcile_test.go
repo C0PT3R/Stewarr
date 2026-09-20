@@ -219,9 +219,18 @@ func TestReconcileFilesToleratesOneUnreachableRoot(t *testing.T) {
 	if !found {
 		t.Fatalf("expected the reachable root's file to be published, got %#v", files)
 	}
-	unreachableRoots := service.UnreachableServiceRoots()
-	if len(unreachableRoots) != 1 || unreachableRoots[0].Path != unreachable {
-		t.Fatalf("expected the unreachable root to be reported, got %#v", unreachableRoots)
+	capabilities := service.StorageCapabilities()
+	unreachableCount := 0
+	for _, c := range capabilities {
+		if !c.Reachable {
+			unreachableCount++
+			if c.Path != unreachable {
+				t.Fatalf("expected the unreachable root to be reported, got %#v", c)
+			}
+		}
+	}
+	if unreachableCount != 1 {
+		t.Fatalf("expected exactly 1 unreachable root, got %#v", capabilities)
 	}
 }
 
