@@ -1015,6 +1015,25 @@ history for this torrent" query pattern the derived signals need.
 
 ## Near-term
 
+- **Priority: run without full filesystem access instead of failing closed
+  entirely.** Today, `walkStorageRoots` ([reconcile.go](internal/inventory/reconcile.go))
+  returns a hard error the moment a single configured root can't be stat'd,
+  and `reconcileFiles` aborts the *entire* reconciliation cycle on that
+  error — not just the filesystem-dependent parts. Since cleanup planning
+  requires the file model to be "reliable," that one failure currently
+  pauses Media/Torrent valuation and cleanup too, even though neither
+  actually depends on the filesystem. Needs: (1) decoupling the
+  filesystem-dependent stage (hardlink-bundle detection, Unmanaged
+  scanning, real disk usage) from the filesystem-independent one
+  (per-service valuation, standalone cleanup using each service's own
+  self-reported file sizes) so either can run without the other; (2) a
+  capabilities page — building on the existing `UnreachableServiceRoots`
+  ([storage_devices.go](internal/inventory/storage_devices.go)) groundwork
+  and `storagecapabilities.Inspect` — listing every discovered path, what
+  it currently unlocks, and what mounting it would add, so a reduced
+  configuration is discoverable and well-documented rather than a silent
+  gap. This is the top of Near-term, not a someday item — see Product
+  direction above.
 - Make task schedules configurable through the GUI.
 - Add richer task execution history and reconciliation diagnostics.
 - Improve explicit provenance-change reasons and per-object historical
@@ -1043,7 +1062,11 @@ history for this torrent" query pattern the derived signals need.
 - Observed reclamation verification: confirming after automatic execution
   that the predicted bytes were actually freed, not only that the plan ran.
 - Filesystem-specific shared-storage inspectors for reflinks/extents, ZFS,
-  Windows, and network filesystems where reliable.
+  Windows, and network filesystems where reliable — part of the same
+  graceful-degradation objective at the top of Near-term: an unrecognized
+  or partially-inspectable filesystem should narrow what Stewarr can prove
+  (e.g. falling back to reported size instead of confirmed shared bytes),
+  not be treated as an error case.
 - Cross-stack diagnostics, repair workflows, global search, and per-item
   timelines.
 - Movies and series must be separated, not just cross-normalized: series
@@ -1094,3 +1117,19 @@ history for this torrent" query pattern the derived signals need.
 Stewarr should become the missing coordination layer in a modular media stack:
 not another specialized media manager, but the place where facts from
 specialized tools gain cross-stack context and purpose.
+
+Stewarr must run with any *arr-stack configuration, on any filesystem or even
+none Stewarr recognizes — this has always been the goal, even though it was
+never written down and the code has drifted from it. Concretely: no service
+(Radarr/Sonarr/qBittorrent/...) should be mandatory, neither should direct
+filesystem access, and no specific filesystem type should be assumed either —
+bare ZFS, reflink-capable filesystems, network filesystems, and anything
+Stewarr can't identify at all are all the same case, not special ones. Losing
+a piece — a service not configured, no volume mount at all, or a filesystem
+Stewarr can't inspect as deeply as ext4 — must mean losing specific,
+well-documented abilities (hardlink-bundle detection, Unmanaged discovery,
+real disk usage, cross-referencing a torrent against the media it backs),
+never breaking the abilities that don't depend on the missing piece: Stewarr
+should always do the best it can with whatever it's given, and degrade
+gracefully — never fail closed entirely — when it can't. This is a priority
+objective, not a someday item — see the top of Near-term.
