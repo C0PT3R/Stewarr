@@ -36,6 +36,27 @@ func TestServicesTemplateRendersServiceDetailAndRootPaths(t *testing.T) {
 	}
 }
 
+// TestAddServiceTemplateDisclosesEnrichmentOnlyLimitation guards the
+// add-service overlay's up-front capability disclosure: Jellyfin/Seerr
+// never own removable storage, so the warning explaining that must be
+// present in the markup (client-side JS shows/hides it per the selected
+// type using the same data-service-field mechanism the credential fields
+// already rely on).
+func TestAddServiceTemplateDisclosesEnrichmentOnlyLimitation(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.addServiceTpl, addServiceFormDataFor("")); err != nil {
+		t.Fatalf("render add-service template: %v", err)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `data-service-field="jellyfin seerr"`) || !strings.Contains(body, "never owns removable storage") {
+		t.Fatalf("expected the enrichment-only limitation warning, got:\n%s", body)
+	}
+}
+
 func TestServicesTemplateRendersEmptyState(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {

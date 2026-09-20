@@ -12,6 +12,7 @@
           <label for="service-type">Type<select id="service-type" name="type" required data-service-type>
             {{range .Types}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
           </select></label>
+          <p class="muted" data-service-field="jellyfin seerr" hidden>This service only enriches library data (watch history, favorites, requests) — it never owns removable storage, so it has no "Allow automatic removal" option and is never a removal candidate itself.</p>
           <label for="service-name">Name<input id="service-name" name="name" required></label>
           <label for="service-url">URL<input id="service-url" name="url" type="url" required></label>
           <label for="service-api-key" data-service-field="radarr sonarr jellyfin seerr">API key<input id="service-api-key" name="api_key" type="password" autocomplete="off"></label>
