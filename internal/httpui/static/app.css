@@ -1077,6 +1077,9 @@ td:has(> a > strong) > a {
   gap: 16px;
   flex-wrap: wrap;
 }
+.field-row[hidden] {
+  display: none;
+}
 /* .toggle (a checkbox + title + description, all in one <label>) falls
    through to .field-stack label's column layout by default — meant for a
    text input's label-above-field shape, not a checkbox, so the box ended
