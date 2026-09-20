@@ -9,6 +9,30 @@ import (
 	"stewarr/internal/model"
 )
 
+// TestUnexplainedOtherBytesSubtractsReservedBlocks guards the actual point
+// of separating the two: a filesystem's own reserved-for-root blocks
+// (ext4's default 5% allocation, most commonly) are real, permanent,
+// unwritable-by-Stewarr overhead, not another service's data — lumping
+// them into one ambiguous "Other" bucket misleads a user into thinking
+// something is using space that, in fact, nothing is.
+func TestUnexplainedOtherBytesSubtractsReservedBlocks(t *testing.T) {
+	d := StorageDevice{OtherBytes: 100, ReservedBytes: 40}
+	if got := d.UnexplainedOtherBytes(); got != 60 {
+		t.Fatalf("expected 60 bytes unexplained after subtracting reserved, got %d", got)
+	}
+	allReserved := StorageDevice{OtherBytes: 40, ReservedBytes: 40}
+	if got := allReserved.UnexplainedOtherBytes(); got != 0 {
+		t.Fatalf("expected 0 when Other is fully explained by reserved blocks, got %d", got)
+	}
+	// ReservedBytes can exceed OtherBytes in the edge case where hardlink
+	// double-counting already clamped OtherBytes to 0 upstream — must not
+	// underflow.
+	clamped := StorageDevice{OtherBytes: 0, ReservedBytes: 40}
+	if got := clamped.UnexplainedOtherBytes(); got != 0 {
+		t.Fatalf("expected 0 rather than an underflow when ReservedBytes exceeds OtherBytes, got %d", got)
+	}
+}
+
 func TestStorageDevicesCollapsesRootsAndAttributesHardlinkedClaims(t *testing.T) {
 	root := t.TempDir()
 	radarrRoot := filepath.Join(root, "movies")

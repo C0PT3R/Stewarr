@@ -29,6 +29,12 @@ type StorageDevice struct {
 	Claimed            []ClaimedSegment
 	UnmanagedBytes     uint64
 	OtherBytes         uint64
+	// ReservedBytes is the portion of OtherBytes explained by the
+	// filesystem's own reserved-for-root blocks (see
+	// storagecapabilities.Capabilities.ReservedBytes) — a real, permanent,
+	// unwritable-by-Stewarr allocation, not another service's data. Always
+	// <= OtherBytes. See UnexplainedOtherBytes for what's left over.
+	ReservedBytes uint64
 	// ServiceRoots is this device's own subset of each service's root
 	// paths, keyed by service name — unlike the global ServiceRootPaths
 	// (every root a service has, across every device), this only ever
@@ -52,6 +58,20 @@ func (d StorageDevice) UsableBytes() uint64 {
 // doesn't even attribute to itself.
 func (d StorageDevice) StewarrUsedBytes() uint64 {
 	return d.UsedBytes - d.OtherBytes
+}
+
+// UnexplainedOtherBytes is OtherBytes minus ReservedBytes — what's left
+// with no known cause at all, after subtracting the one cause Stewarr can
+// actually detect directly from the filesystem itself. Display code should
+// show this and ReservedBytes as two distinct facts ("reserved by the
+// filesystem" vs. "used elsewhere"), not lump them under one ambiguous
+// "Other" label — a filesystem's own reserved blocks aren't another
+// service's data.
+func (d StorageDevice) UnexplainedOtherBytes() uint64 {
+	if d.ReservedBytes >= d.OtherBytes {
+		return 0
+	}
+	return d.OtherBytes - d.ReservedBytes
 }
 
 // ClaimedSegment is one service's share of a device's used bytes, sorted
@@ -227,7 +247,7 @@ func (service *Service) StorageDevices() []StorageDevice {
 		result := StorageDevice{
 			RootLabels: sortedKeys(group.rootLabels), RepresentativePath: group.representative,
 			Available: capabilities.Visible, Error: capabilities.Error, Filesystem: capabilities.Filesystem,
-			TotalBytes: capabilities.TotalBytes, FreeBytes: capabilities.FreeBytes, UnmanagedBytes: unmanagedByDevice[device],
+			TotalBytes: capabilities.TotalBytes, FreeBytes: capabilities.FreeBytes, ReservedBytes: capabilities.ReservedBytes, UnmanagedBytes: unmanagedByDevice[device],
 			ServiceRoots: serviceRoots,
 		}
 		var claimedNames []string

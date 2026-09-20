@@ -7,12 +7,25 @@ import (
 )
 
 type Capabilities struct {
-	Path                  string `json:"path"`
-	Visible               bool   `json:"visible"`
-	Filesystem            string `json:"filesystem"`
-	Device                uint64 `json:"device"`
-	TotalBytes            uint64 `json:"totalBytes"`
-	FreeBytes             uint64 `json:"freeBytes"`
+	Path       string `json:"path"`
+	Visible    bool   `json:"visible"`
+	Filesystem string `json:"filesystem"`
+	Device     uint64 `json:"device"`
+	TotalBytes uint64 `json:"totalBytes"`
+	// FreeBytes is space available to an unprivileged process (statfs's
+	// Bavail) — what Stewarr, running as whatever user it runs as, could
+	// actually write into. Deliberately not Bfree (all free space,
+	// including anything reserved for root): that space isn't usable by a
+	// normal write regardless of what df or other tools report. See
+	// ReservedBytes for the gap between the two.
+	FreeBytes uint64 `json:"freeBytes"`
+	// ReservedBytes is space the filesystem itself holds back from
+	// unprivileged writers (statfs's Bfree-Bavail) — most commonly ext4's
+	// default 5% reserved-for-root allocation. It's real, permanent
+	// overhead, not usage by anything Stewarr or another service put
+	// there, so it's tracked separately rather than folded into
+	// StorageDevice.OtherBytes' "some other service's data" framing.
+	ReservedBytes         uint64 `json:"reservedBytes"`
 	FileIdentity          bool   `json:"fileIdentity"`
 	HardlinkDetection     bool   `json:"hardlinkDetection"`
 	SharedExtentDetection bool   `json:"sharedExtentDetection"`
@@ -31,6 +44,9 @@ func Inspect(path string) Capabilities {
 	capabilities.Filesystem = filesystemName(int64(filesystemStats.Type))
 	capabilities.TotalBytes = filesystemStats.Blocks * uint64(filesystemStats.Bsize)
 	capabilities.FreeBytes = filesystemStats.Bavail * uint64(filesystemStats.Bsize)
+	if filesystemStats.Bfree > filesystemStats.Bavail {
+		capabilities.ReservedBytes = uint64(filesystemStats.Bfree-filesystemStats.Bavail) * uint64(filesystemStats.Bsize)
+	}
 
 	fileInfo, err := os.Stat(path)
 	if err != nil {

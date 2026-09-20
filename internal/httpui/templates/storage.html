@@ -39,7 +39,7 @@
              reactive fragment below. A raw disk-byte tick has nothing to do
              with which items would actually be removed and must never force
              that comparatively expensive plan to be recomputed. -->
-        <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.StewarrUsedBytes}} used of {{humanU .Storage.UsableBytes}} usable ({{printf "%.1f" (bytePercent .Storage.StewarrUsedBytes .Storage.UsableBytes)}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%){{if gt .Storage.OtherBytes 0}} · {{humanU .Storage.OtherBytes}} used elsewhere on this {{humanU .Storage.TotalBytes}} disk{{end}}</p>
+        <p class="muted" data-storage-summary data-representative-path="{{.Storage.RepresentativePath}}">{{humanU .Storage.StewarrUsedBytes}} used of {{humanU .Storage.UsableBytes}} usable ({{printf "%.1f" (bytePercent .Storage.StewarrUsedBytes .Storage.UsableBytes)}}%, target {{printf "%.1f" .Plan.TargetUsagePercent}}%, critical {{printf "%.1f" .Plan.CriticalUsagePercent}}%){{if gt .Storage.ReservedBytes 0}} · {{humanU .Storage.ReservedBytes}} reserved by the filesystem{{end}}{{if gt .Storage.UnexplainedOtherBytes 0}} · {{humanU .Storage.UnexplainedOtherBytes}} used elsewhere on this {{humanU .Storage.TotalBytes}} disk{{end}}</p>
         {{end}}
         <div id="storage-live-{{elementID .Storage.RepresentativePath}}" data-reactive-fragment data-live-policy="immediate">
           {{if .Storage.Available}}

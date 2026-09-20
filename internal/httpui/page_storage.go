@@ -63,6 +63,7 @@ type storageStatsDevice struct {
 	Claimed              []storageStatsClaim `json:"claimed"`
 	UnmanagedBytes       uint64              `json:"unmanagedBytes"`
 	OtherBytes           uint64              `json:"otherBytes"`
+	ReservedBytes        uint64              `json:"reservedBytes"`
 	UsableBytes          uint64              `json:"usableBytes"`
 	StewarrUsedBytes     uint64              `json:"stewarrUsedBytes"`
 	UsagePercentOfUsable float64             `json:"usagePercentOfUsable"`
@@ -111,6 +112,7 @@ func (server *Server) storageStats(w http.ResponseWriter, r *http.Request) {
 			Claimed:              claimed,
 			UnmanagedBytes:       device.UnmanagedBytes,
 			OtherBytes:           device.OtherBytes,
+			ReservedBytes:        device.ReservedBytes,
 			UsableBytes:          usableBytes,
 			StewarrUsedBytes:     stewarrUsedBytes,
 			UsagePercentOfUsable: usagePercentOfUsable,
