@@ -9,6 +9,7 @@ import (
 
 	"stewarr/internal/config"
 	"stewarr/internal/model"
+	"stewarr/internal/services/imdb"
 )
 
 func daysSince(timestamp time.Time) float64 { return time.Since(timestamp).Hours() / 24 }
@@ -61,25 +62,36 @@ func splitTags(tags string) []string {
 	return out
 }
 
-// effectiveRating returns the rating/vote data valuation should score:
-// TMDB's own numbers when TMDB enrichment has a match for this item
-// (TMDBVoteCount>0), otherwise Radarr/Sonarr's own Rating/VoteCount. An
-// item with genuinely zero TMDB votes wouldn't carry meaningful rating
-// data anyway, so falling back to Radarr/Sonarr's in that edge case is
-// harmless — the point is that TMDB being unconfigured, unreachable, or
-// having no match for this title never removes the signal Radarr/Sonarr
-// already provided.
-func effectiveRating(mediaItem model.Media) (rating float64, votes int) {
-	if mediaItem.TMDBVoteCount > 0 {
-		return mediaItem.TMDBRating, mediaItem.TMDBVoteCount
+// effectiveRating returns the rating/vote data valuation should score, and
+// which source it came from (for the Rating reason's Note). IMDb's own
+// dataset always wins when this item's IMDBID has a match there —
+// regardless of its own vote count — since it's a single authoritative
+// source, not a per-item confidence comparison: TMDB's live vote_average
+// let a handful of votes on a niche/regional title (e.g. a Quebec series
+// scoring 2.7 on TMDB's own API vs. 7.3 on both IMDb and Radarr/Sonarr's
+// own native rating) silently override a far better number that was
+// already available. Falls back to TMDB's own numbers when TMDB
+// enrichment has a match (TMDBVoteCount>0), then to Radarr/Sonarr's own
+// Rating/VoteCount — unchanged from before IMDb existed as a source. A
+// title with no IMDb match today starts being preferred the moment a
+// later daily refresh adds one, since this always re-checks the live
+// map rather than caching a decision per item.
+func effectiveRating(mediaItem model.Media, imdbRatings map[string]imdb.Rating) (rating float64, votes int, source string) {
+	if mediaItem.IMDBID != "" {
+		if r, ok := imdbRatings[mediaItem.IMDBID]; ok {
+			return r.Value, r.Votes, "IMDb"
+		}
 	}
-	return mediaItem.Rating, mediaItem.VoteCount
+	if mediaItem.TMDBVoteCount > 0 {
+		return mediaItem.TMDBRating, mediaItem.TMDBVoteCount, "TMDB"
+	}
+	return mediaItem.Rating, mediaItem.VoteCount, ""
 }
 
 // Apply assigns Retention Value to every media. Higher Retention Value
 // survives longer; cleanup ordering is lowest-value first. Retention Value is
 // intentionally unbounded.
-func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
+func ApplyMedia(mediaItems []model.Media, configuration config.Config, imdbRatings map[string]imdb.Rating) {
 	now := time.Now()
 	for mediaIndex := range mediaItems {
 		mediaItem := &mediaItems[mediaIndex]
@@ -117,11 +129,15 @@ func ApplyMedia(mediaItems []model.Media, configuration config.Config) {
 			value += points
 			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: label, Value: fmt.Sprintf("%.0f days ago", requestAge.Hours()/24), Points: points})
 		}
-		rating, voteCount := effectiveRating(*mediaItem)
+		rating, voteCount, ratingSource := effectiveRating(*mediaItem, imdbRatings)
 		if rating > 0 {
 			points := clamp(rating/10, 0, 1) * configuration.Valuation.Weights.Rating
 			value += points
-			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, model.Reason{Label: "Rating", Value: fmt.Sprintf("%.1f/10", rating), Points: points})
+			reason := model.Reason{Label: "Rating", Value: fmt.Sprintf("%.1f/10", rating), Points: points}
+			if ratingSource != "" {
+				reason.Note = ratingSource + "'s own rating."
+			}
+			mediaItem.RetentionValueReasons = append(mediaItem.RetentionValueReasons, reason)
 		}
 		if mediaItem.Views == 0 {
 			value += configuration.Valuation.Weights.NeverWatched

@@ -28,13 +28,26 @@
       {{if .TMDBSuccess}}<p class="positive">{{if .TMDBEnabled}}TMDB enrichment enabled.{{else}}TMDB enrichment disabled.{{end}}</p>{{end}}
       <form method="post" action="/settings/tmdb">
         <div class="field-stack">
-          <label class="toggle"><input type="checkbox" data-tmdb-toggle {{if .TMDBEnabled}}checked{{end}}><span>Use TMDB enrichment<span class="muted">Adds popularity and trending to the media value.</span></span></label>
+          <label class="toggle"><input type="checkbox" data-tmdb-toggle {{if .TMDBEnabled}}checked{{end}}><span>Use TMDB enrichment<span class="muted">Adds popularity to the media value, and its own rating for anything IMDb (below) doesn't have a match for.</span></span></label>
           <label for="settings-tmdb-key" data-tmdb-field {{if not .TMDBEnabled}}hidden{{end}}>API key<input id="settings-tmdb-key" name="tmdb_api_key" type="password" autocomplete="off" value="{{.TMDBAPIKey}}"></label>
         </div>
         <div class="actions">
           <button type="button" data-tmdb-test data-tmdb-field {{if not .TMDBEnabled}}hidden{{end}}>Test</button>
           <button type="submit">Save</button>
           <span data-tmdb-test-result></span>
+        </div>
+      </form>
+    </div>
+    <div class="card settings-card">
+      <h2>IMDb ratings</h2>
+      {{if .IMDbError}}<p class="bad">{{.IMDbError}}</p>{{end}}
+      {{if .IMDbSuccess}}<p class="positive">{{if .IMDbEnabled}}IMDb ratings enabled.{{else}}IMDb ratings disabled.{{end}}</p>{{end}}
+      <form method="post" action="/settings/imdb">
+        <div class="field-stack">
+          <label class="toggle"><input type="checkbox" name="imdb_enabled" value="1" {{if .IMDbEnabled}}checked{{end}}><span>Use IMDb ratings<span class="muted">Prefers IMDb's own rating/vote count over TMDB's whenever a match exists — free, no API key, updated once a day. Falls back to TMDB, then to Radarr/Sonarr's own rating, when there's no match.</span></span></label>
+        </div>
+        <div class="actions">
+          <button type="submit">Save</button>
         </div>
       </form>
     </div>

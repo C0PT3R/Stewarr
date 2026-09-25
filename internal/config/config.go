@@ -284,6 +284,17 @@ type Config struct {
 	TMDB struct {
 		APIKey string `json:"api_key,omitempty"`
 	} `json:"tmdb"`
+	// IMDb enrichment is a free, official, non-commercial dataset
+	// (title.ratings.tsv.gz), not a per-instance service — no URL or API
+	// key to configure, just an on/off switch, unlike TMDB. Stored
+	// inverted (Disabled, not Enabled) so a zero-value/omitted field — an
+	// existing config.json predating this setting, or a fresh install —
+	// means enabled, matching DeviceThreshold.AutomaticRemovalDisabled's
+	// same trick: IMDb should be on by default, not something every
+	// existing install silently loses until someone finds the toggle.
+	IMDb struct {
+		Disabled bool `json:"disabled,omitempty"`
+	} `json:"imdb"`
 	// Auth holds the single admin account's credentials. An empty Username
 	// means no account has been created yet — the app's first-run setup
 	// screen is the only route reachable until SetCredentials is called.
@@ -342,6 +353,15 @@ type Connection struct {
 func SetTMDBAPIKey(configuration Config, apiKey string) Config {
 	updated := configuration
 	updated.TMDB.APIKey = strings.TrimSpace(apiKey)
+	return updated
+}
+
+// SetIMDbEnabled toggles IMDb ratings enrichment. Unlike TMDB there is no
+// key to set/clear — the dataset is free and keyless — so this is a
+// plain on/off switch instead.
+func SetIMDbEnabled(configuration Config, enabled bool) Config {
+	updated := configuration
+	updated.IMDb.Disabled = !enabled
 	return updated
 }
 

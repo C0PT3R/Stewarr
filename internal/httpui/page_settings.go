@@ -17,6 +17,10 @@ type settingsPageData struct {
 	TMDBAPIKey  string
 	TMDBEnabled bool
 
+	IMDbError   string
+	IMDbSuccess bool
+	IMDbEnabled bool
+
 	RemovalError                   string
 	RemovalSuccess                 bool
 	AutoMode                       string
@@ -37,6 +41,7 @@ func (server *Server) settingsData() settingsPageData {
 	return settingsPageData{
 		TMDBAPIKey:                     cfg.TMDB.APIKey,
 		TMDBEnabled:                    cfg.TMDB.APIKey != "",
+		IMDbEnabled:                    !cfg.IMDb.Disabled,
 		AutoMode:                       autoMode,
 		AutoRemoveUnassociatedTorrents: cfg.Removal.AutoRemoveUnassociatedTorrents,
 		DryRun:                         cfg.Removal.DryRun,
@@ -114,6 +119,28 @@ func (server *Server) setTMDBAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 	data = server.settingsData()
 	data.TMDBSuccess = true
+	_ = renderTemplate(w, server.settingsTpl, data)
+}
+
+// setIMDbEnabled toggles IMDb ratings enrichment — no key field, since
+// the dataset is free and keyless, unlike TMDB.
+func (server *Server) setIMDbEnabled(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	data := server.settingsData()
+	if err := server.inv.SetIMDbEnabled(r.FormValue("imdb_enabled") == "1"); err != nil {
+		data.IMDbError = err.Error()
+		_ = renderTemplate(w, server.settingsTpl, data)
+		return
+	}
+	data = server.settingsData()
+	data.IMDbSuccess = true
 	_ = renderTemplate(w, server.settingsTpl, data)
 }
 

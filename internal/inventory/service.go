@@ -9,6 +9,7 @@ import (
 	"sort"
 	"stewarr/internal/config"
 	"stewarr/internal/model"
+	"stewarr/internal/services/imdb"
 	"stewarr/internal/services/jellyfin"
 	"stewarr/internal/services/qbittorrent"
 	"stewarr/internal/services/radarr"
@@ -42,10 +43,16 @@ type Reliability struct {
 }
 
 type Service struct {
-	cfg              config.Config
-	mu               sync.RWMutex
-	items            []model.Media
-	torrents         []model.Torrent
+	cfg      config.Config
+	mu       sync.RWMutex
+	items    []model.Media
+	torrents []model.Torrent
+	// imdbRatings is IMDb's own dataset (see internal/services/imdb),
+	// loaded at startup and replaced wholesale after each successful daily
+	// refresh — never mutated in place, so callers that copy the map
+	// reference under a read lock don't need to hold the lock while using
+	// it afterward.
+	imdbRatings      map[string]imdb.Rating
 	unmanaged        []model.UnmanagedFile
 	unmanagedUpdated time.Time
 	unmanagedErr     error
@@ -90,13 +97,14 @@ type Service struct {
 	// quality-tier libraries, a seedbox alongside a local client). Jellyfin
 	// and Seerr are each a single centralized service in every known
 	// real-world deployment, so they keep the simpler single-client shape.
-	rad   map[string]*radarr.Client
-	son   map[string]*sonarr.Client
-	jf    *jellyfin.Client
-	seerr *seerr.Client
-	tmdb  *tmdb.Client
-	qb    map[string]*qbittorrent.Client
-	db    *store.Store
+	rad        map[string]*radarr.Client
+	son        map[string]*sonarr.Client
+	jf         *jellyfin.Client
+	seerr      *seerr.Client
+	tmdb       *tmdb.Client
+	imdbClient *imdb.Client
+	qb         map[string]*qbittorrent.Client
+	db         *store.Store
 	// configPath is where a live config mutation (AddService) persists
 	// the updated Config. Empty means live editing is unavailable (e.g. a
 	// Service built directly in tests, with no file backing it at all).
@@ -118,7 +126,7 @@ func (service *Service) SetConfigPath(path string) {
 }
 
 func New(configuration config.Config, database *store.Store) *Service {
-	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), tmdb: tmdb.New(configuration.TMDB.APIKey), qb: buildQBittorrentClients(configuration)}
+	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), tmdb: tmdb.New(configuration.TMDB.APIKey), imdbClient: imdb.New(), qb: buildQBittorrentClients(configuration)}
 	loadStarted := time.Now()
 	if database != nil {
 		if items, updated, err := database.LoadMedia(); err == nil {
@@ -155,6 +163,11 @@ func New(configuration config.Config, database *store.Store) *Service {
 			}
 		} else {
 			log.Printf("[inventory] load cached torrents: %v", err)
+		}
+		if imdbRatings, _, err := database.LoadIMDbRatings(); err == nil {
+			service.imdbRatings = imdbRatings
+		} else {
+			log.Printf("[inventory] load cached IMDb ratings: %v", err)
 		}
 		if files, updated, err := database.LoadUnmanagedFiles(); err == nil {
 			service.unmanaged, service.unmanagedUpdated = files, updated
@@ -196,7 +209,7 @@ func New(configuration config.Config, database *store.Store) *Service {
 			applyTorrentFileEstimates(service.torrents, files, torrentRefs)
 			applyTorrentMediaHardlinks(service.torrents, service.items, files, mediaRefs, torrentRefs)
 			projectTorrentRelations(service.items, service.torrents)
-			valuation.ApplyMedia(service.items, service.cfg)
+			valuation.ApplyMedia(service.items, service.cfg, service.imdbRatings)
 		} else {
 			log.Printf("[inventory] load cached File topology: %v", err)
 		}
@@ -220,7 +233,7 @@ func New(configuration config.Config, database *store.Store) *Service {
 				service.items[mediaIndex].Torrents[torrentIndex].AssociationStatus = model.NormalizeTorrentStatus(service.items[mediaIndex].Torrents[torrentIndex].AssociationStatus)
 			}
 		}
-		valuation.ApplyMedia(service.items, service.cfg)
+		valuation.ApplyMedia(service.items, service.cfg, service.imdbRatings)
 		service.generation = 1
 		service.baseFingerprint = inventoryFingerprint(service.items, service.torrents)
 		service.hasBaseFingerprint = true
@@ -416,6 +429,16 @@ func (service *Service) TorrentSnapshot() []model.Torrent {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 	return cloneTorrents(service.torrents)
+}
+
+// imdbRatingsSnapshot returns the current IMDb ratings map reference for a
+// caller that isn't already holding service.mu — safe without cloning
+// since imdbRatings is only ever replaced wholesale (see the field's own
+// comment), never mutated in place.
+func (service *Service) imdbRatingsSnapshot() map[string]imdb.Rating {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.imdbRatings
 }
 
 // TorrentDetail enriches the locally indexed relationship/storage facts with

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"stewarr/internal/config"
+	"stewarr/internal/services/imdb"
 	"stewarr/internal/services/jellyfin"
 	"stewarr/internal/services/qbittorrent"
 	"stewarr/internal/services/radarr"
@@ -276,13 +277,63 @@ func (service *Service) SetTMDBAPIKey(apiKey string) error {
 	if updatedCfg.TMDB.APIKey == "" && service.generation > 0 {
 		items := cloneMedia(service.items)
 		clearTMDBFacts(items)
-		valuation.ApplyMedia(items, service.cfg)
+		valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
 		if service.db != nil {
 			_ = service.db.PublishEnrichment("tmdb", service.generation, items)
 		}
 		service.items = items
 		service.reliability.TMDB = "not configured"
 		service.reliability.Valuation = enrichmentReliable(service.reliability.Jellyfin) && enrichmentReliable(service.reliability.Seerr) && enrichmentReliable(service.reliability.TMDB)
+	}
+	service.mu.Unlock()
+	return nil
+}
+
+// SetIMDbEnabled toggles IMDb ratings enrichment. Enabling immediately
+// loads whatever snapshot is already cached on disk (from a previous
+// enabled period) into memory rather than waiting for the next scheduled
+// daily fetch — cheap, no network involved, and re-scores right away so
+// re-enabling doesn't sit inert until the next fetch window. Disabling
+// clears the in-memory map (not the on-disk table, so re-enabling later
+// doesn't force a redundant re-download) and re-scores immediately, the
+// same deliberate-opt-out treatment SetTMDBAPIKey gives clearing its key.
+func (service *Service) SetIMDbEnabled(enabled bool) error {
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	if service.configPath == "" {
+		return fmt.Errorf("live config editing is unavailable: no config file path is set")
+	}
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	updatedCfg := config.SetIMDbEnabled(currentCfg, enabled)
+
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
+
+	var loaded map[string]imdb.Rating
+	if enabled && service.db != nil {
+		if ratings, _, err := service.db.LoadIMDbRatings(); err == nil {
+			loaded = ratings
+		} else {
+			log.Printf("[inventory] load cached IMDb ratings on enable: %v", err)
+		}
+	}
+
+	service.mu.Lock()
+	service.cfg = updatedCfg
+	service.imdbRatings = loaded
+	if service.generation > 0 {
+		items := cloneMedia(service.items)
+		valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
+		if service.db != nil {
+			_ = service.db.PublishEnrichment("imdb", service.generation, items)
+		}
+		service.items = items
 	}
 	service.mu.Unlock()
 	return nil

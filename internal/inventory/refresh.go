@@ -465,7 +465,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		rids, sids, provenance, he = service.syncImportHistory(ctx)
 	}()
 
-	valuation.ApplyMedia(all, service.cfg)
+	valuation.ApplyMedia(all, service.cfg, service.imdbRatingsSnapshot())
 	service.mu.Lock()
 	service.items = cloneMedia(all)
 	service.updated = time.Now()
@@ -480,12 +480,13 @@ func (service *Service) Refresh(ctx context.Context) error {
 	if len(service.cfg.ServicesOfType("qbittorrent")) == 0 {
 		service.mu.RLock()
 		files, mediaFileRefs, cfg := service.files, service.mediaFileRefs, service.cfg
+		imdbRatings := service.imdbRatings
 		generation := service.generation
 		service.mu.RUnlock()
 		applyMediaFileEstimates(all, files, mediaFileRefs)
 		attachSeasons(all, mediaFileRefs, files)
 		applySeasonFileEstimates(all, files, mediaFileRefs)
-		valuation.ApplyMedia(all, cfg)
+		valuation.ApplyMedia(all, cfg, imdbRatings)
 		if service.db != nil {
 			service.publishMu.Lock()
 			err := service.db.PublishInventory(generation, nil, nil, all)
@@ -629,7 +630,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 		return strings.ToLower(torrentList[i].Name) < strings.ToLower(torrentList[j].Name)
 	})
 	projectTorrentRelations(all, torrentList)
-	valuation.ApplyMedia(all, service.cfg)
+	valuation.ApplyMedia(all, service.cfg, service.imdbRatingsSnapshot())
 	service.mu.Lock()
 	// Re-merge the newest topology while holding the generation lock. A file
 	// reconciliation may have completed after the earlier snapshot was read;
@@ -644,7 +645,7 @@ func (service *Service) Refresh(ctx context.Context) error {
 	applySeasonBundleEstimates(all, torrentList, service.files, service.mediaFileRefs, service.torrentFileRefs)
 	projectTorrentRelations(all, torrentList)
 	valuation.ApplyTorrentValue(torrentList, service.cfg, service.recentTorrentHistory())
-	valuation.ApplyMedia(all, service.cfg)
+	valuation.ApplyMedia(all, service.cfg, service.imdbRatings)
 	// setStageTiming locks service.mu itself, and it is already held here.
 	service.stageTimings["relationships merge"] = time.Since(relationshipsMergeStarted)
 	generation := service.generation

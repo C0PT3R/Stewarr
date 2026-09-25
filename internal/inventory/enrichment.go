@@ -53,7 +53,7 @@ func (service *Service) RefreshJellyfin(ctx context.Context) error {
 	defer service.mu.Unlock()
 	items := cloneMedia(service.items)
 	mergeJellyfinFacts(items, base)
-	valuation.ApplyMedia(items, service.cfg)
+	valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
 	if service.db != nil {
 		if err := service.db.PublishEnrichment("jellyfin", service.generation, items); err != nil {
 			service.reliability.Jellyfin = "stale"
@@ -109,7 +109,7 @@ func (service *Service) RefreshSeerr(ctx context.Context) error {
 	defer service.mu.Unlock()
 	items := cloneMedia(service.items)
 	mergeSeerrFacts(items, base)
-	valuation.ApplyMedia(items, service.cfg)
+	valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
 	if service.db != nil {
 		if err := service.db.PublishEnrichment("seerr", service.generation, items); err != nil {
 			service.reliability.Seerr = "stale"
@@ -184,7 +184,7 @@ func (service *Service) RefreshTMDB(ctx context.Context) error {
 	defer service.mu.Unlock()
 	items := cloneMedia(service.items)
 	mergeTMDBFacts(items, base)
-	valuation.ApplyMedia(items, service.cfg)
+	valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
 	if service.db != nil {
 		if err := service.db.PublishEnrichment("tmdb", service.generation, items); err != nil {
 			service.reliability.TMDB = "stale"
@@ -319,7 +319,7 @@ func (service *Service) EnrichNewMedia(ctx context.Context) error {
 	if len(seerrPending) > 0 && seerrErr == nil {
 		mergeSeerrFacts(items, seerrPending)
 	}
-	valuation.ApplyMedia(items, service.cfg)
+	valuation.ApplyMedia(items, service.cfg, service.imdbRatings)
 	if service.db != nil {
 		if err := service.db.PublishEnrichment("new-media", generation, items); err != nil {
 			return err

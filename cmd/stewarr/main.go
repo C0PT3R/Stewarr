@@ -35,6 +35,11 @@ const (
 	tmdbEnrichmentInterval    = 24 * time.Hour
 	enrichmentRemovalCooldown = 30 * time.Minute
 	torrentHistoryInterval    = 30 * time.Minute
+	// imdbRatingsCheckInterval is short and cheap on purpose: the task
+	// itself self-gates on the configured wall-clock hour (see
+	// imdbRatingsDue in internal/inventory/imdb_ratings.go) rather than
+	// this interval actually pacing the real, once-a-day download.
+	imdbRatingsCheckInterval = 30 * time.Minute
 )
 
 func main() {
@@ -124,6 +129,7 @@ func main() {
 		tasks.Definition{ID: "jellyfin", Name: "Jellyfin enrichment", Description: "Refresh playback and favorite facts used by automatic planning.", Interval: jellyfinEnrichmentInterval, Preflight: retryable(inv.ValidateJellyfin), Runner: retryable(inv.RefreshJellyfin), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "seerr", Name: "Seerr enrichment", Description: "Refresh request facts used by automatic planning.", Interval: seerrEnrichmentInterval, Preflight: retryable(inv.ValidateSeerr), Runner: retryable(inv.RefreshSeerr), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "tmdb", Name: "TMDB enrichment", Description: "Refresh rating, vote, and popularity facts used by automatic planning.", Interval: tmdbEnrichmentInterval, Preflight: retryable(inv.ValidateTMDB), Runner: retryable(inv.RefreshTMDB), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
+		tasks.Definition{ID: "imdb", Name: "IMDb ratings refresh", Description: "Once daily, replace IMDb's own rating/vote-count dataset used to prefer its numbers over TMDB's.", Interval: imdbRatingsCheckInterval, Runner: retryable(inv.RefreshIMDbRatings), Resources: []tasks.ResourceClaim{maintenanceClaim, publicationClaim}, Interruptible: true, InterruptionDelay: enrichmentRemovalCooldown, Priority: tasks.PriorityPeriodic, Retry: retryPolicy, Recovery: tasks.RecoveryRetry},
 		tasks.Definition{ID: "files", Name: "File reconciliation", Description: "Scan service storage and reconcile file ownership.", Interval: fileReconcileInterval, Preflight: retryable(inv.ValidateReconciliation), AttachCompatible: fullScanAttachCompatible, Runner: retryable(func(ctx context.Context) error {
 			if tasks.TriggeredOnlyBy(ctx, tasks.TriggerWorkflow) {
 				return inv.ReconcileFilesAfterMutation(ctx)
@@ -159,6 +165,14 @@ func main() {
 		}
 		// File topology is independent of value enrichment and runs alongside it.
 		_, _ = taskManager.Submit(tasks.Request{TaskID: "files", Kind: tasks.TriggerStartup, Priority: tasks.PriorityManual, Durable: false, Cause: "Application startup"})
+		// IMDb's own due-check inside RefreshIMDbRatings decides whether a
+		// fetch is actually needed (past the fetch hour, not already done
+		// today) — submitting it unconditionally at every startup, rather
+		// than waiting for its next periodic tick, is what catches the
+		// very first run (no data yet) and a restart after a day or more
+		// of downtime (stale data) immediately instead of up to
+		// imdbRatingsCheckInterval later.
+		_, _ = taskManager.Submit(tasks.Request{TaskID: "imdb", Kind: tasks.TriggerStartup, Priority: tasks.PriorityManual, Durable: false, Cause: "Application startup"})
 		// Enrichments share a scheduler group, so they publish one at a time.
 		seerrTrigger, err := taskManager.Submit(tasks.Request{TaskID: "seerr", Kind: tasks.TriggerStartup, Priority: tasks.PriorityManual, Durable: false, Cause: "Application startup"})
 		if err == nil {

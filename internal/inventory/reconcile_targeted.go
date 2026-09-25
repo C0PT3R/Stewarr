@@ -254,6 +254,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	}
 	mc := cloneMedia(service.items)
 	cfg := service.cfg
+	imdbRatings := service.imdbRatings
 	service.mu.RUnlock()
 	if !generationCurrent {
 		return service.promoteTargeted(ctx, "generation_changed")
@@ -282,7 +283,7 @@ func (service *Service) reconcileTargeted(ctx context.Context) error {
 	applySeasonFileEstimates(mc, files, mediaRefs)
 	projectTorrentRelations(mc, tc)
 	valuation.ApplyTorrentValue(tc, cfg, service.recentTorrentHistory())
-	valuation.ApplyMedia(mc, cfg)
+	valuation.ApplyMedia(mc, cfg, imdbRatings)
 
 	stageStarted = time.Now()
 	// publishMu serializes this generation-check-then-write sequence against

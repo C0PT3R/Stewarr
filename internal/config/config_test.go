@@ -360,6 +360,30 @@ func TestSetCredentialsRejectsEmptyUsernameAndShortPassword(t *testing.T) {
 	}
 }
 
+// TestIMDbEnabledDefaultsTrue guards the whole point of storing this
+// inverted (IMDb.Disabled, not "enabled"): a config predating this
+// setting, or a fresh install, has no explicit entry at all and must
+// still default to IMDb ratings being on, not silently opted out the
+// moment this field was introduced.
+func TestIMDbEnabledDefaultsTrue(t *testing.T) {
+	var c Config
+	if c.IMDb.Disabled {
+		t.Fatal("expected IMDb ratings to default to enabled")
+	}
+}
+
+func TestSetIMDbEnabledTogglesTheInvertedField(t *testing.T) {
+	var c Config
+	disabled := SetIMDbEnabled(c, false)
+	if !disabled.IMDb.Disabled {
+		t.Fatal("expected SetIMDbEnabled(false) to set Disabled=true")
+	}
+	enabled := SetIMDbEnabled(disabled, true)
+	if enabled.IMDb.Disabled {
+		t.Fatal("expected SetIMDbEnabled(true) to set Disabled=false")
+	}
+}
+
 func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
 	var c Config
 	updated := SetTMDBAPIKey(c, "  a-real-key  ")
