@@ -90,6 +90,7 @@ internal/httpui/templates.go
 internal/httpui/templates/add_service.html
 internal/httpui/templates/edit_service.html
 internal/httpui/templates/device_settings.html
+internal/httpui/templates/cleanup_plan.html
 internal/httpui/templates/history.html
 internal/httpui/templates/home.html
 internal/httpui/templates/library.html

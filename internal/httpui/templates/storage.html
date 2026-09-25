@@ -42,7 +42,12 @@
             {{if .Name}}<div>{{.Name}}</div>{{end}}
             <div class="muted">{{if .Storage.RootLabels}}{{join .Storage.RootLabels ", "}}{{else}}{{.Storage.RepresentativePath}}{{end}}{{if .Storage.Filesystem}} · {{.Storage.Filesystem}}{{end}}</div>
           </div>
-          <button type="button" class="card-link" data-overlay-url="/storage/device-settings?path={{urlquery .Storage.RepresentativePath}}" aria-label="Device settings" title="Device settings">🔧</button>
+          <div class="card-head-actions">
+            {{if and .Enabled (gt .Plan.NeedBytes 0) .Plan.Actions}}
+            <button type="button" class="card-link" data-overlay-url="/storage/cleanup-plan?path={{urlquery .Storage.RepresentativePath}}" aria-label="Cleanup plan" title="Cleanup plan">📋</button>
+            {{end}}
+            <button type="button" class="card-link" data-overlay-url="/storage/device-settings?path={{urlquery .Storage.RepresentativePath}}" aria-label="Device settings" title="Device settings">🔧</button>
+          </div>
         </div>
         {{if .Storage.Available}}
         <!-- Patched live every few seconds straight from /storage/stats (see
@@ -79,27 +84,7 @@
             {{else if not .Enabled}}
               <p class="muted">Automatic removal is off for this device. Enable it in Device settings (🔧) to see suggestions.</p>
             {{else if gt .Plan.NeedBytes 0}}
-              <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.</p>
-              {{if .Plan.Actions}}
-              {{$torrentActions := torrentCleanupActions .Plan.Actions}}
-              {{$mediaActions := mediaCleanupActions .Plan.Actions}}
-              {{if $torrentActions}}
-              <div class="cleanup-group">
-                <h4>Torrents <span class="count">{{len $torrentActions}}</span></h4>
-                <ul class="cleanup-actions">
-                  {{range $torrentActions}}<li><div class="row-title">{{(index .Torrents 0).Name}}</div><div class="row-meta">{{torrentActionContext (index .Torrents 0)}} · {{human .ReclaimableBytes}}</div></li>{{end}}
-                </ul>
-              </div>
-              {{end}}
-              {{if $mediaActions}}
-              <div class="cleanup-group">
-                <h4>Media <span class="count">{{len $mediaActions}}</span></h4>
-                <ul class="cleanup-actions">
-                  {{range $mediaActions}}<li><div class="row-title">{{if eq .Kind "bundle"}}{{.Media.Title}}{{if .Season}} · Season {{.Season.Number}}{{end}} + {{len .Torrents}} hardlinked torrent(s){{else if eq .Kind "season"}}{{.Media.Title}} · Season {{.Season.Number}}{{else}}{{.Media.Title}}{{end}}</div><div class="row-meta">{{if .Media.ServiceName}}{{.Media.ServiceName}} · {{end}}{{human .ReclaimableBytes}}</div></li>{{end}}
-                </ul>
-              </div>
-              {{end}}
-              {{end}}
+              <p class="bad"><b>Cleanup active.</b><br>{{.Plan.Message}}<br>{{len .Plan.Actions}} action(s) selected · {{humanU .Plan.SelectedBytes}} planned.{{if .Plan.Actions}} See the cleanup plan (📋) for the full list.{{end}}</p>
             {{else}}
               <p class="good"><b>Cleanup inactive.</b><br>{{.Plan.Message}}</p>
             {{end}}

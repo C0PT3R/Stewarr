@@ -100,12 +100,18 @@ func TestStorageTemplateScopesServiceRootsToTheirOwnDevice(t *testing.T) {
 	}
 }
 
-func TestStorageTemplateRendersCleanupActions(t *testing.T) {
+// TestStorageTemplateShowsCleanupPlanButtonOnlyWhenThereAreActions guards
+// the card-length fix: the detailed per-action Torrents/Media lists used
+// to render inline in the card (making it uncomfortably long for a device
+// with many candidates) and now live in the cleanup-plan overlay instead
+// — the card only shows the aggregate summary plus a 📋 button, and that
+// button must not appear when there's nothing to show it for.
+func TestStorageTemplateShowsCleanupPlanButtonOnlyWhenThereAreActions(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := storageData{
+	withActions := storageData{
 		Devices: []deviceView{
 			{
 				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
@@ -114,61 +120,106 @@ func TestStorageTemplateRendersCleanupActions(t *testing.T) {
 					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
 					Actions: []cleanup.Action{
 						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Old Release"}}, ReclaimableBytes: 10},
-						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
-						{Kind: cleanup.HardlinkedBundle, Media: model.Media{Title: "Bundled Movie"}, Torrents: []model.Torrent{{Name: "Bundled Release"}}, ReclaimableBytes: 10},
-						// A StandaloneSeason action has no Torrents at all — this
-						// guards a real crash where the template's catch-all
-						// "else" branch assumed every non-bundle/non-media action
-						// was a torrent and indexed into an empty Torrents slice.
-						{Kind: cleanup.StandaloneSeason, Media: model.Media{Title: "Some Show"}, Season: &model.Season{Number: 3}, ReclaimableBytes: 10},
 					},
 				},
 			},
 		},
 	}
 	recorder := httptest.NewRecorder()
-	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
+	if err := renderTemplate(recorder, server.storageTpl, withActions); err != nil {
 		t.Fatalf("render storage template: %v", err)
 	}
 	body := recorder.Body.String()
-	for _, want := range []string{"Old Release", "Lonely Movie", "Bundled Movie + 1 hardlinked torrent(s)", "Some Show · Season 3", "4 action(s) selected"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
-		}
+	if !strings.Contains(body, "/storage/cleanup-plan?path=") {
+		t.Fatalf("expected the cleanup-plan button when actions are selected, got:\n%s", body)
+	}
+	if !strings.Contains(body, "1 action(s) selected") {
+		t.Fatalf("expected the aggregate summary to remain inline, got:\n%s", body)
+	}
+	if strings.Contains(body, "Old Release") {
+		t.Fatalf("expected the detailed action list to have moved out of the card, got:\n%s", body)
+	}
+
+	noActions := storageData{
+		Devices: []deviceView{
+			{
+				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 900, UsedBytes: 100},
+				Enabled: true,
+				Plan:    cleanup.Plan{Available: true, UsagePercent: 10, TargetUsagePercent: 80, NeedBytes: 0, Message: "Under target"},
+			},
+		},
+	}
+	recorder = httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.storageTpl, noActions); err != nil {
+		t.Fatalf("render storage template: %v", err)
+	}
+	if strings.Contains(recorder.Body.String(), "/storage/cleanup-plan?path=") {
+		t.Fatalf("expected no cleanup-plan button when nothing needs cleanup, got:\n%s", recorder.Body.String())
 	}
 }
 
-// TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents guards the fix
-// for a real observability gap: a StandaloneTorrent candidate used to
-// render as nothing but its raw release name, giving no way to tell
-// whether removing it would touch any library copy at all. Torrent and
-// media candidates are now shown as two separate, labeled groups (matching
-// the two tiers cleanup.rank() already computes), and each torrent line
-// discloses its association status, whether it's a proven-independent
-// (non-hardlinked) copy, and which media it relates to if any.
-func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
+// TestCleanupPlanTemplateRendersActions guards the cleanup-plan overlay
+// itself — the detailed per-action list that used to render inline on the
+// Storage page card now lives here instead. A StandaloneSeason action has
+// no Torrents at all, which guards a real crash where an earlier version
+// of this same markup's catch-all "else" branch assumed every
+// non-bundle/non-media action was a torrent and indexed into an empty
+// Torrents slice.
+func TestCleanupPlanTemplateRendersActions(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	data := storageData{
-		Devices: []deviceView{
-			{
-				Storage: inventory.StorageDevice{RepresentativePath: "/data/movies", Available: true, TotalBytes: 1000, FreeBytes: 100, UsedBytes: 900},
-				Enabled: true,
-				Plan: cleanup.Plan{
-					Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 20,
-					Actions: []cleanup.Action{
-						{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Show.S03E01.mkv", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, MediaItems: []model.MediaRef{{Title: "Some Show", Year: 2024}}}}, ReclaimableBytes: 10},
-						{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie", ServiceName: "Movies 4K"}, ReclaimableBytes: 10},
-					},
-				},
+	data := cleanupPlanData{
+		RepresentativePath: "/data/movies",
+		Plan: cleanup.Plan{
+			Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 30, Message: "Need to reclaim 30.0 B to reach 80.0% usage",
+			Actions: []cleanup.Action{
+				{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Old Release"}}, ReclaimableBytes: 10},
+				{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie"}, ReclaimableBytes: 10},
+				{Kind: cleanup.HardlinkedBundle, Media: model.Media{Title: "Bundled Movie"}, Torrents: []model.Torrent{{Name: "Bundled Release"}}, ReclaimableBytes: 10},
+				{Kind: cleanup.StandaloneSeason, Media: model.Media{Title: "Some Show"}, Season: &model.Season{Number: 3}, ReclaimableBytes: 10},
 			},
 		},
 	}
 	recorder := httptest.NewRecorder()
-	if err := renderTemplate(recorder, server.storageTpl, data); err != nil {
-		t.Fatalf("render storage template: %v", err)
+	if err := renderTemplate(recorder, server.cleanupPlanTpl, data); err != nil {
+		t.Fatalf("render cleanup-plan template: %v", err)
+	}
+	body := recorder.Body.String()
+	for _, want := range []string{"Old Release", "Lonely Movie", "Bundled Movie + 1 hardlinked torrent(s)", "Some Show · Season 3", "4 action(s) selected"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected cleanup-plan output to contain %q, got:\n%s", want, body)
+		}
+	}
+}
+
+// TestCleanupPlanTemplateGroupsActionsAndExplainsTorrents guards the fix
+// for a real observability gap: a StandaloneTorrent candidate used to
+// render as nothing but its raw release name, giving no way to tell
+// whether removing it would touch any library copy at all. Torrent and
+// media candidates are shown as two separate, labeled groups (matching
+// the two tiers cleanup.rank() already computes), and each torrent line
+// discloses its association status, whether it's a proven-independent
+// (non-hardlinked) copy, and which media it relates to if any.
+func TestCleanupPlanTemplateGroupsActionsAndExplainsTorrents(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := cleanupPlanData{
+		RepresentativePath: "/data/movies",
+		Plan: cleanup.Plan{
+			Available: true, UsagePercent: 90, TargetUsagePercent: 80, NeedBytes: 100, SelectedBytes: 20,
+			Actions: []cleanup.Action{
+				{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Name: "Show.S03E01.mkv", AssociationStatus: model.TorrentCurrent, MediaHardlinkKnown: true, MediaHardlinked: false, MediaItems: []model.MediaRef{{Title: "Some Show", Year: 2024}}}}, ReclaimableBytes: 10},
+				{Kind: cleanup.StandaloneMedia, Media: model.Media{Title: "Lonely Movie", ServiceName: "Movies 4K"}, ReclaimableBytes: 10},
+			},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.cleanupPlanTpl, data); err != nil {
+		t.Fatalf("render cleanup-plan template: %v", err)
 	}
 	body := recorder.Body.String()
 	torrentGroupIndex := strings.Index(body, "cleanup-group")
@@ -180,11 +231,30 @@ func TestStorageTemplateGroupsCleanupActionsAndExplainsTorrents(t *testing.T) {
 		"Lonely Movie", "Movies 4K", ">Torrents ", ">Media ",
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("expected storage output to contain %q, got:\n%s", want, body)
+			t.Fatalf("expected cleanup-plan output to contain %q, got:\n%s", want, body)
 		}
 	}
 	if strings.Index(body, "Torrents") > strings.Index(body, "Lonely Movie") {
 		t.Fatalf("torrent group should render before the media group, got:\n%s", body)
+	}
+}
+
+// TestCleanupPlanTemplateRendersEmptyState guards the safety net for the
+// 📋 button's non-reactive placement (it's rendered once with the rest of
+// the card-head, not inside the live-patched fragment) — the plan can
+// clear between page loads, so opening the overlay right after that must
+// still show something sensible instead of an empty modal.
+func TestCleanupPlanTemplateRendersEmptyState(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.cleanupPlanTpl, cleanupPlanData{RepresentativePath: "/data/movies"}); err != nil {
+		t.Fatalf("render cleanup-plan template: %v", err)
+	}
+	if !strings.Contains(recorder.Body.String(), "Nothing currently needs cleanup") {
+		t.Fatalf("expected an empty-state message, got:\n%s", recorder.Body.String())
 	}
 }
 
@@ -452,6 +522,29 @@ func TestDeviceSettingsFormRendersCurrentThresholds(t *testing.T) {
 	// value it still preserves under the hood).
 	if strings.Contains(body, "85") {
 		t.Fatalf("expected no trace of the critical threshold in the rendered overlay, got:\n%s", body)
+	}
+}
+
+// TestCleanupPlanFormRoutesAndRendersEmptyStateForUnknownDevice guards the
+// actual HTTP wiring (route registered, handler reachable, template
+// resolved) rather than just the template in isolation — a path that
+// doesn't match any currently known device (e.g. the device was removed,
+// or the request is stale) must render the same empty state as a device
+// with nothing to clean up, not error out.
+func TestCleanupPlanFormRoutesAndRendersEmptyStateForUnknownDevice(t *testing.T) {
+	server, err := New(inventory.New(config.Config{}, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/storage/cleanup-plan?path=/data/movies", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "Nothing currently needs cleanup") {
+		t.Fatalf("expected the empty-state message, got:\n%s", recorder.Body.String())
 	}
 }
 

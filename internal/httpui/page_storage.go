@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"stewarr/internal/cleanup"
 	"stewarr/internal/config"
 	"stewarr/internal/inventory"
 )
@@ -163,6 +164,44 @@ func (server *Server) deviceSettingsForm(w http.ResponseWriter, r *http.Request)
 	}
 	if err := renderTemplate(w, server.deviceSettingsTpl, data); err != nil {
 		log.Printf("[http] render device-settings overlay: %v", err)
+	}
+}
+
+type cleanupPlanData struct {
+	RepresentativePath string
+	RootLabels         []string
+	Filesystem         string
+	Plan               cleanup.Plan
+}
+
+// cleanupPlanForm returns the per-device cleanup-plan overlay fragment — the
+// detailed per-action Torrents/Media lists used to live inline in the
+// device's card, but a device with many candidates made the card
+// uncomfortably long; the card now only shows the aggregate summary
+// ("N action(s) selected"), and this overlay (opened by the 📋 button next
+// to the device's wrench) is where the actual list lives.
+func (server *Server) cleanupPlanForm(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := r.URL.Query().Get("path")
+	items, _, _ := server.inv.Snapshot()
+	projection := server.pendingProjection()
+	items = projection.filterMedia(items)
+	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
+	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
+	data := cleanupPlanData{RepresentativePath: path}
+	for _, view := range server.deviceViews(items, ts, planningReliable) {
+		if view.Storage.RepresentativePath == path {
+			data.RootLabels = view.Storage.RootLabels
+			data.Filesystem = view.Storage.Filesystem
+			data.Plan = view.Plan
+			break
+		}
+	}
+	if err := renderTemplate(w, server.cleanupPlanTpl, data); err != nil {
+		log.Printf("[http] render cleanup-plan overlay: %v", err)
 	}
 }
 
