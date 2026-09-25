@@ -1,0 +1,130 @@
+[data-filter-clear][hidden] {
+  display: none !important;
+}
+.operation-indicator {
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid #40576a;
+  border-radius: 999px;
+  background: #1b2a35;
+  color: var(--accent-strong) !important;
+  font-size: 13px;
+  text-decoration: none;
+}
+.signout-form {
+  margin-left: 10px;
+}
+.signout-button {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.updates-available {
+  position: sticky;
+  top: 10px;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  height: 0;
+}
+.updates-available[hidden] {
+  display: none;
+}
+.updates-available button {
+  transform: translateY(12px);
+  border-color: #52718a;
+  background: #1f3443;
+  color: #dcedfa;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.persistent-notices {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 900;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 40px));
+}
+.persistent-notice {
+  display: block;
+  padding: 11px 13px;
+  border: 1px solid rgba(240, 120, 120, 0.35);
+  border-radius: 8px;
+  background: #2a1d21;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  text-decoration: none;
+}
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.modal-open {
+  overflow: hidden;
+}
+.preparing {
+  min-height: 130px;
+  display: grid;
+  align-content: center;
+}
+.operation-error {
+  margin-top: 14px;
+}
+.reason-note {
+  display: block;
+  max-width: 44rem;
+  margin-top: 3px;
+  line-height: 1.35;
+}
+.card-kv {
+  margin-top: 12px;
+}
+.operation-state {
+  max-width: 760px;
+  margin: 48px auto;
+}
+.operation-card {
+  padding: 24px !important;
+}
+.operation-card h1 {
+  margin: 10px 0 8px;
+}
+.operation-status {
+  text-transform: uppercase;
+  color: var(--warn);
+}
+[data-user-triggered-swap] {
+  transition: opacity 0.12s ease;
+}
+.htmx-request[data-user-triggered-swap] {
+  opacity: 0.72;
+}
+.htmx-settling[data-user-triggered-swap] {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  *::before {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

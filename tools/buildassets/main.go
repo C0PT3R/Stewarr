@@ -1,16 +1,19 @@
 // Command buildassets bundles the TypeScript sources under
 // internal/httpui/static/src, together with the pinned vendor scripts
 // (htmx, Stimulus), into the single internal/httpui/static/app.js file the
-// httpui package embeds and serves. It is invoked by the Makefile
+// httpui package embeds and serves — and, the same way, bundles the scoped
+// CSS sources under internal/httpui/static/src/styles into the single
+// internal/httpui/static/app.css file. It is invoked by the Makefile
 // (build/run/deploy) and the Dockerfile before `go build`/`go test`, since
-// //go:embed requires app.js to already exist on disk.
+// //go:embed requires app.js/app.css to already exist on disk.
 //
 // Every page load competes for the browser's ~6-connections-per-origin
 // HTTP/1.1 limit against its own assets (this app has no TLS, so no
 // HTTP/2 multiplexing). Serving htmx, Stimulus, and the app bundle as one
 // file instead of three separate <script> tags frees up two of those
 // slots for the things that actually need them, like the live-updates
-// EventSource.
+// EventSource — the same reasoning applies to CSS, split into scoped
+// source files for maintainability but still served as one file.
 package main
 
 import (
@@ -45,6 +48,25 @@ func main() {
 	}
 	if len(result.Errors) > 0 {
 		for _, e := range result.Errors {
+			fmt.Fprintln(os.Stderr, "[buildassets] error:", e.Text)
+		}
+		os.Exit(1)
+	}
+
+	cssResult := api.Build(api.BuildOptions{
+		EntryPoints: []string{"internal/httpui/static/src/styles/app.css"},
+		Outfile:     "internal/httpui/static/app.css",
+		Bundle:      true,
+		Write:       true,
+		Target:      api.ES2020,
+		Platform:    api.PlatformBrowser,
+		LogLevel:    api.LogLevelInfo,
+	})
+	for _, w := range cssResult.Warnings {
+		fmt.Fprintln(os.Stderr, "[buildassets] warning:", w.Text)
+	}
+	if len(cssResult.Errors) > 0 {
+		for _, e := range cssResult.Errors {
 			fmt.Fprintln(os.Stderr, "[buildassets] error:", e.Text)
 		}
 		os.Exit(1)

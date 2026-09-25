@@ -1,0 +1,23 @@
+#home-dashboard .card {
+  position: relative;
+  transition: background-color 0.12s ease;
+}
+#home-dashboard .card:hover {
+  background: var(--surface-raised, #232323) !important;
+}
+#home-dashboard .card-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+.empty-state p {
+  margin-bottom: 12px;
+}
+.big {
+  font-size: 32px;
+  font-weight: 800;
+}

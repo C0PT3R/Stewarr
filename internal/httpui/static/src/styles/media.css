@@ -1,0 +1,118 @@
+.panel {
+  background: var(--surface) !important;
+  border: 1px solid var(--border-soft) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+  border-radius: 9px;
+  padding: 14px 16px;
+}
+.section {
+  background: var(--surface) !important;
+  border: 1px solid var(--border-soft) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.13);
+  border-radius: 9px;
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+.panel h2 {
+  color: #f0f3f5;
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+.section h2 {
+  color: #f0f3f5;
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+.page {
+  max-width: 1380px;
+  margin: 0 auto;
+  padding: 20px 0 32px;
+}
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 28px;
+  border-bottom: 1px solid #2e2e2e;
+  padding-bottom: 18px;
+}
+.hero h1 {
+  font-size: 30px;
+  margin: 0 0 6px;
+}
+.summary {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.2fr) repeat(2, minmax(220px, 0.8fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.reasons {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.reasons td {
+  padding: 6px 2px;
+  border-bottom: 1px solid #303030;
+  vertical-align: top;
+}
+.reasons td:last-child {
+  text-align: right;
+  font-weight: 700;
+  padding-left: 12px;
+}
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.section-head h2 {
+  margin: 0;
+}
+.count {
+  color: #aaa;
+  font-weight: 400;
+}
+.row {
+  border-top: 1px solid #303030;
+  padding: 9px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.owner {
+  font-weight: 400;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  font-size: 13px;
+}
+.row-action {
+  white-space: nowrap;
+}
+.group-title {
+  font-size: 14px;
+  margin: 14px 0 2px;
+  color: #ddd;
+}
+.footer {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #888;
+}
+@media (max-width: 900px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+  .hero {
+    align-items: flex-end;
+  }
+  .row {
+    grid-template-columns: 1fr;
+  }
+  .row-action {
+    justify-self: start;
+  }
+}

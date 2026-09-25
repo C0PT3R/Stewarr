@@ -1,0 +1,19 @@
+/* Bundled by tools/buildassets into internal/httpui/static/app.css — do
+   not edit that generated file directly, edit these sources instead.
+   Import order here has no cascade effect (every selector below resolves
+   to exactly one merged rule, no cross-file duplicate-selector overrides
+   remain), so it's chosen purely for readability: shared foundations
+   first, page-specific styles last. */
+@import "tokens.css";
+@import "base.css";
+@import "chrome.css";
+@import "forms.css";
+@import "table.css";
+@import "modal.css";
+@import "storage.css";
+@import "services.css";
+@import "auth.css";
+@import "home.css";
+@import "media.css";
+@import "notices.css";
+@import "wizard.css";

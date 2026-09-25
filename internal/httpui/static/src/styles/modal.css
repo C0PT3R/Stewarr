@@ -1,0 +1,310 @@
+.modal-root:empty {
+  display: none;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 7, 10, 0.78);
+  backdrop-filter: blur(5px);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 1000;
+}
+.modal-dialog {
+  width: min(1100px, 96vw);
+  max-height: min(90vh, 900px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 22px 24px;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.025);
+  box-sizing: border-box;
+  border-color: #3a4855;
+}
+.modal-dialog .top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  flex: 0 0 auto;
+}
+.modal-scroll {
+  overflow: auto;
+  min-height: 0;
+  padding-right: 8px;
+}
+.modal-dialog .summary {
+  display: flex;
+  gap: 40px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-top: 1px solid #333;
+  border-bottom: 1px solid #333;
+  margin: 16px 0;
+  background: var(--surface-soft);
+  border: 1px solid var(--border) !important;
+  border-radius: 9px;
+}
+.modal-dialog .big {
+  font-size: 24px;
+  font-weight: 800;
+}
+.modal-dialog .row {
+  padding: 9px 0;
+  border-bottom: 1px solid #2d2d2d;
+  border-color: var(--border) !important;
+}
+.modal-dialog .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #333;
+  flex: 0 0 auto;
+}
+.modal-dialog .actions button {
+  padding: 9px 14px;
+  border-radius: 7px;
+  border: 1px solid #555;
+  background: #202a34;
+  color: var(--text);
+  border-color: #44515e;
+}
+.modal-dialog .actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.disabled-tip {
+  display: inline-block;
+  cursor: not-allowed;
+}
+.disabled-tip button {
+  pointer-events: none;
+}
+.managed-tree {
+  margin: 6px 0;
+}
+.managed-media {
+  margin: 6px 0;
+}
+.managed-group {
+  margin: 5px 0;
+}
+.managed-file {
+  margin-left: 34px;
+  display: flex !important;
+  gap: 6px !important;
+  padding: 6px 0 !important;
+}
+.managed-group.root-files > .managed-file {
+  margin-left: 0;
+}
+.managed-file label {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  flex: 1;
+}
+.managed-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.managed-description {
+  display: block;
+  margin-top: 2px;
+}
+.managed-size {
+  white-space: nowrap;
+  color: #aaa;
+}
+.group-label {
+  display: block;
+  padding: 5px 0;
+}
+.managed-season {
+  margin: 3px 0 !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+}
+.managed-season > summary {
+  cursor: pointer;
+  padding: 5px 0;
+  line-height: 1.25;
+}
+.managed-season > summary .group-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+}
+.managed-season > div {
+  margin-left: 18px;
+}
+.torrent-group {
+  margin-top: 12px;
+}
+.torrent-group h4 {
+  margin: 0 0 5px;
+}
+.torrent-action-row {
+  padding: 8px 0 !important;
+}
+.modal-dialog .danger {
+  background: #8d3034 !important;
+  border-color: #b7474c !important;
+}
+.danger {
+  background: #722 !important;
+  border-color: #933 !important;
+}
+.modal-dialog .simulate {
+  background: #725b1d !important;
+  border-color: #9a7a28 !important;
+}
+.unmanaged-actions {
+  margin: 12px 0;
+}
+.modal-dialog .dry {
+  display: inline-block;
+  padding: 5px 8px;
+  border: 1px solid #9b7b24;
+  border-radius: 6px;
+  color: #ffcf66;
+  font-weight: 700;
+}
+.modal-dialog .hardlink {
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+.modal-dialog details {
+  margin-top: 16px;
+  border-top: 1px solid #333;
+  padding-top: 12px;
+  border-color: var(--border) !important;
+  background: rgba(10, 16, 21, 0.26);
+  border: 1px solid var(--border) !important;
+  border-radius: 9px;
+  padding: 11px 14px;
+}
+.modal-dialog summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  background: #202a34;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 10px 14px;
+  z-index: 1200;
+  border-color: #455563;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+}
+.modal-dialog .top h2 {
+  color: var(--accent-strong);
+  font-size: 25px;
+}
+.modal-dialog h3 {
+  color: #cbd8e3;
+  font-size: 17px;
+}
+.modal-dialog strong {
+  color: inherit;
+}
+.modal-dialog b {
+  color: inherit;
+}
+.modal-dialog .summary .big {
+  font-size: 18px;
+  font-weight: 700;
+  color: #dce7ef;
+}
+.modal-dialog .optional {
+  background: rgba(10, 16, 21, 0.34);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  padding: 4px 14px 10px;
+  margin: 14px 0;
+}
+.modal-dialog .row label {
+  color: #dce3e9;
+}
+.modal-dialog .linked-meta {
+  margin-left: 26px;
+  color: var(--muted) !important;
+}
+.modal-dialog details summary {
+  color: #cbd8e3;
+}
+.modal-dialog .file-path {
+  color: #c5d0da;
+}
+.modal-dialog .file-path strong {
+  color: var(--accent-strong);
+}
+.modal-dialog .danger:hover {
+  background: #a1393e !important;
+}
+.removal-calculating {
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.modal-dialog[data-calculating="true"] .removal-calculating {
+  height: auto;
+  opacity: 1;
+  margin: -8px 0 10px;
+}
+.modal-dialog .optional .row > .muted {
+  margin-left: 26px;
+}
+.modal-dialog details .mono {
+  color: #c5d0da;
+}
+.modal-dialog details .mono strong {
+  color: var(--accent-strong);
+}
+.remove-wrap {
+  display: inline-block;
+  cursor: not-allowed;
+}
+.remove-wrap button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+@media (max-width: 760px) {
+  .modal-overlay {
+    padding: 8px;
+  }
+  .modal-dialog {
+    box-sizing: border-box;
+    width: 100%;
+    height: calc(100vh - 16px);
+    max-height: none;
+    padding: 16px;
+  }
+  .modal-dialog .actions {
+    margin-top: 8px;
+  }
+  .managed-file {
+    margin-left: 18px;
+  }
+  .modal-dialog .linked-meta {
+    margin-left: 0 !important;
+  }
+}
