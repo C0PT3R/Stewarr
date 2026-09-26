@@ -153,6 +153,34 @@ func TestAddImportListExclusion(t *testing.T) {
 	}
 }
 
+// TestAddImportListExclusionToleratesAlreadyAdded guards a retried
+// exclusion (e.g. from a re-run removal) against Sonarr's own duplicate
+// rejection: the exclusion is already in the state we wanted, so this
+// specific 400 must not surface as an error.
+func TestAddImportListExclusionToleratesAlreadyAdded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusBadRequest)
+		_, _ = response.Write([]byte(`[{"propertyName":"TvdbId","errorMessage":"This exclusion has already been added.","severity":"error"}]`))
+	}))
+	defer server.Close()
+	if err := New(server.URL, "key").AddImportListExclusion("Series", 84); err != nil {
+		t.Fatalf("expected the duplicate-exclusion 400 to be tolerated, got %v", err)
+	}
+}
+
+// TestAddImportListExclusionSurfacesOtherValidationFailures guards against
+// over-tolerance: a 400 for any other reason must still be a real error.
+func TestAddImportListExclusionSurfacesOtherValidationFailures(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusBadRequest)
+		_, _ = response.Write([]byte(`[{"propertyName":"Title","errorMessage":"'Title' must not be empty.","severity":"error"}]`))
+	}))
+	defer server.Close()
+	if err := New(server.URL, "key").AddImportListExclusion("Series", 84); err == nil {
+		t.Fatal("expected a non-duplicate validation failure to surface as an error")
+	}
+}
+
 // TestFilesCarriesEpisodeAirDateIntoMediaFilePart guards the data path a
 // season's Retention Value now depends on for recency: each episode's
 // airDateUtc must reach its MediaFilePart.AiredAt, since season-recency

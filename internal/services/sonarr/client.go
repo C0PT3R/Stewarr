@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -413,7 +414,53 @@ func (client *Client) AddImportListExclusion(title string, tvdbID int) error {
 		TVDBID int    `json:"tvdbId"`
 		Title  string `json:"title"`
 	}{TVDBID: tvdbID, Title: title}
-	return client.postJSON("/api/v3/importlistexclusion", body)
+	encodedBody, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequestWithContext(client.requestContext(), http.MethodPost, client.base+"/api/v3/importlistexclusion", bytes.NewReader(encodedBody))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("X-Api-Key", client.key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.hc.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 == 2 {
+		return nil
+	}
+	responseBody, _ := io.ReadAll(response.Body)
+	if response.StatusCode == http.StatusBadRequest && importListExclusionAlreadyAdded(responseBody) {
+		// Sonarr's own FluentValidation rejects a TvdbId that already
+		// carries an exclusion with this exact 400 — the exclusion is
+		// already in the state we wanted, so this isn't a real failure.
+		// Without this, a retried removal (e.g. after a transient error
+		// elsewhere in the same batch) keeps failing forever on an
+		// exclusion that already succeeded the first time.
+		return nil
+	}
+	return fmt.Errorf("sonarr /api/v3/importlistexclusion: %s", response.Status)
+}
+
+// importListExclusionAlreadyAdded reports whether a 400 response body from
+// POST /api/v3/importlistexclusion is Sonarr's ImportListExclusionExistsValidator
+// rejecting a duplicate TvdbId, rather than some other validation failure.
+func importListExclusionAlreadyAdded(body []byte) bool {
+	var errs []struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if err := json.Unmarshal(body, &errs); err != nil {
+		return false
+	}
+	for _, e := range errs {
+		if strings.Contains(e.ErrorMessage, "already been added") {
+			return true
+		}
+	}
+	return false
 }
 
 type RootFolder struct {
