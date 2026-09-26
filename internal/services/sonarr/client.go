@@ -325,6 +325,84 @@ func (client *Client) SetEpisodesMonitored(ids []int, monitored bool) error {
 	return nil
 }
 
+// resolveOrCreateTagID returns the id of the tag labeled label, creating
+// it in Sonarr first if no such tag exists yet. Sonarr's own tags are
+// referenced by numeric id everywhere else in its API, never by label
+// directly.
+func (client *Client) resolveOrCreateTagID(label string) (int, error) {
+	var tags []tag
+	if err := client.get("/api/v3/tag", &tags); err != nil {
+		return 0, err
+	}
+	for _, t := range tags {
+		if strings.EqualFold(t.Label, label) {
+			return t.ID, nil
+		}
+	}
+	encodedBody, err := json.Marshal(map[string]string{"label": label})
+	if err != nil {
+		return 0, err
+	}
+	request, err := http.NewRequestWithContext(client.requestContext(), http.MethodPost, client.base+"/api/v3/tag", bytes.NewReader(encodedBody))
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("X-Api-Key", client.key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.hc.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("sonarr create tag: %s", response.Status)
+	}
+	var created tag
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		return 0, err
+	}
+	return created.ID, nil
+}
+
+// AddKeepTag tags seriesID with label (creating the tag in Sonarr if it
+// doesn't already exist there) — used to permanently protect a series
+// from cleanup directly from Stewarr's own UI, the same mechanism a user
+// manually tagging it in Sonarr itself would produce. A no-op, not an
+// error, if the series already carries the tag.
+func (client *Client) AddKeepTag(seriesID int, label string) error {
+	tagID, err := client.resolveOrCreateTagID(label)
+	if err != nil {
+		return err
+	}
+	var s map[string]any
+	if err := client.get(fmt.Sprintf("/api/v3/series/%d", seriesID), &s); err != nil {
+		return err
+	}
+	rawTags, _ := s["tags"].([]any)
+	for _, t := range rawTags {
+		if id, ok := t.(float64); ok && int(id) == tagID {
+			return nil
+		}
+	}
+	s["tags"] = append(rawTags, tagID)
+	b, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	req, _ := http.NewRequestWithContext(client.requestContext(), http.MethodPut, fmt.Sprintf("%s/api/v3/series/%d", client.base, seriesID), bytes.NewReader(b))
+	req.Header.Set("X-Api-Key", client.key)
+	req.Header.Set("Content-Type", "application/json")
+	r, err := client.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		return fmt.Errorf("sonarr series update: %s", r.Status)
+	}
+	return nil
+}
+
 // AddImportListExclusion prevents a configured Sonarr import list from
 // re-adding a series whose managed files were intentionally removed.
 func (client *Client) AddImportListExclusion(title string, tvdbID int) error {

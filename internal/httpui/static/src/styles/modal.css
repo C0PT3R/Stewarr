@@ -38,6 +38,19 @@
   min-height: 0;
   padding-right: 8px;
 }
+/* #cleanup-plan-form wraps .modal-scroll/.actions directly (every other
+   modal's own form sits *inside* its .modal-scroll instead, so this
+   doesn't apply to them) — a plain block box by default, which breaks
+   the flex-shrink chain .modal-dialog relies on to constrain
+   .modal-scroll's height and make it the thing that scrolls, rather than
+   the whole dialog overflowing its own max-height. Giving this one form
+   the same flex column treatment one level down restores it exactly. */
+#cleanup-plan-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .modal-dialog .summary {
   display: flex;
   gap: 40px;

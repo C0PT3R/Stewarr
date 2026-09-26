@@ -259,6 +259,84 @@ func (client *Client) SetMonitored(id int, monitored bool) error {
 	return nil
 }
 
+// resolveOrCreateTagID returns the id of the tag labeled label, creating
+// it in Radarr first if no such tag exists yet. Radarr's own tags are
+// referenced by numeric id everywhere else in its API, never by label
+// directly.
+func (client *Client) resolveOrCreateTagID(label string) (int, error) {
+	var tags []tag
+	if err := client.get("/api/v3/tag", &tags); err != nil {
+		return 0, err
+	}
+	for _, t := range tags {
+		if strings.EqualFold(t.Label, label) {
+			return t.ID, nil
+		}
+	}
+	encodedBody, err := json.Marshal(map[string]string{"label": label})
+	if err != nil {
+		return 0, err
+	}
+	request, err := http.NewRequestWithContext(client.requestContext(), http.MethodPost, client.base+"/api/v3/tag", bytes.NewReader(encodedBody))
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("X-Api-Key", client.key)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.hc.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("radarr create tag: %s", response.Status)
+	}
+	var created tag
+	if err := json.NewDecoder(response.Body).Decode(&created); err != nil {
+		return 0, err
+	}
+	return created.ID, nil
+}
+
+// AddKeepTag tags movieID with label (creating the tag in Radarr if it
+// doesn't already exist there) — used to permanently protect a movie
+// from cleanup directly from Stewarr's own UI, the same mechanism a user
+// manually tagging it in Radarr itself would produce. A no-op, not an
+// error, if the movie already carries the tag.
+func (client *Client) AddKeepTag(movieID int, label string) error {
+	tagID, err := client.resolveOrCreateTagID(label)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := client.get(fmt.Sprintf("/api/v3/movie/%d", movieID), &m); err != nil {
+		return err
+	}
+	rawTags, _ := m["tags"].([]any)
+	for _, t := range rawTags {
+		if id, ok := t.(float64); ok && int(id) == tagID {
+			return nil
+		}
+	}
+	m["tags"] = append(rawTags, tagID)
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	req, _ := http.NewRequestWithContext(client.requestContext(), http.MethodPut, fmt.Sprintf("%s/api/v3/movie/%d", client.base, movieID), bytes.NewReader(b))
+	req.Header.Set("X-Api-Key", client.key)
+	req.Header.Set("Content-Type", "application/json")
+	r, err := client.hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer r.Body.Close()
+	if r.StatusCode/100 != 2 {
+		return fmt.Errorf("radarr movie update: %s", r.Status)
+	}
+	return nil
+}
+
 // AddImportListExclusion prevents a configured Radarr import list from
 // re-adding a movie whose managed files were intentionally removed.
 func (client *Client) AddImportListExclusion(title string, year, tmdbID int) error {

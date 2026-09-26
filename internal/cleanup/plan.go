@@ -3,6 +3,7 @@ package cleanup
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -54,6 +55,28 @@ type Action struct {
 	ComparableValue  float64        `json:"-"`
 	ReclaimableBytes int64          `json:"reclaimableBytes"`
 	Reasons          []model.Reason `json:"reasons,omitempty"`
+}
+
+// ActionKey is a stable identifier for one Action, independent of its
+// position in a Plan's Actions slice (which can shift between two Build
+// calls, e.g. once an item is excluded and a replacement takes its
+// place) — content-derived from exactly what already uniquely identifies
+// a torrent or a media item/season everywhere else in this codebase.
+// Used both to let a caller exclude a specific candidate from selection
+// (see Build's excluded parameter) and to re-locate one exact action a
+// UI is acting on (protecting, say) in a freshly rebuilt Plan.
+func ActionKey(action Action) string {
+	if action.Kind == StandaloneTorrent {
+		if len(action.Torrents) == 0 {
+			return ""
+		}
+		return "torrent:" + strings.ToLower(action.Torrents[0].Hash) + ":" + action.Torrents[0].ServiceID
+	}
+	season := ""
+	if action.Season != nil {
+		season = strconv.Itoa(action.Season.Number)
+	}
+	return "media:" + string(action.Media.Type) + ":" + action.Media.ServiceID + ":" + strconv.Itoa(action.Media.SourceID) + ":" + season
 }
 
 type Plan struct {
@@ -198,6 +221,25 @@ func classify(media []model.Media, torrents []model.Torrent) (mediaTier, torrent
 	}
 
 	return mediaTier, torrentTier
+}
+
+// filterExcluded drops any action whose ActionKey is in excluded, as if
+// it were never eligible in the first place — the rest of Build's
+// selection logic is unaware exclusion even happened, so a different
+// candidate naturally fills whatever share of NeedBytes the excluded one
+// would have.
+func filterExcluded(tier []Action, excluded map[string]bool) []Action {
+	if len(excluded) == 0 {
+		return tier
+	}
+	out := make([]Action, 0, len(tier))
+	for _, action := range tier {
+		if excluded[ActionKey(action)] {
+			continue
+		}
+		out = append(out, action)
+	}
+	return out
 }
 
 // rank orders a media tier and torrent tier as one unified, ascending-value
@@ -364,7 +406,15 @@ func enforceSeasonOrder(actions []Action) {
 // media services sharing a device) each shed roughly their own proportion
 // of it rather than whichever type scores lowest overall absorbing nearly
 // all of it. Torrents are never part of that split; see rank/fairMediaShare.
-func Build(path string, otherBytes uint64, claimedByService map[string]uint64, targetUsage, criticalUsage, torrentCarePercent float64, media []model.Media, torrents []model.Torrent, reliable bool) (Plan, error) {
+// excluded is a set of ActionKey values to leave out of selection
+// entirely, as if the candidates they name didn't exist — used for a
+// live "what would replace this" recompute from the cleanup-plan
+// overlay (excluding an item from one run, or one just protected but not
+// yet reflected in Media/Torrents' own Protected field since the tag
+// write hasn't round-tripped through that service's next reconciliation
+// yet) without waiting for anything to actually change on disk. Every
+// other caller passes nil.
+func Build(path string, otherBytes uint64, claimedByService map[string]uint64, targetUsage, criticalUsage, torrentCarePercent float64, media []model.Media, torrents []model.Torrent, reliable bool, excluded map[string]bool) (Plan, error) {
 	plan := Plan{Path: path, TargetUsagePercent: targetUsage, CriticalUsagePercent: criticalUsage, Reliable: reliable}
 	var filesystemStats syscall.Statfs_t
 	if err := syscall.Statfs(path, &filesystemStats); err != nil {
@@ -423,6 +473,10 @@ func Build(path string, otherBytes uint64, claimedByService map[string]uint64, t
 		return plan, nil
 	}
 	mediaTier, torrentTier := classify(media, torrents)
+	if len(excluded) > 0 {
+		mediaTier = filterExcluded(mediaTier, excluded)
+		torrentTier = filterExcluded(torrentTier, excluded)
+	}
 	// baseline is the old, purely cross-domain-scaled ordering — used only
 	// to measure how many bytes the torrent side vs. the media side
 	// contribute in aggregate to reach NeedBytes, exactly as before. Which

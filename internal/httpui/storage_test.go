@@ -3,6 +3,7 @@ package httpui
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -244,6 +245,44 @@ func TestCleanupPlanTemplateGroupsActionsAndExplainsTorrents(t *testing.T) {
 // the card-head, not inside the live-patched fragment) — the plan can
 // clear between page loads, so opening the overlay right after that must
 // still show something sensible instead of an empty modal.
+// TestCleanupPlanTemplateRendersExcludeProtectButtonsAndCarriesExcludedForward
+// guards the live "skip and backfill" wiring end to end at the template
+// layer: each row gets both a Skip and a Protect button carrying the
+// right path/key data attributes, and any already-excluded keys (from a
+// previous Skip/Protect in this same modal session) round-trip back out
+// as hidden fields so Clean's own submission reproduces the identical
+// filtered plan.
+func TestCleanupPlanTemplateRendersExcludeProtectButtonsAndCarriesExcludedForward(t *testing.T) {
+	server, err := New(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	action := cleanup.Action{Kind: cleanup.StandaloneTorrent, Torrents: []model.Torrent{{Hash: "ABC123", ServiceID: "qb-1", Name: "Old Release"}}, ReclaimableBytes: 10}
+	data := cleanupPlanData{
+		RepresentativePath: "/data/movies",
+		Excluded:           []string{"media:movie:radarr-1:1:"},
+		Plan: cleanup.Plan{
+			Available: true, NeedBytes: 100, SelectedBytes: 10,
+			Actions: []cleanup.Action{action},
+		},
+	}
+	recorder := httptest.NewRecorder()
+	if err := renderTemplate(recorder, server.cleanupPlanTpl, data); err != nil {
+		t.Fatalf("render cleanup-plan template: %v", err)
+	}
+	body := recorder.Body.String()
+	key := cleanup.ActionKey(action)
+	for _, want := range []string{
+		`data-cleanup-exclude data-path="/data/movies" data-key="` + key + `"`,
+		`data-cleanup-protect data-path="/data/movies" data-key="` + key + `"`,
+		`name="excluded" value="media:movie:radarr-1:1:"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected cleanup-plan output to contain %q, got:\n%s", want, body)
+		}
+	}
+}
+
 func TestCleanupPlanTemplateRendersEmptyState(t *testing.T) {
 	server, err := New(nil, nil)
 	if err != nil {
@@ -545,6 +584,27 @@ func TestCleanupPlanFormRoutesAndRendersEmptyStateForUnknownDevice(t *testing.T)
 	}
 	if !strings.Contains(recorder.Body.String(), "Nothing currently needs cleanup") {
 		t.Fatalf("expected the empty-state message, got:\n%s", recorder.Body.String())
+	}
+}
+
+// TestCleanupPlanCleanAndProtectRouteToUnknownDevice guards the same HTTP
+// wiring for the two new POST routes: a path that doesn't match any
+// currently known device must report 404, not panic or silently no-op.
+func TestCleanupPlanCleanAndProtectRouteToUnknownDevice(t *testing.T) {
+	server, err := New(inventory.New(config.Config{}, nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.Handler()
+
+	for _, path := range []string{"/storage/cleanup-plan/clean", "/storage/cleanup-plan/protect"} {
+		recorder := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(url.Values{"path": {"/data/movies"}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf("%s: expected 404, got status=%d body=%q", path, recorder.Code, recorder.Body.String())
+		}
 	}
 }
 

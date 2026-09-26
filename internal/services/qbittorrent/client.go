@@ -665,6 +665,18 @@ func (client *Client) Delete(hash string) error {
 	return client.postForm("/api/v2/torrents/delete", url.Values{"hashes": {strings.TrimSpace(hash)}, "deleteFiles": {"true"}})
 }
 
+// AddTag applies tag to hash — used to permanently protect a torrent
+// from cleanup directly from Stewarr's own UI. Unlike Radarr/Sonarr,
+// qBittorrent tags are plain strings with no id indirection, and
+// addTags is already idempotent (adding a tag a torrent already has is a
+// no-op on qBittorrent's own side).
+func (client *Client) AddTag(hash, tag string) error {
+	if !client.enabled() {
+		return fmt.Errorf("qbittorrent is not configured")
+	}
+	return client.postForm("/api/v2/torrents/addTags", url.Values{"hashes": {strings.TrimSpace(hash)}, "tags": {tag}})
+}
+
 // Validate verifies that the configured qBittorrent endpoint and credentials work.
 func (client *Client) Validate() error {
 	if !client.enabled() {

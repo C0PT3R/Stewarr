@@ -365,6 +365,40 @@ func SetIMDbEnabled(configuration Config, enabled bool) Config {
 	return updated
 }
 
+// AddKeepTagToMedia idempotently adds tag to Protection.KeepTags — used
+// when a media item is protected via the cleanup-plan overlay's shield
+// button, so that protection actually takes effect (KeepTags is what
+// valuation.ApplyMedia checks) rather than only existing as a tag on the
+// Radarr/Sonarr side with no local effect.
+func AddKeepTagToMedia(configuration Config, tag string) Config {
+	if containsTag(configuration.Protection.KeepTags, tag) {
+		return configuration
+	}
+	updated := configuration
+	updated.Protection.KeepTags = append(append([]string(nil), configuration.Protection.KeepTags...), tag)
+	return updated
+}
+
+// AddKeepTagToTorrents mirrors AddKeepTagToMedia for
+// Protection.KeepTorrentTags.
+func AddKeepTagToTorrents(configuration Config, tag string) Config {
+	if containsTag(configuration.Protection.KeepTorrentTags, tag) {
+		return configuration
+	}
+	updated := configuration
+	updated.Protection.KeepTorrentTags = append(append([]string(nil), configuration.Protection.KeepTorrentTags...), tag)
+	return updated
+}
+
+func containsTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if strings.EqualFold(t, tag) {
+			return true
+		}
+	}
+	return false
+}
+
 // SetRemovalSettings updates the global removal switches together, since
 // the Settings page always submits all three as one form. autoMode and
 // autoRemoveUnassociated are meaningless for an item whose own service

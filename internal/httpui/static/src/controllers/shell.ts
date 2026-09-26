@@ -134,6 +134,16 @@ export class ShellController extends window.Stimulus.Controller {
       event.preventDefault();
       this.testTMDBConnection(tmdbTest);
     }
+    const cleanupProtect = target.closest<HTMLElement>("[data-cleanup-protect]");
+    if (cleanupProtect) {
+      event.preventDefault();
+      this.protectCleanupAction(cleanupProtect);
+    }
+    const cleanupExclude = target.closest<HTMLElement>("[data-cleanup-exclude]");
+    if (cleanupExclude) {
+      event.preventDefault();
+      this.excludeCleanupAction(cleanupExclude);
+    }
   }
 
   filterInput(event: Event): void {
@@ -308,6 +318,72 @@ export class ShellController extends window.Stimulus.Controller {
     } finally {
       (button as HTMLButtonElement).disabled = false;
       button.textContent = originalLabel;
+    }
+  }
+
+  // The cleanup-plan form's own currently-excluded keys (rendered back as
+  // hidden fields by the server every time the plan is recomputed — see
+  // cleanupPlanData.Excluded) — read fresh each time rather than tracked
+  // separately in JS, so there's exactly one source of truth for "what's
+  // currently excluded," never at risk of drifting from what the modal
+  // actually displays.
+  currentExcludedKeys(button: HTMLElement): string[] {
+    const form = button.closest("form");
+    if (!form) return [];
+    return [...form.querySelectorAll<HTMLInputElement>('input[name="excluded"]')].map(input => input.value);
+  }
+
+  // Reopens the cleanup-plan overlay with key added to the excluded set —
+  // the server recomputes the plan leaving that action out of selection
+  // entirely, so a different candidate immediately fills the gap rather
+  // than the device's cleanup target going unmet (see cleanup.Build's
+  // excluded parameter). Reused by both Skip (no other effect) and
+  // Protect (after the permanent tag write actually succeeds).
+  reopenCleanupPlanExcluding(button: HTMLElement, key: string): void {
+    const path = button.dataset.path;
+    if (!path) return;
+    const url = new URL("/storage/cleanup-plan", location.origin);
+    url.searchParams.set("path", path);
+    for (const existing of this.currentExcludedKeys(button)) url.searchParams.append("excluded", existing);
+    url.searchParams.append("excluded", key);
+    this.openOverlay(url.pathname + url.search, button);
+  }
+
+  // Skip is transient and purely a recompute request — nothing is
+  // persisted, so unlike Protect there's no network round trip before
+  // reopening with the new exclusion in place.
+  excludeCleanupAction(button: HTMLElement): void {
+    const key = button.dataset.key;
+    if (!key) return;
+    this.reopenCleanupPlanExcluding(button, key);
+  }
+
+  // Independent of the cleanup-plan form's own Clean submission — a plain
+  // button (not a nested form), read via its own data-path/data-key
+  // attributes, so protecting one row works immediately while still
+  // reviewing the rest of the list instead of submitting the whole batch.
+  // Sends the form's current excluded keys along too, so the server finds
+  // this exact row in the same already-filtered plan the user is looking
+  // at (a fresh, entirely unexcluded rebuild could have chosen a
+  // different replacement candidate instead of this one).
+  async protectCleanupAction(button: HTMLElement): Promise<void> {
+    const path = button.dataset.path;
+    const key = button.dataset.key;
+    if (!path || !key) return;
+    (button as HTMLButtonElement).disabled = true;
+    try {
+      const body = new URLSearchParams({ path, key });
+      for (const existing of this.currentExcludedKeys(button)) body.append("excluded", existing);
+      const response = await fetch("/storage/cleanup-plan/protect", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!response.ok) throw new Error((await response.text()).trim() || `status ${response.status}`);
+      this.reopenCleanupPlanExcluding(button, key);
+    } catch (error) {
+      announce(`Protect failed: ${(error as Error).message}`);
+      (button as HTMLButtonElement).disabled = false;
     }
   }
 

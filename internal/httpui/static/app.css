@@ -660,6 +660,12 @@ th a {
   min-height: 0;
   padding-right: 8px;
 }
+#cleanup-plan-form {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .modal-dialog .summary {
   display: flex;
   gap: 40px;
@@ -1020,11 +1026,43 @@ th a {
   font-size: 12.5px;
 }
 .cleanup-actions li {
-  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
   border-top: 1px solid var(--border-soft);
 }
 .cleanup-actions li:first-child {
   border-top: 0;
+}
+.cleanup-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.cleanup-row-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cleanup-exclude,
+.cleanup-protect {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  background: transparent;
+  border-color: transparent;
+}
+.cleanup-exclude:hover:not(:disabled) {
+  background: rgba(240, 120, 120, 0.11);
+  border-color: rgba(240, 120, 120, 0.25);
+}
+.cleanup-protect:hover:not(:disabled) {
+  background: rgba(112, 183, 237, 0.11);
+  border-color: rgba(112, 183, 237, 0.25);
+}
+.cleanup-excluded,
+.cleanup-protected {
+  opacity: 0.55;
 }
 .storage-legend li {
   display: flex;

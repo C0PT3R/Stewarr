@@ -65,7 +65,7 @@ func (server *Server) dashboardSnapshot() homeData {
 	planningReliable := server.planningReliable(reliability)
 	cfg := server.inv.Config()
 	d := homeData{
-		Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, ts, planningReliable),
+		Updated: updated, LastErr: last, Refreshing: server.inv.IsRefreshing(), Reliability: reliability, TotalMedia: len(items), Devices: server.deviceViews(items, ts, planningReliable, nil),
 		HasMovieLibrary: len(cfg.ServicesOfType("radarr")) > 0, HasSeriesLibrary: len(cfg.ServicesOfType("sonarr")) > 0,
 	}
 	if !planningReliable && d.LastErr == nil {

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"stewarr/internal/config"
+	"stewarr/internal/model"
 	"stewarr/internal/services/imdb"
 	"stewarr/internal/services/jellyfin"
 	"stewarr/internal/services/qbittorrent"
@@ -335,6 +336,95 @@ func (service *Service) SetIMDbEnabled(enabled bool) error {
 		}
 		service.items = items
 	}
+	service.mu.Unlock()
+	return nil
+}
+
+// stewarrKeepTag is the fixed tag ProtectMedia/ProtectTorrent write to the
+// owning service (Radarr/Sonarr movie or series tag, qBittorrent torrent
+// tag) — the same mechanism a user manually tagging the item themselves
+// would produce, so it stays visible and manageable directly in that
+// service too, not a shadow state only Stewarr knows about.
+const stewarrKeepTag = "stewarr_keep"
+
+// ProtectMedia permanently protects one media item from cleanup by
+// tagging it directly in its owning Radarr/Sonarr instance, then — the
+// first time this is used — registering stewarrKeepTag into
+// Protection.KeepTags so the tag actually has an effect on Stewarr's own
+// valuation instead of only existing on the Radarr/Sonarr side with no
+// local consequence.
+func (service *Service) ProtectMedia(ctx context.Context, mediaType model.MediaType, sourceID int, serviceID string) error {
+	switch mediaType {
+	case model.Movie:
+		client, err := service.radarrClient(serviceID)
+		if err != nil {
+			return err
+		}
+		if err := client.WithContext(ctx).AddKeepTag(sourceID, stewarrKeepTag); err != nil {
+			return err
+		}
+	case model.Series:
+		client, err := service.sonarrClient(serviceID)
+		if err != nil {
+			return err
+		}
+		if err := client.WithContext(ctx).AddKeepTag(sourceID, stewarrKeepTag); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported media type %q for protection", mediaType)
+	}
+	return service.ensureKeepTagRegistered(true)
+}
+
+// ProtectTorrent mirrors ProtectMedia for a torrent, tagging it directly
+// in qBittorrent and registering stewarrKeepTag into KeepTorrentTags.
+func (service *Service) ProtectTorrent(ctx context.Context, hash, serviceID string) error {
+	client, err := service.qbittorrentClient(serviceID)
+	if err != nil {
+		return err
+	}
+	if err := client.WithContext(ctx).AddTag(hash, stewarrKeepTag); err != nil {
+		return err
+	}
+	return service.ensureKeepTagRegistered(false)
+}
+
+// ensureKeepTagRegistered idempotently adds stewarrKeepTag to
+// Protection.KeepTags (forMedia) or KeepTorrentTags (!forMedia), only
+// persisting (and only touching service.cfg) when it wasn't already
+// present — the common case once a single protect action has run once.
+func (service *Service) ensureKeepTagRegistered(forMedia bool) error {
+	service.configMu.Lock()
+	defer service.configMu.Unlock()
+
+	if service.configPath == "" {
+		return fmt.Errorf("live config editing is unavailable: no config file path is set")
+	}
+
+	service.mu.RLock()
+	currentCfg := service.cfg
+	service.mu.RUnlock()
+
+	var updatedCfg config.Config
+	var alreadyPresent bool
+	if forMedia {
+		updatedCfg = config.AddKeepTagToMedia(currentCfg, stewarrKeepTag)
+		alreadyPresent = len(updatedCfg.Protection.KeepTags) == len(currentCfg.Protection.KeepTags)
+	} else {
+		updatedCfg = config.AddKeepTagToTorrents(currentCfg, stewarrKeepTag)
+		alreadyPresent = len(updatedCfg.Protection.KeepTorrentTags) == len(currentCfg.Protection.KeepTorrentTags)
+	}
+	if alreadyPresent {
+		return nil
+	}
+
+	if err := config.Save(service.configPath, updatedCfg); err != nil {
+		return fmt.Errorf("persist config: %w", err)
+	}
+
+	service.mu.Lock()
+	service.cfg = updatedCfg
 	service.mu.Unlock()
 	return nil
 }

@@ -87,7 +87,7 @@ func (server *Server) plan(w http.ResponseWriter, r *http.Request) {
 	x, _, _ := server.inv.Snapshot()
 	t := server.inv.TorrentSnapshot()
 	reliability := server.inv.ReliabilitySnapshot()
-	views := server.deviceViews(x, t, server.planningReliable(reliability))
+	views := server.deviceViews(x, t, server.planningReliable(reliability), nil)
 	plans := make([]cleanup.Plan, 0, len(views))
 	for _, view := range views {
 		plans = append(plans, view.Plan)

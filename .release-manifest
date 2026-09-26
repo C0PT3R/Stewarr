@@ -28,6 +28,7 @@ internal/httpui/auth.go
 internal/httpui/auth_test.go
 internal/httpui/auto_removal.go
 internal/httpui/auto_removal_test.go
+internal/httpui/cleanup_plan_clean_test.go
 internal/httpui/home_test.go
 internal/httpui/middleware.go
 internal/httpui/page_history.go
@@ -127,6 +128,7 @@ internal/services/tmdb/client_test.go
 internal/inventory/enrichment.go
 internal/inventory/live_config.go
 internal/inventory/live_config_test.go
+internal/inventory/protect_test.go
 internal/inventory/device_registry_test.go
 internal/inventory/locking_test.go
 internal/inventory/provenance.go

@@ -6,10 +6,12 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"stewarr/internal/cleanup"
 	"stewarr/internal/config"
 	"stewarr/internal/inventory"
+	"stewarr/internal/model"
 )
 
 type storageData struct {
@@ -37,7 +39,7 @@ func (server *Server) storagePage(w http.ResponseWriter, r *http.Request) {
 	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
 	autoMode := server.inv.Config().Removal.AutoMode
 	data := storageData{
-		Devices:             server.deviceViews(items, ts, planningReliable),
+		Devices:             server.deviceViews(items, ts, planningReliable, nil),
 		Capabilities:        server.inv.StorageCapabilities(),
 		AutoRemovalDisabled: autoMode != config.RemovalAutoConfirm && autoMode != config.RemovalAutoAuto,
 	}
@@ -172,6 +174,56 @@ type cleanupPlanData struct {
 	RootLabels         []string
 	Filesystem         string
 	Plan               cleanup.Plan
+	// Excluded is the current set of action keys left out of Plan's own
+	// selection (see cleanup.Build) — rendered back into the Clean form as
+	// hidden fields so submitting Clean, or protecting one more row,
+	// reproduces exactly this same filtered view server-side rather than
+	// risking drift between what's displayed and what gets acted on.
+	Excluded []string
+}
+
+// planForDevice rebuilds the named device's current cleanup plan fresh,
+// leaving out any action whose key is in excluded (nil/empty for the
+// normal case) — shared by cleanupPlanForm, cleanupPlanClean, and
+// cleanupPlanProtect so Clean/Protect always act against a live
+// recomputation rather than trusting whatever was true when the modal was
+// first opened, matching every other removal path's "recompute right
+// before acting" convention.
+func (server *Server) planForDevice(path string, excluded map[string]bool) (cleanupPlanData, bool) {
+	items, _, _ := server.inv.Snapshot()
+	projection := server.pendingProjection()
+	items = projection.filterMedia(items)
+	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
+	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
+	excludedList := make([]string, 0, len(excluded))
+	for key := range excluded {
+		excludedList = append(excludedList, key)
+	}
+	for _, view := range server.deviceViews(items, ts, planningReliable, excluded) {
+		if view.Storage.RepresentativePath == path {
+			return cleanupPlanData{RepresentativePath: path, RootLabels: view.Storage.RootLabels, Filesystem: view.Storage.Filesystem, Plan: view.Plan, Excluded: excludedList}, true
+		}
+	}
+	return cleanupPlanData{RepresentativePath: path, Excluded: excludedList}, false
+}
+
+// excludedSetFrom builds the excluded-keys set cleanupPlanForm/Clean/
+// Protect all share from a request's repeated "excluded" values — the
+// same field name whether it arrives as GET query parameters (opening/
+// reopening the modal) or POST form values (Clean, which carries the
+// modal's current hidden inputs forward so it recomputes the identical
+// filtered plan the user is actually looking at).
+func excludedSetFrom(values []string) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(values))
+	for _, v := range values {
+		if v != "" {
+			set[v] = true
+		}
+	}
+	return set
 }
 
 // cleanupPlanForm returns the per-device cleanup-plan overlay fragment — the
@@ -179,30 +231,142 @@ type cleanupPlanData struct {
 // device's card, but a device with many candidates made the card
 // uncomfortably long; the card now only shows the aggregate summary
 // ("N action(s) selected"), and this overlay (opened by the 📋 button next
-// to the device's wrench) is where the actual list lives.
+// to the device's wrench) is where the actual list lives. A repeated
+// ?excluded=<key> query value reopens the same plan with those actions
+// left out of selection — see planForDevice — used by the row-level
+// Exclude/Protect buttons to show the live replacement immediately.
 func (server *Server) cleanupPlanForm(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	path := r.URL.Query().Get("path")
-	items, _, _ := server.inv.Snapshot()
-	projection := server.pendingProjection()
-	items = projection.filterMedia(items)
-	ts := projection.filterTorrents(server.inv.TorrentSnapshot())
-	planningReliable := server.planningReliable(server.inv.ReliabilitySnapshot())
-	data := cleanupPlanData{RepresentativePath: path}
-	for _, view := range server.deviceViews(items, ts, planningReliable) {
-		if view.Storage.RepresentativePath == path {
-			data.RootLabels = view.Storage.RootLabels
-			data.Filesystem = view.Storage.Filesystem
-			data.Plan = view.Plan
-			break
-		}
-	}
+	data, _ := server.planForDevice(r.URL.Query().Get("path"), excludedSetFrom(r.URL.Query()["excluded"]))
 	if err := renderTemplate(w, server.cleanupPlanTpl, data); err != nil {
 		log.Printf("[http] render cleanup-plan overlay: %v", err)
 	}
+}
+
+// cleanupPlanClean executes the batch of cleanup-plan actions the user
+// left checked (see actionKey) — available regardless of removal.auto_mode,
+// the same standing as manually removing any single item today, just
+// batched. Deliberately does not apply Auto mode's unattended-only safety
+// gates (actionIsUnassociatedTorrent/actionIsIncompleteTorrent/
+// mediaTMDBDataStale in auto_removal.go) — those substitute for human
+// judgment during *unattended* execution; a human explicitly reviewing
+// this list and clicking Clean already is that judgment. It does still
+// apply removal.dry_run (read live inside submitAutoRemoval's own
+// admission path) and the AutoUnmonitor/AutoExcludeFromImportLists
+// config toggles, the same as Auto mode.
+func (server *Server) cleanupPlanClean(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseMultipartForm(maximumAddServiceFormBytes); err != nil && !errors.Is(err, http.ErrNotMultipart) {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	// The excluded set carried forward from the modal's own hidden fields
+	// (see cleanupPlanData.Excluded) is what makes this recompute produce
+	// exactly the plan the user is currently looking at — every excluded/
+	// protected-this-session row already replaced by its own backfill
+	// candidate, rather than Clean silently cleaning fewer bytes than the
+	// device's target calls for.
+	data, found := server.planForDevice(r.FormValue("path"), excludedSetFrom(r.Form["excluded"]))
+	if !found {
+		http.Error(w, "device not found", http.StatusNotFound)
+		return
+	}
+	errs := server.cleanActions(data.Plan.Actions, server.inv.Config())
+	if len(errs) > 0 {
+		http.Error(w, strings.Join(errs, "; "), http.StatusConflict)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// cleanActions submits every given action through the existing
+// formForAction/submitAutoRemoval pipeline, and returns one error string
+// per action that failed — factored out of cleanupPlanClean so it's
+// testable independent of a real cleanup.Plan/device, which requires far
+// heavier fixtures (StorageDevices, real disk stats) than this logic
+// itself depends on.
+func (server *Server) cleanActions(actions []cleanup.Action, cfg config.Config) []string {
+	var errs []string
+	for _, action := range actions {
+		form, err := server.formForAction(action)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		// removal_execution.go's execution step already scopes each of
+		// these to the right media type/source internally, so it's safe
+		// to set all four unconditionally rather than branch on
+		// action.Kind/Media.Type — see runAutoRemovalEvaluation.
+		if cfg.Removal.AutoUnmonitor {
+			form.Set("unmonitor_movies", "1")
+			form.Set("unmonitor_episodes", "1")
+		}
+		if cfg.Removal.AutoExcludeFromImportLists {
+			form.Set("exclude_movies", "1")
+			form.Set("exclude_series", "1")
+		}
+		if err := server.submitAutoRemoval(form, action, "Manual cleanup: "); err != nil {
+			errs = append(errs, err.Error())
+		}
+	}
+	return errs
+}
+
+// cleanupPlanProtect permanently protects one action's media/torrent from
+// cleanup (see inventory.ProtectMedia/ProtectTorrent) — an immediate,
+// independent action, unlike Clean, since it's meant to be usable one row
+// at a time while still reviewing the rest of the list.
+func (server *Server) cleanupPlanProtect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	// Same reasoning as cleanupPlanClean: rebuild against the identical
+	// already-excluded set the modal currently shows, so the requested key
+	// is actually findable — a fresh, entirely unexcluded rebuild could
+	// have already chosen a *different* replacement candidate instead of
+	// the one this exact row (and its key) represents on screen.
+	data, found := server.planForDevice(r.FormValue("path"), excludedSetFrom(r.Form["excluded"]))
+	if !found {
+		http.Error(w, "device not found", http.StatusNotFound)
+		return
+	}
+	key := r.FormValue("key")
+	var target *cleanup.Action
+	for i := range data.Plan.Actions {
+		if cleanup.ActionKey(data.Plan.Actions[i]) == key {
+			target = &data.Plan.Actions[i]
+			break
+		}
+	}
+	if target == nil {
+		http.Error(w, "action no longer in the current plan", http.StatusConflict)
+		return
+	}
+	var err error
+	if target.Kind == cleanup.StandaloneTorrent {
+		err = server.inv.ProtectTorrent(r.Context(), target.Torrents[0].Hash, target.Torrents[0].ServiceID)
+	} else if target.Media.Type == model.Movie || target.Media.Type == model.Series {
+		err = server.inv.ProtectMedia(r.Context(), target.Media.Type, target.Media.SourceID, target.Media.ServiceID)
+	} else {
+		http.Error(w, "unsupported action kind", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // setDeviceThreshold saves one storage device's reclamation thresholds,

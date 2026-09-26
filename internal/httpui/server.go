@@ -90,7 +90,7 @@ func New(inventoryService *inventory.Service, taskManager *tasks.Manager) (*Serv
 			return "Never"
 		}
 		return timestamp.Local().Format("2006-01-02")
-	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "elementID": elementID, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "torrentActionContext": torrentActionContext, "relatedTorrentMeta": relatedTorrentMeta, "widthPct": func(part, total uint64) string {
+	}, "join": strings.Join, "add": func(first, second int) int { return first + second }, "managedKey": managedFileKey, "elementID": elementID, "shortPath": shortPath, "fileOwner": fileOwnerLabel, "peerOwner": filePeerOwnerLabel, "unmanagedRemovalURL": unmanagedRemovalURL, "torrentCleanupActions": torrentCleanupActions, "mediaCleanupActions": mediaCleanupActions, "actionKey": cleanup.ActionKey, "torrentActionContext": torrentActionContext, "relatedTorrentMeta": relatedTorrentMeta, "widthPct": func(part, total uint64) string {
 		if total == 0 {
 			return "0"
 		}
@@ -225,6 +225,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/storage/device-threshold", server.setDeviceThreshold)
 	mux.HandleFunc("/storage/device-settings", server.deviceSettingsForm)
 	mux.HandleFunc("/storage/cleanup-plan", server.cleanupPlanForm)
+	mux.HandleFunc("/storage/cleanup-plan/clean", server.cleanupPlanClean)
+	mux.HandleFunc("/storage/cleanup-plan/protect", server.cleanupPlanProtect)
 	mux.HandleFunc("/services", server.servicesPage)
 	mux.HandleFunc("/services/add", server.addServiceForm)
 	mux.HandleFunc("/services/test", server.testServiceConnection)
@@ -283,7 +285,12 @@ func claimedByServiceMap(claimed []inventory.ClaimedSegment) map[string]uint64 {
 
 // deviceViews builds one cleanup plan per known storage device, since there
 // is no longer a single global storage path to build one plan against.
-func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent, planningReliable bool) []deviceView {
+// excluded (see cleanup.Build) is applied to every device uniformly — an
+// action key from a different device never matches anything there, so a
+// non-nil set computed for one specific device (the cleanup-plan overlay's
+// live "exclude and backfill" recompute) is harmless to pass through here
+// unchanged for every caller that only ever means "no exclusions" (nil).
+func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent, planningReliable bool, excluded map[string]bool) []deviceView {
 	devices := server.inv.StorageDevices()
 	if len(devices) == 0 {
 		return nil
@@ -298,7 +305,7 @@ func (server *Server) deviceViews(items []model.Media, torrents []model.Torrent,
 		var p cleanup.Plan
 		var planErr error
 		if enabled {
-			p, planErr = cleanup.Build(device.RepresentativePath, device.OtherBytes, claimedByServiceMap(device.Claimed), target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable)
+			p, planErr = cleanup.Build(device.RepresentativePath, device.OtherBytes, claimedByServiceMap(device.Claimed), target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], planningReliable, excluded)
 		} else {
 			// No point building a plan nothing will ever act on — an explicit
 			// per-device opt-out, same reasoning as the global AutoMode

@@ -68,7 +68,7 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 			continue
 		}
 		target, critical := cfg.ThresholdsFor(device.RepresentativePath)
-		plan, err := cleanup.Build(device.RepresentativePath, device.OtherBytes, claimedByServiceMap(device.Claimed), target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable)
+		plan, err := cleanup.Build(device.RepresentativePath, device.OtherBytes, claimedByServiceMap(device.Claimed), target, critical, cfg.Removal.TorrentCarePercent, mediaByDevice[device.RepresentativePath], torrentsByDevice[device.RepresentativePath], reliable, nil)
 		if err != nil || !plan.Available {
 			continue
 		}
@@ -106,7 +106,7 @@ func (server *Server) runAutoRemovalEvaluation(ctx context.Context) error {
 				form.Set("exclude_movies", "1")
 				form.Set("exclude_series", "1")
 			}
-			if err := server.submitAutoRemoval(form, action); err != nil {
+			if err := server.submitAutoRemoval(form, action, "Automatic cleanup: "); err != nil {
 				log.Printf("[auto-removal] submit failed kind=%s: %v", action.Kind, err)
 			}
 		}
@@ -205,14 +205,17 @@ func (server *Server) formForAction(action cleanup.Action) (url.Values, error) {
 	return form, nil
 }
 
-// submitAutoRemoval journals and schedules an automatically-decided removal
-// through the exact same admission/durable-history/scheduler path a manual
-// browser submission uses (executeRemoval) — no new execution code, so it
+// submitAutoRemoval journals and schedules a decided removal through the
+// exact same admission/durable-history/scheduler path a manual browser
+// submission uses (executeRemoval) — no new execution code, so it
 // inherits every existing safety mechanism, including live final-boundary
 // revalidation inside runScheduledRemoval and respecting removal.dry_run
 // (read live from config at both admission and execution, never from the
-// form).
-func (server *Server) submitAutoRemoval(form url.Values, action cleanup.Action) error {
+// form). Shared between the periodic Auto-mode evaluation and a manual
+// batch Clean from the cleanup-plan overlay (page_storage.go) — cause
+// distinguishes the two in the resulting task/audit trail (e.g.
+// "Automatic cleanup: " vs. "Manual cleanup: ").
+func (server *Server) submitAutoRemoval(form url.Values, action cleanup.Action, cause string) error {
 	descriptor, err := server.admitRemoval(form)
 	if err != nil {
 		return fmt.Errorf("admission rejected (the action may have gone stale since this plan was computed): %w", err)
@@ -235,6 +238,6 @@ func (server *Server) submitAutoRemoval(form url.Values, action cleanup.Action) 
 	if err != nil {
 		return err
 	}
-	_, err = server.tasks.Submit(tasks.Request{TaskID: removalTaskID, Kind: tasks.TriggerEvent, Priority: tasks.PriorityMutation, Durable: true, CoalescingKey: fmt.Sprintf("operation:%d", historyID), Cause: "Automatic cleanup: " + descriptor.Label, Payload: payload})
+	_, err = server.tasks.Submit(tasks.Request{TaskID: removalTaskID, Kind: tasks.TriggerEvent, Priority: tasks.PriorityMutation, Durable: true, CoalescingKey: fmt.Sprintf("operation:%d", historyID), Cause: cause + descriptor.Label, Payload: payload})
 	return err
 }

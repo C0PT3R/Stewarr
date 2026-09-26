@@ -384,6 +384,36 @@ func TestSetIMDbEnabledTogglesTheInvertedField(t *testing.T) {
 	}
 }
 
+func TestAddKeepTagToMediaIsIdempotent(t *testing.T) {
+	var c Config
+	c.Protection.KeepTags = []string{"keep"}
+	updated := AddKeepTagToMedia(c, "stewarr_keep")
+	if len(updated.Protection.KeepTags) != 2 || updated.Protection.KeepTags[1] != "stewarr_keep" {
+		t.Fatalf("expected the tag to be appended, got %#v", updated.Protection.KeepTags)
+	}
+	again := AddKeepTagToMedia(updated, "stewarr_keep")
+	if len(again.Protection.KeepTags) != 2 {
+		t.Fatalf("expected no duplicate on a second call, got %#v", again.Protection.KeepTags)
+	}
+	// Case-insensitive: a user's own differently-cased tag already covers it.
+	caseInsensitive := AddKeepTagToMedia(c, "KEEP")
+	if len(caseInsensitive.Protection.KeepTags) != 1 {
+		t.Fatalf("expected a case-insensitive match to skip adding, got %#v", caseInsensitive.Protection.KeepTags)
+	}
+}
+
+func TestAddKeepTagToTorrentsIsIdempotent(t *testing.T) {
+	var c Config
+	updated := AddKeepTagToTorrents(c, "stewarr_keep")
+	if len(updated.Protection.KeepTorrentTags) != 1 || updated.Protection.KeepTorrentTags[0] != "stewarr_keep" {
+		t.Fatalf("expected the tag to be added, got %#v", updated.Protection.KeepTorrentTags)
+	}
+	again := AddKeepTagToTorrents(updated, "stewarr_keep")
+	if len(again.Protection.KeepTorrentTags) != 1 {
+		t.Fatalf("expected no duplicate on a second call, got %#v", again.Protection.KeepTorrentTags)
+	}
+}
+
 func TestSetTMDBAPIKeyTrimsAndClears(t *testing.T) {
 	var c Config
 	updated := SetTMDBAPIKey(c, "  a-real-key  ")
