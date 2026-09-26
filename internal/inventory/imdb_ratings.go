@@ -52,7 +52,7 @@ func (service *Service) RefreshIMDbRatings(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !imdbRatingsDue(time.Now(), lastFetch, imdbRatingsFetchHour) {
+	if !imdbRatingsDue(service.nowFunc(), lastFetch, imdbRatingsFetchHour) {
 		return nil
 	}
 	ratings, err := service.imdbClient.FetchRatings(ctx)

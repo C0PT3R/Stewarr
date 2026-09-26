@@ -76,6 +76,12 @@ func TestRefreshIMDbRatingsFetchesReplacesAndRescoresWhenDue(t *testing.T) {
 	cfg.Valuation.Weights.Rating = 40
 	service := New(cfg, db)
 	service.imdbClient = imdb.NewWithDatasetURL(srv.URL)
+	// Fixed, always past imdbRatingsFetchHour regardless of the real
+	// wall-clock time this test happens to run at — RefreshIMDbRatings'
+	// due-check is genuinely time-of-day-sensitive, and calling the real
+	// time.Now() here would make this test flake depending on what hour
+	// it runs at (caught by a real CI/Docker build run before 3am local).
+	service.nowFunc = func() time.Time { return time.Date(2026, 1, 1, 4, 0, 0, 0, time.Local) }
 
 	if err := service.RefreshIMDbRatings(context.Background()); err != nil {
 		t.Fatal(err)
@@ -118,11 +124,12 @@ func TestRefreshIMDbRatingsNoopsWhenDisabled(t *testing.T) {
 }
 
 // TestRefreshIMDbRatingsNoopsWhenNotDue guards the self-gating: even when
-// enabled, no fetch happens outside the daily window.
+// enabled, no fetch happens outside the daily window. Uses a fixed,
+// always-before-the-hour nowFunc rather than the real wall clock, so this
+// test's outcome doesn't depend on what hour it happens to actually run
+// at (see TestRefreshIMDbRatingsFetchesReplacesAndRescoresWhenDue's own
+// comment on the same real bug this caught in CI).
 func TestRefreshIMDbRatingsNoopsWhenNotDue(t *testing.T) {
-	if time.Now().Local().Hour() >= imdbRatingsFetchHour {
-		t.Skip("test only meaningful before the fetch hour in local time")
-	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("expected no request before the fetch hour")
 	}))
@@ -137,6 +144,7 @@ func TestRefreshIMDbRatingsNoopsWhenNotDue(t *testing.T) {
 	cfg := config.Config{}
 	service := New(cfg, db)
 	service.imdbClient = imdb.NewWithDatasetURL(srv.URL)
+	service.nowFunc = func() time.Time { return time.Date(2026, 1, 1, 2, 0, 0, 0, time.Local) }
 
 	if err := service.RefreshIMDbRatings(context.Background()); err != nil {
 		t.Fatal(err)

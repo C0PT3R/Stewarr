@@ -113,6 +113,12 @@ type Service struct {
 	// service.cfg/rebuild the affected client as one sequence, so concurrent
 	// calls can't race each other's read-modify-write of Services.
 	configMu sync.Mutex
+	// nowFunc is time.Now by default (set in New) — overridden by tests
+	// that need a deterministic wall-clock time regardless of when the
+	// test actually runs, e.g. RefreshIMDbRatings' due-check
+	// (imdb_ratings.go), which is genuinely time-of-day-sensitive and
+	// would otherwise flake depending on what hour it happens to run at.
+	nowFunc func() time.Time
 }
 
 // SetConfigPath records where live config mutations should be persisted.
@@ -126,7 +132,7 @@ func (service *Service) SetConfigPath(path string) {
 }
 
 func New(configuration config.Config, database *store.Store) *Service {
-	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), tmdb: tmdb.New(configuration.TMDB.APIKey), imdbClient: imdb.New(), qb: buildQBittorrentClients(configuration)}
+	service := &Service{cfg: configuration, db: database, statuses: map[string]ServiceStatus{}, stageTimings: map[string]time.Duration{}, baseReady: make(chan struct{}), changed: make(chan struct{}), rad: buildRadarrClients(configuration), son: buildSonarrClients(configuration), jf: jellyfin.New(configuration.Jellyfin.URL, configuration.Jellyfin.APIKey), seerr: seerr.New(configuration.Seerr.URL, configuration.Seerr.APIKey), tmdb: tmdb.New(configuration.TMDB.APIKey), imdbClient: imdb.New(), qb: buildQBittorrentClients(configuration), nowFunc: time.Now}
 	loadStarted := time.Now()
 	if database != nil {
 		if items, updated, err := database.LoadMedia(); err == nil {
