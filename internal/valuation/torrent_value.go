@@ -37,6 +37,10 @@ const (
 	// contribution.
 	TorrentContributionWindow     = 7 * 24 * time.Hour
 	torrentContributionMinSamples = 4
+	// torrentHistorySamplingInterval mirrors cmd/stewarr's own
+	// torrentHistoryInterval — duplicated here because valuation can't
+	// import cmd/stewarr. Keep them in sync if either ever changes.
+	torrentHistorySamplingInterval = 30 * time.Minute
 	// torrentSeedingTimeWeight/HorizonDays reward accumulated seeding time,
 	// hard-capped so an old torrent can't earn unbounded points just for
 	// existing a long time.
@@ -47,6 +51,11 @@ const (
 	// public-tracker torrent never faces — a static fact, not a guess.
 	torrentPrivateBonus = 15
 )
+
+// torrentEligibilityMinSamples is half of the samples TorrentContributionWindow
+// would hold at torrentHistorySamplingInterval's cadence — see
+// torrentHistorySufficient.
+var torrentEligibilityMinSamples = int(TorrentContributionWindow / torrentHistorySamplingInterval / 2)
 
 // ApplyTorrentValue assigns an independent Torrent Value (and Protected/
 // RemovalRestricted, folded in the same pass as the retired ApplyTorrents
@@ -74,6 +83,13 @@ func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, hi
 				torrent.ProtectionReason = "Keep tag"
 			}
 		}
+		samples := history[torrent.Client+"|"+torrent.Hash]
+		if !torrentHistorySufficient(samples) {
+			torrent.Protected = true
+			if torrent.ProtectionReason == "" {
+				torrent.ProtectionReason = "Insufficient history"
+			}
+		}
 
 		if torrent.Ratio > 0 {
 			points := math.Log2(1+torrent.Ratio) * torrentRatioWeight
@@ -89,7 +105,7 @@ func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, hi
 			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Recent activity", Value: fmt.Sprintf("%.0f days ago", days), Points: points})
 		}
 
-		if realizedBytes, consistency, ok := torrentContributionStats(history[torrent.Client+"|"+torrent.Hash]); ok {
+		if realizedBytes, consistency, ok := torrentContributionStats(samples); ok {
 			mib := float64(realizedBytes) / (1024 * 1024)
 			points := math.Log2(1+mib) * torrentContributionWeight
 			torrent.TorrentValue += points
@@ -112,6 +128,24 @@ func ApplyTorrentValue(torrents []model.Torrent, configuration config.Config, hi
 			torrent.TorrentValueReasons = append(torrent.TorrentValueReasons, model.Reason{Label: "Private tracker", Value: "yes", Points: torrentPrivateBonus})
 		}
 	}
+}
+
+// torrentHistorySufficient reports whether a torrent has enough observed
+// history to be trusted as a removal candidate: either Stewarr has been
+// continually watching it for the full TorrentContributionWindow already
+// (elapsed since its own earliest retained sample — never the torrent
+// client's AddedOn, which a client's existing seeding stack can predate
+// Stewarr entirely, and which survives a database wipe untouched), or it
+// has already accumulated at least half the samples that window would
+// hold at the current sampling cadence, whichever comes first.
+func torrentHistorySufficient(samples []store.TorrentHistorySample) bool {
+	if len(samples) >= torrentEligibilityMinSamples {
+		return true
+	}
+	if len(samples) == 0 {
+		return false
+	}
+	return daysSince(samples[0].SampledAt) >= TorrentContributionWindow.Hours()/24
 }
 
 // torrentContributionStats derives realized upload bytes and consistency of

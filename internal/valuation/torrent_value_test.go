@@ -96,6 +96,71 @@ func TestApplyTorrentValueConsistencyReflectsPositiveDeltaFraction(t *testing.T)
 	}
 }
 
+// TestTorrentEligibilityMinSamplesMatchesFormula documents the derived
+// constant so a change to either the window or the sampling interval is
+// caught rather than silently drifting.
+func TestTorrentEligibilityMinSamplesMatchesFormula(t *testing.T) {
+	want := int(TorrentContributionWindow / torrentHistorySamplingInterval / 2)
+	if torrentEligibilityMinSamples != want {
+		t.Fatalf("torrentEligibilityMinSamples = %d, want %d", torrentEligibilityMinSamples, want)
+	}
+}
+
+// TestApplyTorrentValueProtectsInsufficientHistory guards the new
+// eligibility gate: no history at all, or too few recent samples with too
+// little elapsed time, must protect a torrent from removal.
+func TestApplyTorrentValueProtectsInsufficientHistory(t *testing.T) {
+	c := testConfig()
+	now := time.Now()
+	items := []model.Torrent{
+		{Name: "no-history", Client: "qb", Hash: "a"},
+		{Name: "few-recent-samples", Client: "qb", Hash: "b"},
+	}
+	history := map[string][]store.TorrentHistorySample{
+		"qb|b": {{SampledAt: now.Add(-time.Hour)}, {SampledAt: now.Add(-30 * time.Minute)}},
+	}
+	ApplyTorrentValue(items, c, history)
+	for _, item := range items {
+		if !item.Protected || item.ProtectionReason != "Insufficient history" {
+			t.Fatalf("expected %q to be protected for insufficient history, got Protected=%v ProtectionReason=%q", item.Name, item.Protected, item.ProtectionReason)
+		}
+	}
+}
+
+// TestApplyTorrentValueEligibleWithEnoughSamples guards the sample-count
+// path: enough samples within the window is sufficient even if none of
+// them are old.
+func TestApplyTorrentValueEligibleWithEnoughSamples(t *testing.T) {
+	c := testConfig()
+	now := time.Now()
+	samples := make([]store.TorrentHistorySample, torrentEligibilityMinSamples)
+	for i := range samples {
+		samples[i] = store.TorrentHistorySample{SampledAt: now.Add(-time.Duration(i) * time.Minute)}
+	}
+	items := []model.Torrent{{Name: "well-sampled", Client: "qb", Hash: "a"}}
+	ApplyTorrentValue(items, c, map[string][]store.TorrentHistorySample{"qb|a": samples})
+	if items[0].Protected {
+		t.Fatalf("expected enough samples to satisfy eligibility regardless of age: %#v", items[0])
+	}
+}
+
+// TestApplyTorrentValueEligibleAfterFullWindowElapsed guards the elapsed-
+// time path: even with just one sample, being that old (i.e. Stewarr has
+// been watching this torrent for a full TorrentContributionWindow already)
+// is sufficient on its own.
+func TestApplyTorrentValueEligibleAfterFullWindowElapsed(t *testing.T) {
+	c := testConfig()
+	now := time.Now()
+	history := map[string][]store.TorrentHistorySample{
+		"qb|a": {{SampledAt: now.Add(-TorrentContributionWindow - time.Hour)}},
+	}
+	items := []model.Torrent{{Name: "long-tracked", Client: "qb", Hash: "a"}}
+	ApplyTorrentValue(items, c, history)
+	if items[0].Protected {
+		t.Fatalf("expected a full window elapsed since the earliest sample to satisfy eligibility: %#v", items[0])
+	}
+}
+
 func TestApplyTorrentValueSeedingTimeCapsAtHorizon(t *testing.T) {
 	c := testConfig()
 	items := []model.Torrent{

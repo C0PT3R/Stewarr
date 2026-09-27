@@ -4,9 +4,22 @@ import (
 	"stewarr/internal/config"
 	"stewarr/internal/model"
 	"stewarr/internal/services/imdb"
+	"stewarr/internal/store"
 	"testing"
 	"time"
 )
+
+// sufficientTorrentHistory gives every "client|hash" key in keys a single
+// sample old enough to satisfy torrentHistorySufficient's elapsed-time
+// path, so tests unrelated to that gate aren't tripped by it.
+func sufficientTorrentHistory(keys ...string) map[string][]store.TorrentHistorySample {
+	sample := store.TorrentHistorySample{SampledAt: time.Now().Add(-TorrentContributionWindow - time.Hour)}
+	history := make(map[string][]store.TorrentHistorySample, len(keys))
+	for _, key := range keys {
+		history[key] = []store.TorrentHistorySample{sample}
+	}
+	return history
+}
 
 func testConfig() config.Config {
 	var c config.Config
@@ -375,7 +388,7 @@ func TestApplyTorrentValueProtectsBelowMinimumRatio(t *testing.T) {
 	c := testConfig()
 	c.Protection.MinTorrentRatio = 1.0
 	items := []model.Torrent{{Name: "low", Ratio: 0.5}, {Name: "high", Ratio: 2.0}}
-	ApplyTorrentValue(items, c, nil)
+	ApplyTorrentValue(items, c, sufficientTorrentHistory("|"))
 	if !items[0].Protected || items[0].ProtectionReason != "Below minimum ratio" {
 		t.Fatalf("expected below-ratio torrent to be protected: %#v", items[0])
 	}
@@ -388,7 +401,7 @@ func TestApplyTorrentValueProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing
 	c := testConfig()
 	c.Protection.KeepTorrentTags = []string{"keep"}
 	items := []model.Torrent{{Name: "tagged", Ratio: 5, Tags: "other, Keep "}, {Name: "untagged", Ratio: 5, Tags: "other"}}
-	ApplyTorrentValue(items, c, nil)
+	ApplyTorrentValue(items, c, sufficientTorrentHistory("|"))
 	if !items[0].Protected || items[0].ProtectionReason != "Keep tag" {
 		t.Fatalf("expected keep-tagged torrent to be protected: %#v", items[0])
 	}
@@ -400,7 +413,7 @@ func TestApplyTorrentValueProtectsKeepTaggedTorrentsRegardlessOfRatio(t *testing
 func TestApplyTorrentValueMinRatioZeroProtectsNothing(t *testing.T) {
 	c := testConfig()
 	items := []model.Torrent{{Name: "zero-ratio", Ratio: 0}}
-	ApplyTorrentValue(items, c, nil)
+	ApplyTorrentValue(items, c, sufficientTorrentHistory("|"))
 	if items[0].Protected {
 		t.Fatalf("MinTorrentRatio of zero (unset) must never protect anything: %#v", items[0])
 	}
